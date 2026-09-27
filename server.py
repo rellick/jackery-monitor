@@ -76,7 +76,7 @@ WEB_DIR = Path(__file__).parent / "web"
 # LIVE_CHART_INTERVAL_S (independent of how often we poll the bridge — the
 # poll cadence is for the energy aggregator and live KPIs). The deque is
 # sized for exactly that span; the chart label and storage agree.
-LIVE_CHART_HOURS = 6
+LIVE_CHART_HOURS = 72
 LIVE_CHART_INTERVAL_S = 60
 HISTORY_LIMIT = (LIVE_CHART_HOURS * 3600) // LIVE_CHART_INTERVAL_S
 # Per-expansion-battery refresh cadence. The bridge subscribes to MQTT

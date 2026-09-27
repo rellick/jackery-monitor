@@ -5000,6 +5000,17 @@ function chartTooltip(target) {
   el.style.top  = top + 'px';
 }
 
+let liveChartHours = parseInt(localStorage.getItem('live_chart_hours') || '24', 10);
+const _liveSel = $('live-chart-hours');
+if (_liveSel) {
+  _liveSel.value = String(liveChartHours);
+  _liveSel.addEventListener('change', () => {
+    liveChartHours = parseInt(_liveSel.value, 10) || 24;
+    localStorage.setItem('live_chart_hours', String(liveChartHours));
+    if (lastStatus) drawLiveChart(lastStatus);
+  });
+}
+
 function drawLiveChart(s) {
   const canvas = $('chart-live');
   if (!canvas) return;
@@ -5007,12 +5018,16 @@ function drawLiveChart(s) {
   ctx.clearRect(0, 0, w, h);
   const padL = 44, padR = 44, padT = 14, padB = 28;
 
-  const hist = (s?.history) || [];
-  if (!hist.length) {
+  const rawHist = (s?.history) || [];
+  if (!rawHist.length) {
     ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter';
     ctx.fillText('Waiting for data…', padL + 8, padT + 16);
     return;
   }
+  const lastTs = rawHist[rawHist.length - 1].ts || Math.floor(Date.now() / 1000);
+  const cutoff = lastTs - liveChartHours * 3600;
+  let hist = rawHist.filter(p => (p.ts || 0) >= cutoff);
+  if (!hist.length) hist = rawHist;
   const out = hist.map(p => p.output_power_w);
   const inp = hist.map(p => p.input_power_w);
   const bat = hist.map(p => p.battery_percent);
@@ -5051,7 +5066,15 @@ function drawLiveChart(s) {
   // X-axis time ticks — first sample timestamp ... last (clamped to "now").
   if (hist.length >= 2) {
     const first = hist[0].ts || 0, last = hist[hist.length - 1].ts || 0;
-    const fmtMs = (ms) => new Date(ms * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const spanH = (last - first) / 3600;
+    const fmtMs = (ms) => {
+      const d = new Date(ms * 1000);
+      if (spanH > 24) {
+        return d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' +
+               d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
     ctx.fillStyle = '#6b7280';
     ctx.textAlign = 'center';
     const ticks = 5;
@@ -5081,7 +5104,10 @@ function drawLiveChart(s) {
   // Hover state stored on the canvas element
   _attachChartHover(canvas, hist, (i, evt) => {
     const p = hist[i];
-    const ts = p.ts ? new Date(p.ts * 1000).toLocaleTimeString() : '';
+    const d = p.ts ? new Date(p.ts * 1000) : null;
+    const ts = d
+      ? (d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+      : '';
     return `<div class="cht-ts">${ts}</div>
             <div class="cht-row"><i style="background:${SERIES_COLORS.output}"></i> Output <b>${fmt(p.output_power_w)}</b> W</div>
             <div class="cht-row"><i style="background:${SERIES_COLORS.input}"></i> Input <b>${fmt(p.input_power_w)}</b> W</div>
