@@ -59,7 +59,7 @@ This skill documents the development environment, local architecture, and deploy
 ## 2. Git Workflow & Remotes
 
 - **Personal Fork (`origin`)**: `https://github.com/rellick/jackery-monitor.git`
-- **Active Working Branch**: `my-custom-features`
+- **Active Working Branch**: `local`
 - **Upstream Repository (`upstream`)**: `https://github.com/YanivErel-code/jackery-monitor.git`
 - **Credentials**: Managed via `git config --global credential.helper store` (GitHub Personal Access Token).
 
@@ -74,7 +74,7 @@ git add <files>
 git commit -m "Description of change"
 
 # Push to your fork
-git push origin my-custom-features
+git push origin local
 
 # Syncing with upstream main (when needed)
 git fetch upstream

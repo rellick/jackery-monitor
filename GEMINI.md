@@ -8,7 +8,7 @@
 
 ## Git Remotes & Branches
 - **Personal Fork (`origin`)**: `https://github.com/rellick/jackery-monitor.git`
-- **Active Working Branch**: `my-custom-features`
+- **Active Working Branch**: `local`
 - **Upstream Repository (`upstream`)**: `https://github.com/YanivErel-code/jackery-monitor.git` (tracked branch `main`)
 - **Credentials**: Stored on disk via `git config credential.helper store`.
 
