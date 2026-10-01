@@ -79,6 +79,11 @@ class DeviceClient:
         about per-browser view routing."""
         raise NotImplementedError
 
+    async def set_setting(self, setting: str, value: Any, *,
+                          device_sn: str | None = None) -> dict:
+        """Set a device hardware setting. `device_sn=None` targets the active device."""
+        raise NotImplementedError
+
     async def disconnect(self) -> None:
         raise NotImplementedError
 
@@ -141,6 +146,9 @@ class MockDeviceClient(DeviceClient):
         if port not in self._switches:
             raise DeviceClientError(f"unknown port {port}")
         self._switches[port] = bool(on)
+
+    async def set_setting(self, setting, value, *, device_sn=None):
+        return {"ok": True, "setting": setting, "value": value, "device_sn": device_sn}
 
     async def disconnect(self):
         self._connected = False
@@ -271,6 +279,15 @@ class BridgeDeviceClient(DeviceClient):
         r = await self._rpc("set_output", **params)
         if not r.get("ok"):
             raise DeviceClientError(r.get("error", "set_output failed"))
+
+    async def set_setting(self, setting, value, *, device_sn=None):
+        params = {"setting": setting, "value": value}
+        if device_sn:
+            params["device_sn"] = device_sn
+        r = await self._rpc("set_setting", **params)
+        if not r.get("ok"):
+            raise DeviceClientError(r.get("error", "set_setting failed"))
+        return r
 
     async def select_device(self, device_id: str) -> dict:
         """Switch which cloud device the bridge polls. Returns {ok, device_id, name}."""

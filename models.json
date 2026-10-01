@@ -4,10 +4,25 @@
   "default_capacity_wh": 3024,
   "default_capacity_comment": "HomePower 3000 \u2014 conservative fallback for unknown model codes so we don't over-promise SOC headroom.",
   "models": {
+    "4": {
+      "capacity_wh": 288,
+      "name": "Explorer 300 Plus",
+      "comment": "Jackery model_name HTE095300B; reported as model_code 4 from the cloud API. 288 Wh LiFePO4 battery."
+    },
+    "5": {
+      "capacity_wh": 1264,
+      "name": "Explorer 1000 Plus",
+      "comment": "Jackery model_name HTE1031000B; reported as model_code 5 from the cloud API. 1264 Wh LiFePO4 battery; expandable up to 5056 Wh with up to 3x 1264 Wh packs."
+    },
     "8": {
       "capacity_wh": 1070,
       "name": "Explorer 1000 v2",
       "comment": "Jackery model_name HTE1091000A; reported as model_code 8 from the cloud API. Confirmed against a real unit on 2026-07-05."
+    },
+    "12": {
+      "capacity_wh": 2042,
+      "name": "Explorer 2000 v2",
+      "comment": "Jackery model_name HTE1172000A; reported as model_code 12 ('Explorer 2000') from the cloud API. 2042 Wh LiFePO4 battery."
     },
     "13": {
       "capacity_wh": 5040,

@@ -525,6 +525,22 @@ class JackeryCloudClient:
         "usb": (2, "odcu"),
         "car": (3, "odcc"),
     }
+    SETTING_TO_ACTION: ClassVar[dict[str, tuple[int, str]]] = {
+        # Outputs
+        "ac": (4, "oac"),
+        "dc": (1, "odc"),
+        "usb": (2, "odcu"),
+        "car": (3, "odcc"),
+        # Hardware settings
+        "battery_saving": (11, "lps"),      # 0=standard, 1=save/eco (15%-85%)
+        "charge_speed": (10, "cs"),         # 0=fast, 1=quiet/mute
+        "super_charge": (13, "sfc"),        # 0=off, 1=on
+        "energy_saving": (12, "pm"),        # energy saving timeout
+        "screen_timeout": (8, "slt"),       # screen timeout
+        "auto_shutdown": (9, "ast"),        # auto shutdown timer
+        "light_mode": (7, "lm"),            # 0=off, 1=low, 2=high, 3=SOS
+        "ups_mode": (14, "ups"),            # 0=off, 1=on
+    }
 
     def _mqtt_password(self) -> tuple[str, str]:
         """Return (username, password) for the MQTT broker."""
@@ -664,16 +680,12 @@ class JackeryCloudClient:
             client.subscribe(device_topic, qos=1)
             log.info("MQTT subscribed to %s", device_topic)
 
-    async def publish_command(self, device_sn: str, port: str, on: bool,
-                              timeout_s: float = 5.0) -> dict:
-        """Send an output toggle command. Returns broker ack info."""
-        port = (port or "").lower()
-        if port not in self.PORT_TO_ACTION:
-            raise CloudAuthError(f"unknown output port: {port!r}")
+    async def publish_property(self, device_sn: str, action_id: int,
+                               body: dict[str, Any], timeout_s: float = 5.0) -> dict:
+        """Send a property change command via MQTT. Returns broker ack info."""
         if not device_sn:
             raise CloudAuthError("device_sn is required")
 
-        action_id, prop_key = self.PORT_TO_ACTION[port]
         client = await self._ensure_mqtt()
         ts_ms = int(time.time() * 1000)
         payload = {
@@ -683,7 +695,7 @@ class JackeryCloudClient:
             "messageType": "DevicePropertyChange",
             "actionId": action_id,
             "timestamp": ts_ms,
-            "body": {prop_key: 1 if on else 0},
+            "body": body,
         }
         topic = f"hb/app/{self.user_id}/command"
 
@@ -698,9 +710,21 @@ class JackeryCloudClient:
         await loop.run_in_executor(None, lambda: msg_info.wait_for_publish(timeout_s))
         if not msg_info.is_published():
             raise CloudAuthError(f"MQTT publish timeout after {timeout_s}s")
-        log.info("MQTT publish %s -> %s=%d (action %d)", port, prop_key,
-                 1 if on else 0, action_id)
-        return {"port": port, "on": bool(on), "action_id": action_id, "topic": topic}
+        log.info("MQTT publish to %s -> action %d body=%s", device_sn, action_id, body)
+        return {"device_sn": device_sn, "action_id": action_id, "body": body, "topic": topic}
+
+    async def publish_command(self, device_sn: str, port: str, on: bool,
+                              timeout_s: float = 5.0) -> dict:
+        """Send an output toggle command. Returns broker ack info."""
+        port = (port or "").lower()
+        if port not in self.PORT_TO_ACTION:
+            raise CloudAuthError(f"unknown output port: {port!r}")
+
+        action_id, prop_key = self.PORT_TO_ACTION[port]
+        ack = await self.publish_property(device_sn, action_id,
+                                          {prop_key: 1 if on else 0},
+                                          timeout_s=timeout_s)
+        return {"port": port, "on": bool(on), "action_id": action_id, "topic": ack["topic"]}
 
     async def aclose(self) -> None:
         if self._mqtt is not None:
@@ -718,8 +742,17 @@ class JackeryCloudClient:
                 self._http = None
 
 
+MODEL_UNSUPPORTED_SETTINGS: dict[int, set[str]] = {
+    4: {"charge_speed", "super_charge", "ups_mode"},  # Explorer 300 Plus
+    5: {"super_charge"},                               # Explorer 1000 Plus
+    13: {"super_charge"},                              # Explorer 5000 Plus
+    22: {"super_charge"},                              # Explorer 5000 Plus
+    19: {"super_charge"},                              # HomePower 3000
+}
+
+
 # ---- adapt cloud properties dict -> our common telemetry shape -----------
-def cloud_props_to_telemetry(p: dict[str, Any]) -> dict[str, Any]:
+def cloud_props_to_telemetry(p: dict[str, Any], model_code: int | None = None) -> dict[str, Any]:
     """Map raw cloud-properties dict into the same shape device_client emits."""
     def f(key: str, default: float = 0) -> float:
         v = p.get(key)
@@ -752,6 +785,9 @@ def cloud_props_to_telemetry(p: dict[str, Any]) -> dict[str, Any]:
     # 99.9h (raw 999) is the protocol's "not applicable" sentinel; treat as 0.
     raw_it = i("it")
     raw_ot = i("ot")
+
+    unsupported = MODEL_UNSUPPORTED_SETTINGS.get(model_code, set()) if model_code is not None else set()
+
     return {
         "battery_percent": i("rb"),
         "battery_temp_c": round(f("bt") / 10.0, 1),
@@ -767,8 +803,8 @@ def cloud_props_to_telemetry(p: dict[str, Any]) -> dict[str, Any]:
         "dc_on": bool(i("odc")),
         "usb_on": bool(i("odcu")),
         "car_on": bool(i("odcc")),
-        "ups_on": bool(i("ups", 1)),
-        "super_charge_on": bool(i("sfc")),
+        "ups_on": (bool(i("ups", 1)) if "ups" in p else False) if "ups_mode" not in unsupported else None,
+        "super_charge_on": (bool(i("sfc")) if "sfc" in p else False) if "super_charge" not in unsupported else None,
         "error_code": i("ec"),
         "time_to_full_h":   0.0 if raw_it in (0, 999) else round(raw_it / 10.0, 2),
         "time_remaining_h": 0.0 if raw_ot in (0, 999) else round(raw_ot / 10.0, 2),
@@ -776,4 +812,24 @@ def cloud_props_to_telemetry(p: dict[str, Any]) -> dict[str, Any]:
         # as a fallback by the server to bucket "today" totals at the user's
         # local midnight when no Open-Meteo location is configured.
         "utc_offset_seconds": i("uo") if "uo" in p else None,
+        # Hardware / Device settings (only populated if reported and supported by this model)
+        "battery_saving": bool(i("lps")) if "lps" in p and "battery_saving" not in unsupported else None,
+        "charge_speed": i("cs") if "cs" in p and "charge_speed" not in unsupported else None,
+        "super_charge": bool(i("sfc")) if "sfc" in p and "super_charge" not in unsupported else None,
+        "energy_saving": i("pm") if "pm" in p and "energy_saving" not in unsupported else None,
+        "screen_timeout": ((i("slt") if "slt" in p else i("sltb")) if ("slt" in p or "sltb" in p) else None) if "screen_timeout" not in unsupported else None,
+        "auto_shutdown": i("ast") if "ast" in p and "auto_shutdown" not in unsupported else None,
+        "light_mode": i("lm") if "lm" in p and "light_mode" not in unsupported else None,
+        "settings": {
+            k: v for k, v in {
+                "battery_saving": bool(i("lps")) if "lps" in p and "battery_saving" not in unsupported else None,
+                "charge_speed": i("cs") if "cs" in p and "charge_speed" not in unsupported else None,
+                "super_charge": bool(i("sfc")) if "sfc" in p and "super_charge" not in unsupported else None,
+                "energy_saving": i("pm") if "pm" in p and "energy_saving" not in unsupported else None,
+                "screen_timeout": ((i("slt") if "slt" in p else i("sltb")) if ("slt" in p or "sltb" in p) else None) if "screen_timeout" not in unsupported else None,
+                "auto_shutdown": i("ast") if "ast" in p and "auto_shutdown" not in unsupported else None,
+                "light_mode": i("lm") if "lm" in p and "light_mode" not in unsupported else None,
+                "ups_mode": bool(i("ups", 1)) if "ups" in p and "ups_mode" not in unsupported else None,
+            }.items() if v is not None
+        },
     }

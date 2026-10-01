@@ -63,7 +63,7 @@ from device_client import (
     device_type_for,
     make_client,
 )
-from energy_db import EnergyDB
+from energy_db import EnergyDB, _start_of_day
 from kasa_devices import KasaRegistry
 
 logging.basicConfig(level=logging.INFO,
@@ -583,25 +583,35 @@ async def poll_loop() -> None:
                     soc_by_sn[active_sn] = _system_soc_pct(
                         float(bp), active_sn, active_model_code,
                     )
-                if soc_by_sn:
-                    try:
-                        fired = await state.automation.evaluate(soc_by_sn, active_sn=active_sn)
-                        for rule in fired:
-                            await broadcast({
-                                "type": "automation_fired",
-                                "data": {
-                                    "id": rule.get("id"),
-                                    "name": rule.get("name"),
-                                    "action": rule.get("action"),
-                                    "kasa_alias": rule.get("kasa_alias"),
-                                    "kasa_host": rule.get("kasa_host"),
-                                    "jackery_device_sn": rule.get("jackery_device_sn"),
-                                    "jackery_device_name": rule.get("jackery_device_name"),
-                                    "last_fired": rule.get("last_fired"),
-                                },
-                            })
-                    except Exception as e:
-                        log.warning("automation evaluate failed: %s", e)
+                try:
+                    tz_off = int(device_location.get_tz_offset() or 0)
+                    fired = await state.automation.evaluate(soc_by_sn, active_sn=active_sn, tz_offset=tz_off)
+                    for rule in fired:
+                        host = rule.get("kasa_host")
+                        if host:
+                            try:
+                                await _kasa_update_probe_and_notify(
+                                    host,
+                                    success=True,
+                                    is_on=(rule.get("action") == "on"),
+                                )
+                            except Exception as ke:
+                                log.debug("kasa update probe notify failed for %s: %s", host, ke)
+                        await broadcast({
+                            "type": "automation_fired",
+                            "data": {
+                                "id": rule.get("id"),
+                                "name": rule.get("name"),
+                                "action": rule.get("action"),
+                                "kasa_alias": rule.get("kasa_alias"),
+                                "kasa_host": rule.get("kasa_host"),
+                                "jackery_device_sn": rule.get("jackery_device_sn"),
+                                "jackery_device_name": rule.get("jackery_device_name"),
+                                "last_fired": rule.get("last_fired"),
+                            },
+                        })
+                except Exception as e:
+                    log.warning("automation evaluate failed: %s", e)
 
                 # Dead-man rescue watchdog (2026-07-14 incident). Watches
                 # the MAIN unit's battery_percent — the number on the
@@ -851,8 +861,9 @@ def _decorate_totals_with_savings(totals: dict, device_sn: str) -> dict:
         if in_progress:
             today_hist.append(in_progress)
             life_hist.append(in_progress)
-        totals["today_savings"] = cost_module.today_savings(today_hist, plan, tz_offset)
-        totals["lifetime_savings"] = cost_module.lifetime_savings(life_hist, plan, tz_offset)
+        capacity_wh = float(_total_capacity_wh(device_sn) if device_sn else 1264.0)
+        totals["today_savings"] = cost_module.today_savings(today_hist, plan, tz_offset, capacity_wh=capacity_wh)
+        totals["lifetime_savings"] = cost_module.lifetime_savings(life_hist, plan, tz_offset, capacity_wh=capacity_wh)
         totals["cost_plan"] = {"type": plan["type"],
                                "currency": plan.get("currency", "USD")}
     except Exception as e:
@@ -3167,6 +3178,116 @@ async def api_cost_set(req: Request):
     return {"plan": saved}
 
 
+@app.get("/api/cost/summary")
+def api_cost_summary(device_sn: str | None = None, mode: str = "battery"):
+    """4-way financial summary: today, last_7d, last_30d, lifetime."""
+    if not device_sn:
+        device_sn = state.device.device_sn if state.device else None
+    if not device_sn:
+        return {"device_sn": None, "mode": mode, "currency": "USD", "today": None, "last_7d": None, "last_30d": None, "lifetime": None}
+
+    if mode not in ("battery", "total"):
+        mode = "battery"
+
+    plan = cost_module.get_plan()
+    tz_offset = int(device_location.get_tz_offset() or 0)
+    capacity_wh = float(_total_capacity_wh(device_sn) if device_sn else 1264.0)
+    now = time.time()
+    today_start = _start_of_day(int(now))
+
+    today_hist = [r for r in state.energy.history(device_sn, hours=24, bucket_s=3600)
+                  if r.get("ts", 0) >= today_start]
+    hist_7d = state.energy.history(device_sn, hours=7 * 24, bucket_s=3600)
+    hist_30d = state.energy.history(device_sn, hours=30 * 24, bucket_s=3600)
+    life_hist = state.energy.history(device_sn, hours=24 * 365 * 5, bucket_s=3600)
+
+    return {
+        "device_sn": device_sn,
+        "mode": mode,
+        "currency": plan.get("currency", "USD"),
+        "today": cost_module.compute_savings(today_hist, plan, tz_offset, mode=mode, capacity_wh=capacity_wh),
+        "last_7d": cost_module.compute_savings(hist_7d, plan, tz_offset, mode=mode, capacity_wh=capacity_wh),
+        "last_30d": cost_module.compute_savings(hist_30d, plan, tz_offset, mode=mode, capacity_wh=capacity_wh),
+        "lifetime": cost_module.compute_savings(life_hist, plan, tz_offset, mode=mode, capacity_wh=capacity_wh),
+    }
+
+
+@app.get("/api/cost/distribution")
+def api_cost_distribution(device_sn: str | None = None, days: int = 30, mode: str = "battery"):
+    """Energy distribution across TOU rate tiers for the active plan."""
+    if not device_sn:
+        device_sn = state.device.device_sn if state.device else None
+    if not device_sn:
+        return {"device_sn": None, "mode": mode, "tiers": [], "arbitrage_score": 0.0}
+    if mode not in ("battery", "total"):
+        mode = "battery"
+    days = max(1, min(days, 365))
+    plan = cost_module.get_plan()
+    tz_offset = int(device_location.get_tz_offset() or 0)
+    capacity_wh = float(_total_capacity_wh(device_sn) if device_sn else 1264.0)
+    hist = state.energy.history(device_sn, hours=days * 24, bucket_s=3600)
+    dist = cost_module.tou_distribution(hist, plan, tz_offset, mode=mode, capacity_wh=capacity_wh)
+    return {
+        "device_sn": device_sn,
+        "days": days,
+        "mode": mode,
+        "plan_type": plan.get("type"),
+        **dist,
+    }
+
+
+@app.get("/api/cost/history")
+def api_cost_history(device_sn: str | None = None, hours: int = 24, mode: str = "battery"):
+    """Time-series financial data for the Cost chart."""
+    if not device_sn:
+        device_sn = state.device.device_sn if state.device else None
+    if not device_sn:
+        return {"device_sn": None, "mode": mode, "history": []}
+    if mode not in ("battery", "total"):
+        mode = "battery"
+    hours = max(1, min(hours, 24 * 365))
+    bucket_s = max(60, (hours * 3600) // 120)
+    plan = cost_module.get_plan()
+    tz_offset = int(device_location.get_tz_offset() or 0)
+    capacity_wh = float(_total_capacity_wh(device_sn) if device_sn else 1264.0)
+    hist = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    ts_data = cost_module.cost_history_timeseries(hist, plan, tz_offset, mode=mode, capacity_wh=capacity_wh)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "mode": mode,
+        "currency": plan.get("currency", "USD"),
+        "history": ts_data,
+    }
+
+
+@app.get("/api/cost/breakdown")
+def api_cost_breakdown(device_sn: str | None = None, group_by: str = "day", days: int = 365, mode: str = "battery"):
+    """Aggregated financial ledger rows (day, week, month, year)."""
+    if not device_sn:
+        device_sn = state.device.device_sn if state.device else None
+    if not device_sn:
+        return {"device_sn": None, "mode": mode, "rows": []}
+    if mode not in ("battery", "total"):
+        mode = "battery"
+    if group_by not in ("day", "week", "month", "year"):
+        group_by = "day"
+    days = max(1, min(days, 365 * 5))
+    plan = cost_module.get_plan()
+    tz_offset = int(device_location.get_tz_offset() or 0)
+    capacity_wh = float(_total_capacity_wh(device_sn) if device_sn else 1264.0)
+    hist = state.energy.history(device_sn, hours=days * 24, bucket_s=3600)
+    rows = cost_module.cost_breakdown(hist, plan, tz_offset, group_by=group_by, mode=mode, capacity_wh=capacity_wh)
+    return {
+        "device_sn": device_sn,
+        "group_by": group_by,
+        "mode": mode,
+        "currency": plan.get("currency", "USD"),
+        "rows": rows,
+    }
+
+
 @app.get("/api/energy/history")
 def api_energy_history(hours: int = 24, device_sn: str | None = None):
     """Time-series energy history for a device.
@@ -5093,6 +5214,61 @@ async def api_set_output(body: dict):
             inverter_watchdog.record_user_off(
                 inverter_watchdog.get_state(target_sn))
     return {"ok": True, "port": port, "on": on, "device_sn": device_sn}
+
+
+@app.get("/api/devices/settings")
+async def api_devices_settings_get(device_sn: str | None = None):
+    """Return hardware settings for the device."""
+    if not device_sn:
+        device_sn = state.device.device_sn if state.device else None
+    if not device_sn:
+        return {"device_sn": None, "settings": {}}
+    rpc = getattr(state.client, "_rpc", None)
+    if rpc is not None:
+        try:
+            res = await rpc("get_settings", device_sn=device_sn)
+            if res.get("ok"):
+                return res
+        except Exception as e:
+            log.debug("get_settings rpc failed: %s", e)
+    cloud_src = state.last_cloud_meta or {}
+    devs_t = (cloud_src.get("devices_telemetry") or {})
+    entry = devs_t.get(device_sn) or {}
+    tele = entry.get("telemetry") or state.last_status or {}
+    return {
+        "ok": True,
+        "device_sn": device_sn,
+        "settings": tele.get("settings") or {},
+    }
+
+
+@app.post("/api/devices/setting")
+@app.post("/api/devices/settings")
+async def api_devices_setting_set(body: dict):
+    """Set a hardware setting on the Jackery device via MQTT."""
+    device_sn = (body or {}).get("device_sn") or (state.device.device_sn if state.device else None)
+    setter = getattr(state.client, "set_setting", None)
+    if not setter:
+        raise HTTPException(501, "Backend does not support device settings")
+
+    setting = (body or {}).get("setting")
+    value = (body or {}).get("value")
+    if not setting:
+        from cloud_client import JackeryCloudClient
+        for k in JackeryCloudClient.SETTING_TO_ACTION:
+            if k in (body or {}):
+                setting = k
+                value = (body or {})[k]
+                break
+
+    if not setting:
+        raise HTTPException(400, "setting and value required")
+
+    try:
+        res = await setter(setting, value, device_sn=device_sn)
+        return {"ok": True, "setting": setting, "value": value, "device_sn": device_sn, "result": res}
+    except DeviceClientError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/inverter_watchdog/config")

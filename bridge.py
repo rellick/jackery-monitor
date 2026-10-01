@@ -577,6 +577,17 @@ async def _annotate_pack_upgrades(device_sn: str, packs: list[dict]) -> list[dic
     return packs
 
 
+def _model_code_for_sn(sn: str | None) -> int | None:
+    if not sn:
+        return None
+    for d in (state.cloud_devices or []):
+        if d.get("device_sn") == sn:
+            return d.get("model_code")
+    if state.cloud_device and state.cloud_device.get("device_sn") == sn:
+        return state.cloud_device.get("model_code")
+    return None
+
+
 # ---- Cloud poller ----
 async def cloud_loop() -> None:
     if not state.cloud_creds:
@@ -634,7 +645,7 @@ async def cloud_loop() -> None:
         # written by the cloud_loop step that runs after this returns.
         raw = state.props_raw_by_sn.setdefault(device_sn, {})
         raw.update(props)
-        state.telemetry_by_sn[device_sn] = cloud_props_to_telemetry(raw)
+        state.telemetry_by_sn[device_sn] = cloud_props_to_telemetry(raw, model_code=_model_code_for_sn(device_sn))
         state.ts_by_sn[device_sn] = time.time()
         # Inverter overload protection: as soon as a fresh output_power_w
         # comes through MQTT, check whether it crossed the per-device
@@ -762,7 +773,7 @@ async def cloud_loop() -> None:
                     continue
                 raw = state.props_raw_by_sn.setdefault(dev_sn, {})
                 raw.update(props)
-                state.telemetry_by_sn[dev_sn] = cloud_props_to_telemetry(raw)
+                state.telemetry_by_sn[dev_sn] = cloud_props_to_telemetry(raw, model_code=_model_code_for_sn(dev_sn))
                 state.ts_by_sn[dev_sn] = now_ts
                 any_polled = True
             # Mirror the active device onto the legacy single-device fields
@@ -1311,6 +1322,76 @@ async def handle(method: str, params: dict) -> dict:
         log.info("force_repoll set by: set_output RPC")
         state.cloud_force_repoll.set()
         return {"ok": True, **ack}
+
+    if method == "set_setting":
+        setting = (params.get("setting") or "").lower()
+        val = params.get("value")
+        if not state.cloud_client:
+            return {"ok": False, "error": "cloud client not initialised — sign in first"}
+
+        requested_sn = (params.get("device_sn") or "").strip() or None
+        if requested_sn:
+            known = {d.get("device_sn") for d in state.cloud_devices or []}
+            if requested_sn not in known:
+                return {"ok": False,
+                        "error": f"device_sn {requested_sn!r} is not on this account"}
+            device_sn = requested_sn
+        else:
+            device = state.cloud_device or {}
+            device_sn = device.get("device_sn")
+        if not device_sn:
+            return {"ok": False, "error": "no device_sn — wait for first poll"}
+
+        from cloud_client import JackeryCloudClient, cloud_props_to_telemetry
+        if setting not in JackeryCloudClient.SETTING_TO_ACTION:
+            return {"ok": False, "error": f"unknown setting: {setting!r}"}
+
+        action_id, prop_key = JackeryCloudClient.SETTING_TO_ACTION[setting]
+        if isinstance(val, bool):
+            val_int = 1 if val else 0
+        else:
+            try:
+                val_int = int(val)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": f"invalid value for {setting}: {val!r}"}
+
+        try:
+            ack = await state.cloud_client.publish_property(device_sn, action_id, {prop_key: val_int})
+        except Exception as e:
+            event("error", "mqtt", f"set_setting({setting}, {val_int}) failed: {e}",
+                  setting=setting, value=val_int, device_sn=device_sn)
+            return {"ok": False, "error": str(e)}
+
+        event("info", "mqtt",
+              f"Setting {setting} -> {val_int} on {device_sn}",
+              setting=setting, value=val_int, device_sn=device_sn,
+              action_id=ack.get("action_id"))
+
+        # Optimistically update in-memory telemetry cache
+        raw = state.props_raw_by_sn.setdefault(device_sn, {})
+        raw[prop_key] = val_int
+        state.telemetry_by_sn[device_sn] = cloud_props_to_telemetry(raw, model_code=_model_code_for_sn(device_sn))
+        if device_sn == (state.cloud_device or {}).get("device_sn"):
+            state.cloud_props_raw = raw
+            state.cloud_telemetry = state.telemetry_by_sn[device_sn]
+
+        # Force a quick repoll so the UI reflects the change
+        log.info("force_repoll set by: set_setting RPC")
+        state.cloud_force_repoll.set()
+        return {"ok": True, "setting": setting, "value": val_int, "device_sn": device_sn, **ack}
+
+    if method == "get_settings":
+        from cloud_client import cloud_props_to_telemetry
+        requested_sn = (params.get("device_sn") or "").strip() or None
+        device_sn = requested_sn or (state.cloud_device or {}).get("device_sn")
+        raw = state.props_raw_by_sn.get(device_sn or "", {})
+        tele = state.telemetry_by_sn.get(device_sn or "") or cloud_props_to_telemetry(raw, model_code=_model_code_for_sn(device_sn))
+        return {
+            "ok": True,
+            "device_sn": device_sn,
+            "settings": tele.get("settings") or {},
+            "raw_props": raw,
+        }
 
     if method == "disconnect":
         if state.cloud_client:

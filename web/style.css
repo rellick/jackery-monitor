@@ -1417,42 +1417,86 @@ main {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* TOU rate slot editor in Settings. One row per slot, with the
-   start-end window read-only (utility-defined) and the rate editable. */
+/* TOU rate slot editor in Settings. Supports weekdays, holidays,
+   rates, and slot labels with responsive wrapping. */
 .cost-tou-slots {
-  display: flex; flex-direction: column; gap: 6px;
-  max-width: 420px;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: 680px;
+  width: 100%;
 }
 .cost-tou-slot {
-  display: grid;
-  grid-template-columns: 110px 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 8px 12px;
+  padding: 8px 12px;
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
 }
 .cost-tou-slot .slot-time {
   font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 12px;
+  min-width: 140px;
+}
+.cost-tou-slot select.slot-days,
+.cost-tou-slot select.slot-holidays {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 11px;
+  outline: none;
+}
+.cost-tou-slot select.slot-days:focus,
+.cost-tou-slot select.slot-holidays:focus {
+  border-color: var(--accent);
+}
+.cost-tou-slot .slot-rate-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-dim);
 }
 .cost-tou-slot .slot-rate {
-  width: 90px;
+  width: 85px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
   padding: 4px 6px;
   font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
 }
 .cost-tou-slot .slot-rate:focus { outline: 1px solid var(--accent); }
-.cost-tou-slot .slot-label {
+.cost-tou-slot .slot-label-input {
+  flex: 1;
+  min-width: 100px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.cost-tou-slot .slot-label-input:focus { outline: 1px solid var(--accent); }
+.cost-tou-slot .slot-del-btn {
+  padding: 2px 7px;
+  font-size: 11px;
   color: var(--text-mute);
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.05em;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.cost-tou-slot .slot-del-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* "Keep screen on" toggle row in Settings. Compact, single-line. */
@@ -1600,6 +1644,26 @@ main {
 .settings-control input[type="number"]:disabled {
   opacity: 0.5; cursor: not-allowed;
   background: var(--bg-elev-2);
+}
+.settings-control select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-control select:disabled,
+.settings-control input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.settings-control input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
 }
 .settings-row.gated { opacity: 0.55; }
 .settings-row.gated .settings-label-text::after {
@@ -1758,7 +1822,97 @@ main {
   font-size: 14px;
   outline: none;
 }
+.auto-rule .ar-cond .ar-and {
+  color: var(--accent);
+  font-weight: 700;
+  margin: 0 4px;
+}
 .auto-field input:focus, .auto-field select:focus { border-color: var(--accent); }
+.auto-cond-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.auto-btn-sm {
+  font-size: 11px !important;
+  padding: 3px 8px !important;
+  line-height: 1.2;
+}
+.auto-conditions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.auto-cond-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--bg-elev-1);
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+.auto-cond-row select.auto-cond-type {
+  flex: 0 0 135px;
+}
+.auto-cond-row select.auto-cond-op {
+  flex: 0 0 160px;
+}
+.auto-cond-val-wrap {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 auto;
+}
+.auto-cond-batt-wrap, .auto-cond-time-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.auto-cond-batt-wrap input {
+  width: 80px;
+  text-align: right;
+}
+.auto-cond-time-wrap input {
+  width: 120px;
+}
+.auto-cond-del {
+  margin-left: auto;
+  color: var(--text-mute);
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 1;
+}
+.auto-cond-del:hover:not([disabled]) {
+  color: var(--danger);
+}
+.auto-cond-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 2px 0;
+}
+.auto-cond-divider::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  border-top: 1px dashed var(--border-soft);
+  z-index: 1;
+}
+.auto-cond-and {
+  position: relative;
+  z-index: 2;
+  background: var(--bg-elev-2);
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  letter-spacing: .06em;
+}
 .auto-condition { display: flex; gap: 8px; align-items: center; }
 .auto-condition select { flex: 0 0 auto; min-width: 140px; }
 .auto-condition input { flex: 0 0 90px; text-align: right; }
@@ -1775,6 +1929,7 @@ main {
 }
 .auto-enabled { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-dim); }
 @media (max-width: 600px) {
+  .auto-cond-row { flex-wrap: wrap; }
   .auto-condition { flex-wrap: wrap; }
   .auto-kasa-row { grid-template-columns: 1fr; }
   .auto-rule { grid-template-columns: 1fr; }
@@ -2702,3 +2857,258 @@ footer {
 @keyframes spin { to { transform: rotate(360deg); } }
 body.device-switching .tab-panel { opacity: .45; pointer-events: none;
   transition: opacity .15s ease; }
+
+/* ============== Cost Tab ============== */
+.cost-kpi-details {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.cost-detail-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-dim);
+}
+.cost-detail-line strong {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-weight: 500;
+}
+.cost-arbitrage-badge {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  display: inline-block;
+  font-family: var(--font-mono);
+}
+.savings-positive {
+  color: #4ade80 !important;
+}
+.savings-negative {
+  color: #ef4444 !important;
+}
+.savings-zero {
+  color: var(--text-dim) !important;
+}
+
+/* Time-of-Use Arbitrage Distribution */
+.cost-tou-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+.cost-bar-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  background: var(--bg-elev);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+@media (max-width: 680px) {
+  .cost-bar-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+.cost-bar-label {
+  font-weight: 500;
+  color: var(--text);
+}
+.cost-bar-label small {
+  display: block;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.cost-bar-track {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cost-bar-subline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 18px;
+}
+.cost-bar-subline-label {
+  width: 58px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  flex-shrink: 0;
+}
+.cost-bar-outer {
+  flex: 1;
+  height: 12px;
+  background: var(--bg-elev-2);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.cost-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .25s ease;
+}
+.cost-bar-fill.charge {
+  background: #f59e0b;
+}
+.cost-bar-fill.discharge {
+  background: #38bdf8;
+}
+.cost-bar-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  width: 110px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.cost-arbitrage-summary {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  font-size: 13px;
+}
+.cost-summary-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.cost-summary-stat .stat-label {
+  color: var(--text-dim);
+}
+.cost-summary-stat .stat-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Range picker buttons in cost tab */
+.cost-dist-btn,
+.cost-range-btn,
+.cbreakdown-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.cost-dist-btn:hover,
+.cost-range-btn:hover,
+.cbreakdown-btn:hover {
+  color: var(--text);
+}
+.cost-dist-btn.on,
+.cost-range-btn.on,
+.cbreakdown-btn.on,
+.cost-mode-btn.on {
+  background: var(--accent);
+  color: #032012;
+  font-weight: 600;
+}
+
+/* Cost Accounting Mode Banner */
+.cost-mode-banner {
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.cost-mode-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cost-mode-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cost-mode-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cost-mode-picker {
+  display: inline-flex;
+  gap: 4px;
+}
+.cost-mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.cost-mode-btn:hover {
+  color: var(--text);
+}
+.cost-mode-hint {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
+.cost-mode-hint strong {
+  color: var(--text);
+}
+
+/* Cost table */
+.cost-table th.num,
+.cost-table td.num {
+  text-align: right;
+}
+.cost-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.cost-table th.sortable:hover {
+  color: var(--text);
+}
+.cost-table th.sort-asc::after {
+  content: " ▲";
+  font-size: 9px;
+  color: var(--accent);
+}
+.cost-table th.sort-desc::after {
+  content: " ▼";
+  font-size: 9px;
+  color: var(--accent);
+}
+

@@ -123,6 +123,28 @@ async def test_set_output_omits_device_sn_when_none(server_state, monkeypatch):
     assert captured["device_sn"] is None
 
 
+async def test_set_setting_routes_to_device(server_state, monkeypatch):
+    captured = {}
+
+    async def fake_set_setting(setting, value, *, device_sn=None):
+        captured["setting"] = setting
+        captured["value"] = value
+        captured["device_sn"] = device_sn
+        return {"ok": True}
+
+    monkeypatch.setattr(server_state.state.client, "set_setting",
+                        fake_set_setting, raising=False)
+
+    body = {"setting": "battery_saving", "value": True, "device_sn": "SN-B"}
+    result = await server_state.api_devices_setting_set(body)
+
+    assert result["ok"] is True
+    assert result["setting"] == "battery_saving"
+    assert result["value"] is True
+    assert result["device_sn"] == "SN-B"
+    assert captured == {"setting": "battery_saving", "value": True, "device_sn": "SN-B"}
+
+
 def test_no_cookie_returns_bridge_active(server_state):
     out = server_state.serialize_status(view_device_id=None)
     assert out["device"]["device_sn"] == "SN-A"

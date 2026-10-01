@@ -95,6 +95,7 @@
     <nav class="tabs">
       <button class="tab on" data-tab="live">Live</button>
       <button class="tab" data-tab="energy">Energy</button>
+      <button class="tab" data-tab="cost">Cost</button>
       <button class="tab" data-tab="forecast">Forecast</button>
       <button class="tab" data-tab="device">Device</button>
       <button class="tab" data-tab="automation">Automation<span id="tab-automation-dot" class="tab-dot" hidden title="New AI insights pending"></span></button>
@@ -465,6 +466,173 @@
       </section>
     </section>
 
+    <!-- ============== COST TAB ============== -->
+    <section id="tab-cost" class="tab-panel" hidden>
+      <!-- Accounting Mode Selector Banner -->
+      <section class="card cost-mode-banner">
+        <div class="cost-mode-header">
+          <div class="cost-mode-title-row">
+            <span class="cost-mode-label">Accounting View:</span>
+            <div class="range-picker cost-mode-picker" role="tablist">
+              <button type="button" class="cost-mode-btn on" data-mode="battery">⚡ Battery Arbitrage</button>
+              <button type="button" class="cost-mode-btn" data-mode="total">🔌 Total Equipment</button>
+            </div>
+          </div>
+          <div class="cost-mode-hint" id="cost-mode-hint">
+            <strong>Battery Arbitrage:</strong> Isolates battery cell charging and discharging. Bypasses AC grid passthrough to show true battery efficiency and time-shifting savings.
+          </div>
+        </div>
+      </section>
+
+      <div class="grid energy-grid">
+        <section class="card">
+          <div class="card-eyebrow"><span>Today</span></div>
+          <div class="kpi-row">
+            <div>
+              <div class="kpi-value"><span id="cost-today-net">—</span></div>
+              <div class="kpi-sub">net savings</div>
+            </div>
+          </div>
+          <div class="cost-kpi-details">
+            <div class="cost-detail-line"><span>Grid paid:</span> <strong id="cost-today-grid">—</strong></div>
+            <div class="cost-detail-line"><span>Solar cost:</span> <strong id="cost-today-solar">$0.00</strong></div>
+            <div class="cost-detail-line"><span>Baseline (no battery):</span> <strong id="cost-today-baseline">—</strong></div>
+          </div>
+          <div class="cost-arbitrage-badge">
+            <small>⚡ <span id="cost-today-rates">—</span></small>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-eyebrow"><span>Last 7 days</span></div>
+          <div class="kpi-row">
+            <div>
+              <div class="kpi-value"><span id="cost-7d-net">—</span></div>
+              <div class="kpi-sub">net savings</div>
+            </div>
+          </div>
+          <div class="cost-kpi-details">
+            <div class="cost-detail-line"><span>Grid paid:</span> <strong id="cost-7d-grid">—</strong></div>
+            <div class="cost-detail-line"><span>Solar cost:</span> <strong id="cost-7d-solar">$0.00</strong></div>
+            <div class="cost-detail-line"><span>Baseline (no battery):</span> <strong id="cost-7d-baseline">—</strong></div>
+          </div>
+          <div class="cost-arbitrage-badge">
+            <small>⚡ <span id="cost-7d-rates">—</span></small>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-eyebrow"><span>Last 30 days</span></div>
+          <div class="kpi-row">
+            <div>
+              <div class="kpi-value"><span id="cost-30d-net">—</span></div>
+              <div class="kpi-sub">net savings</div>
+            </div>
+          </div>
+          <div class="cost-kpi-details">
+            <div class="cost-detail-line"><span>Grid paid:</span> <strong id="cost-30d-grid">—</strong></div>
+            <div class="cost-detail-line"><span>Solar cost:</span> <strong id="cost-30d-solar">$0.00</strong></div>
+            <div class="cost-detail-line"><span>Baseline (no battery):</span> <strong id="cost-30d-baseline">—</strong></div>
+          </div>
+          <div class="cost-arbitrage-badge">
+            <small>⚡ <span id="cost-30d-rates">—</span></small>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-eyebrow"><span>Lifetime</span></div>
+          <div class="kpi-row">
+            <div>
+              <div class="kpi-value"><span id="cost-life-net">—</span></div>
+              <div class="kpi-sub">net savings</div>
+            </div>
+          </div>
+          <div class="cost-kpi-details">
+            <div class="cost-detail-line"><span>Grid paid:</span> <strong id="cost-life-grid">—</strong></div>
+            <div class="cost-detail-line"><span>Solar cost:</span> <strong id="cost-life-solar">$0.00</strong></div>
+            <div class="cost-detail-line"><span>Baseline (no battery):</span> <strong id="cost-life-baseline">—</strong></div>
+          </div>
+          <div class="cost-arbitrage-badge">
+            <small>⚡ <span id="cost-life-rates">—</span></small>
+          </div>
+        </section>
+      </div>
+
+      <!-- TOU Arbitrage Efficiency -->
+      <section class="card" id="cost-distribution-card">
+        <div class="card-header">
+          <h2>Time-of-Use Arbitrage Distribution</h2>
+          <div class="range-picker" role="tablist">
+            <button type="button" class="cost-dist-btn" data-days="7">7d</button>
+            <button type="button" class="cost-dist-btn on" data-days="30">30d</button>
+            <button type="button" class="cost-dist-btn" data-days="90">90d</button>
+            <button type="button" class="cost-dist-btn" data-days="365">1y</button>
+          </div>
+        </div>
+        <p class="hint" style="margin:4px 0 14px">
+          Compares when battery charging occurred (buying from grid) vs when output was consumed (displacing grid power) across your utility's rate tiers.
+        </p>
+        <div id="cost-tou-bars" class="cost-tou-bars"></div>
+        <div class="cost-arbitrage-summary" id="cost-arbitrage-summary"></div>
+      </section>
+
+      <!-- Cost History Chart -->
+      <section class="card">
+        <div class="card-header">
+          <h2>Cost history</h2>
+          <div class="range-picker" role="tablist">
+            <button type="button" class="cost-range-btn on" data-hours="24">24h</button>
+            <button type="button" class="cost-range-btn" data-hours="168">7d</button>
+            <button type="button" class="cost-range-btn" data-hours="720">30d</button>
+            <button type="button" class="cost-range-btn" data-hours="2160">90d</button>
+            <button type="button" class="cost-range-btn" data-hours="8760">1y</button>
+          </div>
+        </div>
+        <canvas id="chart-cost" class="chart chart-tall"></canvas>
+        <div class="legend" data-chart="cost">
+          <button type="button" class="legend-item" data-series="baseline"><i style="background:#38bdf8"></i> Baseline cost (no battery)</button>
+          <button type="button" class="legend-item" data-series="grid"><i style="background:#ef4444"></i> Actual grid cost paid</button>
+          <button type="button" class="legend-item" data-series="net"><i style="background:#4ade80"></i> Net savings</button>
+        </div>
+      </section>
+
+      <!-- Financial Breakdown Table -->
+      <section id="cost-breakdown-card" class="card">
+        <div class="card-header">
+          <h2>Cost breakdown</h2>
+          <div class="daily-controls">
+            <div class="range-picker" role="tablist">
+              <button type="button" class="cbreakdown-btn on" data-group="day">Day</button>
+              <button type="button" class="cbreakdown-btn" data-group="week">Week</button>
+              <button type="button" class="cbreakdown-btn" data-group="month">Month</button>
+              <button type="button" class="cbreakdown-btn" data-group="year">Year</button>
+            </div>
+            <input id="cost-search" class="daily-search" type="search"
+                   placeholder="filter period…" autocomplete="off" spellcheck="false" />
+            <button id="cost-export" type="button" class="btn btn-small">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table cost-table">
+            <thead>
+              <tr>
+                <th class="sortable sort-desc" data-sort="period">Period</th>
+                <th class="sortable num" data-sort="grid_cost">Grid Paid</th>
+                <th class="sortable num" data-sort="solar_cost">Solar</th>
+                <th class="sortable num" data-sort="baseline_cost">Baseline Cost</th>
+                <th class="sortable num" data-sort="net_saved">Net Saved</th>
+                <th class="sortable num" data-sort="avg_buy_rate">Avg Buy Rate</th>
+                <th class="sortable num" data-sort="avg_use_rate">Avg Displaced Rate</th>
+                <th class="sortable num" data-sort="efficiency_pct">Roundtrip Eff.</th>
+              </tr>
+            </thead>
+            <tbody id="cost-table-body"></tbody>
+          </table>
+        </div>
+        <p id="cost-table-empty" class="hint" hidden>No matching entries.</p>
+      </section>
+    </section>
+
     <!-- ============== FORECAST TAB ============== -->
     <section id="tab-forecast" class="tab-panel" hidden>
       <section id="forecast-needs-config" class="card" hidden>
@@ -729,6 +897,126 @@
           <dt>UPS / Super charge</dt><dd id="dev-ups">—</dd>
           <dt>Error code</dt><dd id="dev-err">—</dd>
         </dl>
+      </section>
+
+      <section class="card device-card" id="hardware-settings-card">
+        <div class="card-header">
+          <h2>Hardware settings</h2>
+          <span id="hardware-settings-status" class="hint" hidden></span>
+        </div>
+        <p class="hint" style="margin:6px 0 14px">
+          Control operating modes and preferences on the selected Jackery device. Changes are sent directly to the hardware via cloud MQTT.
+        </p>
+
+        <div class="settings-fields">
+          <!-- Battery Saving Mode -->
+          <label class="settings-row" for="setting-battery-saving">
+            <span class="settings-label">
+              <span class="settings-label-text">Battery Saving Mode</span>
+              <span class="settings-hint">Restricts charging to 85% and discharging to 15% to prolong battery lifespan.</span>
+            </span>
+            <span class="settings-control"><input id="setting-battery-saving" type="checkbox" disabled /></span>
+          </label>
+
+          <!-- Charge Speed -->
+          <label class="settings-row" for="setting-charge-speed">
+            <span class="settings-label">
+              <span class="settings-label-text">Charge Speed</span>
+              <span class="settings-hint">AC grid charging speed and fan noise preference.</span>
+            </span>
+            <span class="settings-control">
+              <select id="setting-charge-speed" class="device-select" disabled>
+                <option value="0">Fast (Normal)</option>
+                <option value="1">Quiet (Mute)</option>
+              </select>
+            </span>
+          </label>
+
+          <!-- Super Fast Charge -->
+          <label class="settings-row" for="setting-super-charge" id="setting-super-charge-row">
+            <span class="settings-label">
+              <span class="settings-label-text">Super Fast Charge</span>
+              <span class="settings-hint">Maximum speed AC input charging boost.</span>
+            </span>
+            <span class="settings-control"><input id="setting-super-charge" type="checkbox" disabled /></span>
+          </label>
+
+          <!-- Energy Saving Mode -->
+          <label class="settings-row" for="setting-energy-saving">
+            <span class="settings-label">
+              <span class="settings-label-text">Energy Saving (Idle Shutdown)</span>
+              <span class="settings-hint">Automatically powers off the unit when no load is running.</span>
+            </span>
+            <span class="settings-control">
+              <select id="setting-energy-saving" class="device-select" disabled>
+                <option value="0">Never (Always on)</option>
+                <option value="1">1 Hour</option>
+                <option value="2">2 Hours</option>
+                <option value="6">6 Hours</option>
+                <option value="12">12 Hours</option>
+              </select>
+            </span>
+          </label>
+
+          <!-- Screen Timeout -->
+          <label class="settings-row" for="setting-screen-timeout">
+            <span class="settings-label">
+              <span class="settings-label-text">Screen Timeout</span>
+              <span class="settings-hint">Duration of inactivity before the LCD display turns off.</span>
+            </span>
+            <span class="settings-control">
+              <select id="setting-screen-timeout" class="device-select" disabled>
+                <option value="0">Never</option>
+                <option value="30">30 Seconds</option>
+                <option value="60">1 Minute</option>
+                <option value="120">2 Minutes</option>
+                <option value="300">5 Minutes</option>
+              </select>
+            </span>
+          </label>
+
+          <!-- Auto Shutdown -->
+          <label class="settings-row" for="setting-auto-shutdown">
+            <span class="settings-label">
+              <span class="settings-label-text">Auto Shutdown Timer</span>
+              <span class="settings-hint">Complete shutdown sleep timer for the power station.</span>
+            </span>
+            <span class="settings-control">
+              <select id="setting-auto-shutdown" class="device-select" disabled>
+                <option value="0">Never</option>
+                <option value="1">1 Hour</option>
+                <option value="2">2 Hours</option>
+                <option value="6">6 Hours</option>
+                <option value="12">12 Hours</option>
+              </select>
+            </span>
+          </label>
+
+          <!-- Built-in Light -->
+          <label class="settings-row" for="setting-light-mode">
+            <span class="settings-label">
+              <span class="settings-label-text">Built-in LED Light</span>
+              <span class="settings-hint">Controls the front lantern / flashlight mode.</span>
+            </span>
+            <span class="settings-control">
+              <select id="setting-light-mode" class="device-select" disabled>
+                <option value="0">Off</option>
+                <option value="1">Low</option>
+                <option value="2">High</option>
+                <option value="3">SOS Flashing</option>
+              </select>
+            </span>
+          </label>
+
+          <!-- UPS Mode -->
+          <label class="settings-row" for="setting-ups-mode" id="setting-ups-mode-row">
+            <span class="settings-label">
+              <span class="settings-label-text">UPS Mode</span>
+              <span class="settings-hint">Fast pass-through transfer mode (≤20ms) when grid power is connected.</span>
+            </span>
+            <span class="settings-control"><input id="setting-ups-mode" type="checkbox" disabled /></span>
+          </label>
+        </div>
       </section>
 
       <section class="card device-card">
@@ -1259,18 +1547,11 @@
             </label>
 
             <fieldset class="auto-field">
-              <legend class="auto-label">When battery is</legend>
-              <div class="auto-condition">
-                <select id="auto-operator" required>
-                  <option value="<">&lt; less than</option>
-                  <option value="<=">&le; less or equal</option>
-                  <option value="=">= equal to</option>
-                  <option value=">=">&ge; greater or equal</option>
-                  <option value=">">&gt; greater than</option>
-                </select>
-                <input id="auto-value" type="number" min="0" max="100" step="1" required placeholder="20" />
-                <span class="auto-pct">%</span>
+              <div class="auto-cond-header">
+                <legend class="auto-label">Conditions (all must match — AND)</legend>
+                <button id="auto-cond-add" class="btn btn-ghost auto-btn-sm" type="button">+ Add condition</button>
               </div>
+              <div id="auto-conditions-list" class="auto-conditions-list"></div>
             </fieldset>
 
             <fieldset class="auto-field">
@@ -1643,22 +1924,55 @@
               <select id="cost-preset"></select>
             </div>
           </div>
+          <div class="settings-row" id="cost-currency-row">
+            <label class="settings-label" for="cost-currency">
+              <span class="settings-label-text">Currency</span>
+              <span class="settings-hint">Currency code used for financial reporting (e.g. USD, CAD).</span>
+            </label>
+            <div class="settings-control">
+              <input id="cost-currency" type="text" maxlength="8" style="width:90px" value="USD" />
+            </div>
+          </div>
           <div class="settings-row" id="cost-flat-row">
             <label class="settings-label" for="cost-flat-rate">
-              <span class="settings-label-text">$/kWh (flat)</span>
+              <span class="settings-label-text">Rate per kWh (flat)</span>
               <span class="settings-hint">A single rate that applies all day.</span>
             </label>
             <div class="settings-control">
-              <input id="cost-flat-rate" type="number" step="0.01" min="0" max="5" value="0.30" />
+              <input id="cost-flat-rate" type="number" step="0.0001" min="0" max="5" value="0.30" />
+            </div>
+          </div>
+          <div class="settings-row" id="cost-holidays-row" hidden>
+            <label class="settings-label" for="cost-holiday-calendar">
+              <span class="settings-label-text">Holiday calendar</span>
+              <span class="settings-hint">Automatic holiday detection for time-of-use schedules.</span>
+            </label>
+            <div class="settings-control">
+              <select id="cost-holiday-calendar" class="device-select">
+                <option value="">None</option>
+                <option value="CA-QC">Hydro-Québec (CA-QC)</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-row" id="cost-custom-holidays-row" hidden>
+            <label class="settings-label" for="cost-custom-holidays">
+              <span class="settings-label-text">Dynamic / custom holidays</span>
+              <span class="settings-hint">Comma-separated dates (YYYY-MM-DD or MM-DD), e.g. Hilo peak challenges or custom dates.</span>
+            </label>
+            <div class="settings-control">
+              <input id="cost-custom-holidays" type="text" placeholder="e.g. 2026-01-15, 12-25" style="width:240px" />
             </div>
           </div>
           <div class="settings-row" id="cost-tou-row" hidden>
             <label class="settings-label">
-              <span class="settings-label-text">TOU rates</span>
-              <span class="settings-hint">Built-in presets are approximate — edit any rate to match your bill, then Save.</span>
+              <span class="settings-label-text">TOU rates &amp; rules</span>
+              <span class="settings-hint">Configure rates, time windows, day-of-week, and holiday rules. Edit any value, then click Save.</span>
             </label>
-            <div class="settings-control">
+            <div class="settings-control" style="flex-direction:column; align-items:stretch; width:100%">
               <div id="cost-tou-slots" class="cost-tou-slots"></div>
+              <div style="margin-top:8px">
+                <button id="cost-add-slot" class="btn btn-ghost btn-small" type="button">+ Add slot</button>
+              </div>
             </div>
           </div>
           <div style="margin-top:16px; display:flex; gap:8px; align-items:center">

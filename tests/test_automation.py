@@ -443,3 +443,253 @@ def test_disable_many_empty_input_returns_empty(isolated_data):
     assert eng.disable_many(None) == []  # type: ignore[arg-type]
     # And the rule remained enabled.
     assert eng.list_rules()[0]["enabled"] is True
+
+
+# ---------- Time of day parsing & formatting ----------
+def test_parse_time_of_day():
+    from automation import AutomationError, _format_time_of_day, _parse_time_of_day
+
+    assert _parse_time_of_day("20:00") == 1200
+    assert _parse_time_of_day("20:30") == 1230
+    assert _parse_time_of_day("08:15") == 495
+    assert _parse_time_of_day("8:15") == 495
+    assert _parse_time_of_day("20h00") == 1200
+    assert _parse_time_of_day("20h") == 1200
+    assert _parse_time_of_day("8h30") == 510
+    assert _parse_time_of_day("8:30 PM") == 1230
+    assert _parse_time_of_day("8:30pm") == 1230
+    assert _parse_time_of_day("8pm") == 1200
+    assert _parse_time_of_day("12:00 AM") == 0
+    assert _parse_time_of_day("12:00 PM") == 720
+    assert _parse_time_of_day("23:59") == 1439
+    assert _parse_time_of_day("00:00") == 0
+    assert _parse_time_of_day("20:00:00") == 1200
+    assert _parse_time_of_day(1200) == 1200
+
+    assert _format_time_of_day(1200) == "20:00"
+    assert _format_time_of_day(0) == "00:00"
+    assert _format_time_of_day(495) == "08:15"
+
+    with pytest.raises(AutomationError):
+        _parse_time_of_day("")
+    with pytest.raises(AutomationError):
+        _parse_time_of_day("bad:time")
+    with pytest.raises(AutomationError):
+        _parse_time_of_day("25:00")
+    with pytest.raises(AutomationError):
+        _parse_time_of_day("20:65")
+
+
+# ---------- Compound & Time-of-day condition matching ----------
+def test_matches_time_of_day():
+    import time
+
+    from automation import _matches
+
+    # Fix UTC reference: 2026-06-01 20:00:00 UTC (hour 20, min 0)
+    # 2026-06-01 20:00:00 UTC timestamp = 1780344000
+    # Let's create an exact UTC timestamp for 20:00:
+    # time.gmtime(ts) -> tm_hour=20, tm_min=0
+    ref_gm = (2026, 6, 1, 20, 0, 0, 0, 0, 0)
+    import calendar
+    ts_2000 = calendar.timegm(ref_gm)  # exactly 20:00 at tz_offset=0
+
+    # Test >= 20:00 at 20:00
+    rule = {
+        "conditions": [{"type": "time_of_day", "operator": ">=", "value": "20:00"}]
+    }
+    assert _matches(rule, soc=None, now_ts=ts_2000, tz_offset=0) is True
+
+    # Test < 20:00 at 20:00 -> False
+    rule_lt = {
+        "conditions": [{"type": "time_of_day", "operator": "<", "value": "20:00"}]
+    }
+    assert _matches(rule_lt, soc=None, now_ts=ts_2000, tz_offset=0) is False
+
+    # Test = 20:00 at 20:00 -> True
+    rule_eq = {
+        "conditions": [{"type": "time_of_day", "operator": "=", "value": "20:00"}]
+    }
+    assert _matches(rule_eq, soc=None, now_ts=ts_2000, tz_offset=0) is True
+
+    # Test at 20:01 (ts + 60)
+    assert _matches(rule_eq, soc=None, now_ts=ts_2000 + 60, tz_offset=0) is False
+    assert _matches(rule, soc=None, now_ts=ts_2000 + 60, tz_offset=0) is True
+
+    # Test timezone offset: with tz_offset = -14400 (-4h, EDT):
+    # local time is 16:00, so >= 20:00 is False
+    assert _matches(rule, soc=None, now_ts=ts_2000, tz_offset=-14400) is False
+    # But >= 16:00 is True
+    rule_16 = {
+        "conditions": [{"type": "time_of_day", "operator": ">=", "value": "16:00"}]
+    }
+    assert _matches(rule_16, soc=None, now_ts=ts_2000, tz_offset=-14400) is True
+
+
+def test_matches_compound_and_conditions():
+    import calendar
+
+    from automation import _matches
+
+    rule = {
+        "conditions": [
+            {"type": "time_of_day", "operator": ">=", "value": "20:00"},
+            {"type": "time_of_day", "operator": "<", "value": "23:00"},
+            {"type": "battery_percent", "operator": ">=", "value": 30},
+        ]
+    }
+
+    # Helper to generate timestamp for given hour and minute (UTC, tz_offset=0)
+    def make_ts(hour: int, minute: int) -> float:
+        return float(calendar.timegm((2026, 6, 1, hour, minute, 0, 0, 0, 0)))
+
+    # 1. 20:30 and SOC=50 -> All match -> True
+    assert _matches(rule, soc=50, now_ts=make_ts(20, 30), tz_offset=0) is True
+
+    # 2. 19:59 and SOC=50 -> Time < 20:00 fails -> False
+    assert _matches(rule, soc=50, now_ts=make_ts(19, 59), tz_offset=0) is False
+
+    # 3. 23:00 and SOC=50 -> Time < 23:00 fails (curr_min=1380 not < 1380) -> False
+    assert _matches(rule, soc=50, now_ts=make_ts(23, 0), tz_offset=0) is False
+
+    # 4. 20:30 and SOC=29 -> Battery >= 30 fails -> False
+    assert _matches(rule, soc=29, now_ts=make_ts(20, 30), tz_offset=0) is False
+
+    # 5. 20:30 and SOC=30 -> True (boundary)
+    assert _matches(rule, soc=30, now_ts=make_ts(20, 30), tz_offset=0) is True
+
+
+# ---------- Validation of compound rules ----------
+def test_validate_compound_conditions(isolated_data):
+    import automation
+    importlib.reload(automation)
+
+    clean = automation._validate({
+        "name": "Evening load",
+        "action": "on",
+        "kasa_host": "192.168.1.100",
+        "conditions": [
+            {"type": "time_of_day", "operator": ">=", "value": "20h00"},
+            {"type": "time_of_day", "operator": "<", "value": "23:00"},
+            {"type": "battery_percent", "operator": ">=", "value": "30"},
+        ],
+    })
+
+    assert len(clean["conditions"]) == 3
+    assert clean["conditions"][0] == {"type": "time_of_day", "operator": ">=", "value": "20:00"}
+    assert clean["conditions"][1] == {"type": "time_of_day", "operator": "<", "value": "23:00"}
+    assert clean["conditions"][2] == {"type": "battery_percent", "operator": ">=", "value": 30.0}
+    # Top-level mirrors the battery condition for backward compatibility
+    assert clean["trigger"] == "battery_percent"
+    assert clean["operator"] == ">="
+    assert clean["value"] == 30.0
+
+
+def test_validate_rejects_empty_conditions(isolated_data):
+    import automation
+    importlib.reload(automation)
+
+    with pytest.raises(automation.AutomationError):
+        automation._validate({
+            "name": "Bad",
+            "action": "on",
+            "kasa_host": "1.2.3.4",
+            "conditions": [],
+        })
+
+
+def test_validate_rejects_invalid_condition_type(isolated_data):
+    import automation
+    importlib.reload(automation)
+
+    with pytest.raises(automation.AutomationError):
+        automation._validate({
+            "name": "Bad",
+            "action": "on",
+            "kasa_host": "1.2.3.4",
+            "conditions": [
+                {"type": "wind_speed", "operator": ">", "value": 10},
+            ],
+        })
+
+
+# ---------- Edge-triggered evaluation of compound rules ----------
+@pytest.mark.asyncio
+async def test_evaluate_compound_rule_edge_trigger(engine_with_fake_kasa):
+    import calendar
+    eng, calls, _ = engine_with_fake_kasa
+
+    eng.upsert({
+        "name": "Evening heating",
+        "action": "on",
+        "kasa_host": "1.2.3.4",
+        "jackery_device_sn": "DEV_1",
+        "conditions": [
+            {"type": "time_of_day", "operator": ">=", "value": "20:00"},
+            {"type": "time_of_day", "operator": "<", "value": "23:00"},
+            {"type": "battery_percent", "operator": ">=", "value": 30},
+        ],
+    })
+
+    def make_ts(hour: int, minute: int, day: int = 1) -> float:
+        return float(calendar.timegm((2026, 6, day, hour, minute, 0, 0, 0, 0)))
+
+    # 1. At 19:59 with SOC 50 -> Condition False, no fire
+    fired = await eng.evaluate({"DEV_1": 50}, active_sn="DEV_1", now_ts=make_ts(19, 59), tz_offset=0)
+    assert fired == [] and calls == []
+
+    # 2. At 20:00 with SOC 50 -> Transition False -> True -> FIRES ONCE!
+    fired = await eng.evaluate({"DEV_1": 50}, active_sn="DEV_1", now_ts=make_ts(20, 0), tz_offset=0)
+    assert len(fired) == 1
+    assert calls == [("1.2.3.4", True)]
+
+    # 3. At 20:15 with SOC 48 -> Still True -> No re-fire
+    fired = await eng.evaluate({"DEV_1": 48}, active_sn="DEV_1", now_ts=make_ts(20, 15), tz_offset=0)
+    assert fired == []
+    assert len(calls) == 1
+
+    # 4. At 21:00 battery drops to 25% -> Condition becomes False!
+    fired = await eng.evaluate({"DEV_1": 25}, active_sn="DEV_1", now_ts=make_ts(21, 0), tz_offset=0)
+    assert fired == []
+    assert len(calls) == 1
+
+    # 5. At 21:30 battery recharges back to 35% -> Condition becomes True -> FIRES AGAIN!
+    fired = await eng.evaluate({"DEV_1": 35}, active_sn="DEV_1", now_ts=make_ts(21, 30), tz_offset=0)
+    assert len(fired) == 1
+    assert calls == [("1.2.3.4", True), ("1.2.3.4", True)]
+
+    # 6. At 23:00 window ends -> Condition becomes False
+    fired = await eng.evaluate({"DEV_1": 35}, active_sn="DEV_1", now_ts=make_ts(23, 0), tz_offset=0)
+    assert fired == []
+
+    # 7. Next day at 20:00 -> Transition False -> True -> FIRES AGAIN!
+    fired = await eng.evaluate({"DEV_1": 40}, active_sn="DEV_1", now_ts=make_ts(20, 0, day=2), tz_offset=0)
+    assert len(fired) == 1
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_evaluate_pure_time_rule_without_battery(engine_with_fake_kasa):
+    import calendar
+    eng, calls, _ = engine_with_fake_kasa
+
+    eng.upsert({
+        "name": "Night shutdown",
+        "action": "off",
+        "kasa_host": "1.2.3.4",
+        "conditions": [
+            {"type": "time_of_day", "operator": ">=", "value": "23:00"},
+        ],
+    })
+
+    def make_ts(hour: int, minute: int) -> float:
+        return float(calendar.timegm((2026, 6, 1, hour, minute, 0, 0, 0, 0)))
+
+    # Empty soc_by_sn — pure time rule should still evaluate!
+    await eng.evaluate({}, now_ts=make_ts(22, 59), tz_offset=0)
+    assert calls == []
+
+    fired = await eng.evaluate({}, now_ts=make_ts(23, 0), tz_offset=0)
+    assert len(fired) == 1
+    assert calls == [("1.2.3.4", False)]
+

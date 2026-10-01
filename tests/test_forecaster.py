@@ -12,7 +12,12 @@ def _weather_interval_ends(weather):
 
 
 def test_battery_capacity_known_and_unknown():
+    assert forecaster.battery_capacity_wh(4) == 288
+    assert forecaster.battery_capacity_wh(5) == 1264
+    assert forecaster.battery_capacity_wh(8) == 1070
+    assert forecaster.battery_capacity_wh(12) == 2042
     assert forecaster.battery_capacity_wh(13) == 5040
+    assert forecaster.battery_capacity_wh(19) == 3024
     assert forecaster.battery_capacity_wh(22) == 5040
     assert forecaster.battery_capacity_wh(99) == forecaster.DEFAULT_BATTERY_CAPACITY_WH
     assert forecaster.battery_capacity_wh(None) == forecaster.DEFAULT_BATTERY_CAPACITY_WH

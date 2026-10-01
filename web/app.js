@@ -54,9 +54,12 @@ let activeTab = 'live';
 // Single source of truth so the chart drawing code, hover tooltips, and
 // (future) legend swatches can't drift out of sync.
 const SERIES_COLORS = {
-  battery: '#fbbf24',  // amber, also matches CSS .lg-bat
-  output:  '#4ade80',  // green, also matches CSS .lg-out
-  input:   '#38bdf8',  // sky,   also matches CSS .lg-in
+  battery:  '#fbbf24',  // amber, also matches CSS .lg-bat
+  output:   '#4ade80',  // green, also matches CSS .lg-out
+  input:    '#38bdf8',  // sky,   also matches CSS .lg-in
+  baseline: '#38bdf8',  // sky (baseline no battery)
+  grid:     '#ef4444',  // red (actual grid cost)
+  net:      '#4ade80',  // green (net savings)
 };
 
 // ---------- legend / series visibility ----------
@@ -64,6 +67,7 @@ const _seriesVisible = {
   live:     { battery: true, output: true, input: true },
   energy:   { battery: true, output: true, input: true },
   forecast: { soc: true, load: true, solar: true },
+  cost:     { baseline: true, grid: true, net: true },
 };
 
 // Adding a new chart? Just register its redraw + cache-getter here.
@@ -71,6 +75,7 @@ const _chartRedraw = {
   live:     () => lastStatus && drawLiveChart(lastStatus),
   energy:   () => energyHistoryCache && drawEnergyChart(energyHistoryCache),
   forecast: () => forecastCache && drawForecastChart(forecastCache),
+  cost:     () => costHistoryCache && drawCostChart(costHistoryCache),
 };
 
 document.addEventListener('click', (e) => {
@@ -417,7 +422,7 @@ $('forget-creds')?.addEventListener('click', async () => {
 // URL on explicit navigations (clearing the hash from the address bar
 // would be over-ridden by the saved value, snapping back).
 const VALID_TABS = new Set([
-  'live', 'energy', 'forecast', 'device', 'automation', 'logs', 'settings',
+  'live', 'energy', 'cost', 'forecast', 'device', 'automation', 'logs', 'settings',
 ]);
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -447,6 +452,7 @@ function switchTab(name, opts = {}) {
   document.querySelectorAll('.tab-panel').forEach(p => p.toggleAttribute('hidden', p.id !== `tab-${name}`));
   if (name === 'live')     { drawLiveChart(lastStatus); }
   if (name === 'energy')   { fetchEnergyHistory(); fetchEnergyAllDevices(); fetchEnergyDaily(); }
+  if (name === 'cost')     { loadCostTab(); }
   if (name === 'forecast') { fetchForecast(); }
   if (name === 'settings') { loadSettings(); loadCostPlan(); initKeepAwakeToggle(); loadAnthropicKeyStatus(); loadAnthropicModelPickers(); loadAIProvider(); loadOpenAIKeyStatus(); loadOpenAIModelPickers(); loadBackupAll(); restoreSettingsSubtab(); }
   if (name === 'logs')     { loadLogs(); }
@@ -456,7 +462,7 @@ function switchTab(name, opts = {}) {
     // User is now looking — clear the "new insights" dot.
     setAutomationDot(false);
   }
-  if (name === 'device')   { loadDeviceCapacity(); loadDeviceParams(); loadInverterWatchdogConfig(); }
+  if (name === 'device')   { loadDeviceCapacity(); loadDeviceParams(); loadInverterWatchdogConfig(); loadHardwareSettings(); }
 }
 
 // Boot path: pull the tab from the URL hash. Defer the actual switch
@@ -967,6 +973,167 @@ $('inverter-watchdog-enabled')?.addEventListener('change', async (event) => {
     if (activeJackeryDevice()?.device_sn === sn) input.disabled = false;
   }
 });
+
+// ============================================================
+// DEVICE TAB: Hardware settings
+// ============================================================
+const _pendingHardwareSettings = {}; // key -> { expected, deviceSn, until }
+
+const HARDWARE_SETTINGS_DEFS = [
+  { id: 'setting-battery-saving', key: 'battery_saving', type: 'checkbox' },
+  { id: 'setting-charge-speed', key: 'charge_speed', type: 'select', isInt: true },
+  { id: 'setting-super-charge', key: 'super_charge', type: 'checkbox' },
+  { id: 'setting-energy-saving', key: 'energy_saving', type: 'select', isInt: true },
+  { id: 'setting-screen-timeout', key: 'screen_timeout', type: 'select', isInt: true },
+  { id: 'setting-auto-shutdown', key: 'auto_shutdown', type: 'select', isInt: true },
+  { id: 'setting-light-mode', key: 'light_mode', type: 'select', isInt: true },
+  { id: 'setting-ups-mode', key: 'ups_mode', type: 'checkbox' },
+];
+
+const MODEL_FEATURE_OVERRIDES = {
+  4: { charge_speed: false, super_charge: false, ups_mode: false },
+  5: { super_charge: false },
+  8: { charge_speed: true, super_charge: true, ups_mode: true },
+  12: { charge_speed: true, super_charge: true, ups_mode: true },
+  13: { super_charge: false },
+  22: { super_charge: false },
+  19: { super_charge: false },
+};
+
+async function loadHardwareSettings() {
+  const sn = activeJackeryDevice()?.device_sn;
+  const status = $('hardware-settings-status');
+  if (!sn) {
+    for (const def of HARDWARE_SETTINGS_DEFS) {
+      const el = $(def.id);
+      if (el) el.disabled = true;
+    }
+    return;
+  }
+
+  // Pre-apply model overrides immediately to avoid showing unsupported controls
+  renderHardwareSettings(null, sn);
+
+  try {
+    const r = await fetch(`/api/devices/settings?device_sn=${encodeURIComponent(sn)}`);
+    if (!r.ok) return;
+    const j = await r.json();
+    if (activeJackeryDevice()?.device_sn !== sn) return;
+    renderHardwareSettings(j.settings || {}, sn);
+  } catch (e) {
+    console.warn('hardware settings load failed', e);
+  }
+}
+
+function renderHardwareSettings(settings, deviceSn) {
+  const currentSn = activeJackeryDevice()?.device_sn;
+  if (deviceSn && currentSn && deviceSn !== currentSn) return;
+  const targetSn = deviceSn || currentSn;
+  const dev = (lastStatus?.cloud?.devices || []).find((d) => d.device_sn === targetSn) || activeJackeryDevice();
+  const modelCode = dev?.model_code;
+  const overrides = modelCode != null ? MODEL_FEATURE_OVERRIDES[modelCode] : null;
+  const now = Date.now();
+
+  const hasSettings = settings && Object.keys(settings).length > 0;
+  for (const def of HARDWARE_SETTINGS_DEFS) {
+    const el = $(def.id);
+    if (!el) continue;
+    const row = el.closest('.settings-row');
+
+    if (overrides && overrides[def.key] === false) {
+      if (row) row.hidden = true;
+      continue;
+    }
+
+    const val = settings ? settings[def.key] : undefined;
+
+    if (hasSettings) {
+      if (val === undefined || val === null) {
+        if (row) row.hidden = true;
+        continue;
+      }
+      if (row) row.hidden = false;
+    }
+
+    el.dataset.deviceSn = targetSn || '';
+    el.disabled = !targetSn;
+
+    // Check if there is an active optimistic update
+    const pending = _pendingHardwareSettings[def.key];
+    if (pending && pending.deviceSn === targetSn && now < pending.until) {
+      continue;
+    } else if (pending && now >= pending.until) {
+      delete _pendingHardwareSettings[def.key];
+    }
+
+    if (val === undefined || val === null) continue;
+
+    if (def.type === 'checkbox') {
+      el.checked = Boolean(val);
+    } else if (def.type === 'select') {
+      el.value = String(val);
+    }
+  }
+}
+
+function initHardwareSettingsHandlers() {
+  for (const def of HARDWARE_SETTINGS_DEFS) {
+    const el = $(def.id);
+    if (!el) continue;
+    el.addEventListener('change', async (event) => {
+      const target = event.currentTarget;
+      const sn = target.dataset.deviceSn || activeJackeryDevice()?.device_sn;
+      if (!sn) return;
+
+      const rawVal = def.type === 'checkbox' ? target.checked : (def.isInt ? parseInt(target.value, 10) : target.value);
+      const status = $('hardware-settings-status');
+      if (status) {
+        status.hidden = false;
+        status.textContent = 'Saving…';
+      }
+
+      // Optimistic lock for 25s
+      _pendingHardwareSettings[def.key] = {
+        expected: rawVal,
+        deviceSn: sn,
+        until: Date.now() + 25000,
+      };
+
+      try {
+        const r = await fetch('/api/devices/setting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            device_sn: sn,
+            setting: def.key,
+            value: rawVal,
+          }),
+        });
+        const res = await r.json();
+        if (!r.ok || res.ok === false) {
+          throw new Error(res.detail || res.error || `HTTP ${r.status}`);
+        }
+        if (status) {
+          status.hidden = false;
+          status.textContent = 'Saved to hardware';
+          setTimeout(() => {
+            if (status.textContent === 'Saved to hardware') status.hidden = true;
+          }, 3000);
+        }
+      } catch (e) {
+        delete _pendingHardwareSettings[def.key];
+        if (status) {
+          status.hidden = false;
+          status.textContent = `Could not save: ${e.message || e}`;
+        }
+        alert(`Failed to update ${def.key.replace(/_/g, ' ')}: ${e.message || e}`);
+        // Re-sync from current device state
+        loadHardwareSettings();
+      }
+    });
+  }
+}
+initHardwareSettingsHandlers();
 
 async function loadDeviceCapacity() {
   try {
@@ -1848,13 +2015,29 @@ function renderAutomationRules(rules) {
       : '';
     // Make it explicit which Jackery device's SOC drives this rule.
     const jackeryName = r.jackery_device_name || r.jackery_device_sn || '(any device)';
+
+    // Build conditions HTML
+    const conds = (r.conditions && r.conditions.length)
+      ? r.conditions
+      : [{ type: r.trigger || 'battery_percent', operator: r.operator, value: r.value }];
+
+    const hasBatt = conds.some((c) => (c.type || 'battery_percent') === 'battery_percent');
+
+    const condParts = conds.map((c) => {
+      const op = opLabel[c.operator] || c.operator;
+      if (c.type === 'time_of_day') {
+        return `time <span class="op">${op}</span> <span class="val">${safe(c.value)}</span>`;
+      }
+      return `battery <span class="op">${op}</span> <span class="val">${c.value}%</span>`;
+    });
+    const condsText = condParts.join(' <span class="ar-and">AND</span> ');
+    const devicePrefix = hasBatt ? `<span class="device">${safe(jackeryName)}</span> ` : '';
+
     return `<div class="auto-rule ${r.enabled ? '' : 'disabled'}" data-id="${r.id}">
       <div>
         <div class="ar-title">${safe(r.name)}</div>
         <div class="ar-cond">
-          when <span class="device">${safe(jackeryName)}</span>
-          battery <span class="op">${opLabel[r.operator] || r.operator}</span>
-          <span class="val">${r.value}%</span>,
+          when ${devicePrefix}${condsText},
           turn <span class="action ${r.action}">${r.action.toUpperCase()}</span>
           → <span class="device">${safe(r.kasa_alias || r.kasa_host)}</span>
         </div>
@@ -1905,6 +2088,133 @@ function renderAutomationRules(rules) {
   });
 }
 
+let _editorConditions = [];
+
+function _renderEditorConditions() {
+  const container = $('auto-conditions-list');
+  if (!container) return;
+  if (!_editorConditions.length) {
+    _editorConditions = [{ type: 'battery_percent', operator: '<', value: 20 }];
+  }
+  const canDelete = _editorConditions.length > 1;
+
+  container.innerHTML = _editorConditions.map((cond, idx) => {
+    const isTime = cond.type === 'time_of_day';
+    const divider = idx > 0
+      ? `<div class="auto-cond-divider"><span class="auto-cond-and">AND</span></div>`
+      : '';
+    return `${divider}
+      <div class="auto-cond-row" data-cond-index="${idx}">
+        <select class="auto-cond-type">
+          <option value="battery_percent" ${!isTime ? 'selected' : ''}>Battery SOC</option>
+          <option value="time_of_day" ${isTime ? 'selected' : ''}>Time of day</option>
+        </select>
+        <select class="auto-cond-op">
+          <option value="<" ${cond.operator === '<' ? 'selected' : ''}>&lt; less than</option>
+          <option value="<=" ${cond.operator === '<=' ? 'selected' : ''}>&le; less or equal</option>
+          <option value="=" ${cond.operator === '=' ? 'selected' : ''}>= equal to</option>
+          <option value=">=" ${cond.operator === '>=' ? 'selected' : ''}>&ge; greater or equal</option>
+          <option value=">" ${cond.operator === '>' ? 'selected' : ''}>&gt; greater than</option>
+        </select>
+        <div class="auto-cond-val-wrap">
+          <div class="auto-cond-batt-wrap" ${isTime ? 'hidden' : ''}>
+            <input type="number" class="auto-cond-val-batt" min="0" max="100" step="1" value="${!isTime ? (cond.value ?? 20) : 20}" placeholder="20" />
+            <span class="auto-pct">%</span>
+          </div>
+          <div class="auto-cond-time-wrap" ${!isTime ? 'hidden' : ''}>
+            <input type="time" class="auto-cond-val-time" step="60" value="${isTime ? (cond.value || '20:00') : '20:00'}" />
+          </div>
+        </div>
+        <button type="button" class="btn btn-ghost auto-cond-del" title="Remove condition" data-cond-del="${idx}" ${canDelete ? '' : 'disabled style="opacity:0.3;cursor:not-allowed"'}>✕</button>
+      </div>`;
+  }).join('');
+
+  // Wire type changes
+  container.querySelectorAll('.auto-cond-row').forEach((row) => {
+    const idx = parseInt(row.dataset.condIndex, 10);
+    const typeSelect = row.querySelector('.auto-cond-type');
+    const opSelect = row.querySelector('.auto-cond-op');
+    const battWrap = row.querySelector('.auto-cond-batt-wrap');
+    const timeWrap = row.querySelector('.auto-cond-time-wrap');
+    const battInput = row.querySelector('.auto-cond-val-batt');
+    const timeInput = row.querySelector('.auto-cond-val-time');
+
+    typeSelect.addEventListener('change', () => {
+      const isTime = typeSelect.value === 'time_of_day';
+      battWrap.hidden = isTime;
+      timeWrap.hidden = !isTime;
+      _editorConditions[idx].type = typeSelect.value;
+      if (isTime) {
+        _editorConditions[idx].value = timeInput.value || '20:00';
+      } else {
+        _editorConditions[idx].value = Number(battInput.value || 20);
+      }
+    });
+
+    opSelect.addEventListener('change', () => {
+      _editorConditions[idx].operator = opSelect.value;
+    });
+
+    battInput.addEventListener('input', () => {
+      if (_editorConditions[idx].type === 'battery_percent') {
+        _editorConditions[idx].value = Number(battInput.value);
+      }
+    });
+
+    timeInput.addEventListener('input', () => {
+      if (_editorConditions[idx].type === 'time_of_day') {
+        _editorConditions[idx].value = timeInput.value;
+      }
+    });
+  });
+
+  // Wire delete buttons
+  container.querySelectorAll('[data-cond-del]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (_editorConditions.length <= 1) return;
+      const idx = parseInt(btn.dataset.condDel, 10);
+      _syncEditorConditionsFromDom();
+      _editorConditions.splice(idx, 1);
+      _renderEditorConditions();
+    });
+  });
+}
+
+function _syncEditorConditionsFromDom() {
+  const container = $('auto-conditions-list');
+  if (!container) return;
+  const rows = container.querySelectorAll('.auto-cond-row');
+  const result = [];
+  rows.forEach((row) => {
+    const type = row.querySelector('.auto-cond-type')?.value || 'battery_percent';
+    const operator = row.querySelector('.auto-cond-op')?.value || '<';
+    let value;
+    if (type === 'time_of_day') {
+      value = row.querySelector('.auto-cond-val-time')?.value || '20:00';
+    } else {
+      value = Number(row.querySelector('.auto-cond-val-batt')?.value || 20);
+    }
+    result.push({ type, operator, value });
+  });
+  if (result.length) {
+    _editorConditions = result;
+  }
+}
+
+$('auto-cond-add')?.addEventListener('click', () => {
+  _syncEditorConditionsFromDom();
+  const hasBatt = _editorConditions.some((c) => c.type === 'battery_percent');
+  const hasTime = _editorConditions.some((c) => c.type === 'time_of_day');
+  if (hasTime && !hasBatt) {
+    _editorConditions.push({ type: 'battery_percent', operator: '>=', value: 30 });
+  } else if (hasBatt && !hasTime) {
+    _editorConditions.push({ type: 'time_of_day', operator: '>=', value: '20:00' });
+  } else {
+    _editorConditions.push({ type: 'time_of_day', operator: '<', value: '23:00' });
+  }
+  _renderEditorConditions();
+});
+
 function openAutomationEditor(rule) {
   const ed = $('auto-editor');
   if (!ed) return;
@@ -1942,9 +2252,21 @@ function openAutomationEditor(rule) {
   $('auto-editor-title').textContent = rule ? 'Edit rule' : 'New rule';
   $('auto-id').value       = rule?.id || '';
   $('auto-name').value     = rule?.name || '';
-  $('auto-operator').value = rule?.operator || '<';
-  $('auto-value').value    = rule?.value ?? 20;
   $('auto-kasa-pick').value = rule?.kasa_host || '';
+
+  if (rule?.conditions && rule.conditions.length) {
+    _editorConditions = JSON.parse(JSON.stringify(rule.conditions));
+  } else if (rule && rule.operator) {
+    _editorConditions = [{
+      type: rule.trigger || 'battery_percent',
+      operator: rule.operator,
+      value: rule.value ?? 20,
+    }];
+  } else {
+    _editorConditions = [{ type: 'battery_percent', operator: '<', value: 20 }];
+  }
+  _renderEditorConditions();
+
   // Pre-fill the Jackery picker: if editing an existing rule keep its sn,
   // otherwise default to whatever device the topbar dropdown is on so
   // creating a rule from "5000 Plus" view targets the 5000 Plus.
@@ -2089,10 +2411,33 @@ document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
     alert('Pick a saved Kasa device first.');
     return;
   }
-  if (!jackerySn) {
+
+  _syncEditorConditionsFromDom();
+  if (!_editorConditions.length) {
+    alert('Please add at least one condition.');
+    return;
+  }
+
+  for (const c of _editorConditions) {
+    if (c.type === 'battery_percent') {
+      if (isNaN(c.value) || c.value < 0 || c.value > 100) {
+        alert('Battery SOC must be between 0 and 100%.');
+        return;
+      }
+    } else if (c.type === 'time_of_day') {
+      if (!c.value || !String(c.value).trim()) {
+        alert('Please specify a valid time of day (e.g. 20:00).');
+        return;
+      }
+    }
+  }
+
+  const hasBatt = _editorConditions.some((c) => c.type === 'battery_percent');
+  if (hasBatt && !jackerySn) {
     alert('Pick which Jackery device this rule should watch.');
     return;
   }
+
   // Look up the alias from the saved-devices cache so the rule list shows
   // the friendly name even if the device record changes later.
   const dev = _savedKasaDevices.find((d) => d.host === host);
@@ -2101,15 +2446,13 @@ document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
   const body = {
     id: $('auto-id').value || undefined,
     name: $('auto-name').value.trim(),
-    operator: $('auto-operator').value,
-    value: Number($('auto-value').value),
+    conditions: _editorConditions,
     action,
     kasa_host: host,
     kasa_alias: dev?.alias || host,
-    jackery_device_sn:   jackerySn,
-    jackery_device_name: jdev?.name || jdev?.model_name || jackerySn,
+    jackery_device_sn:   jackerySn || null,
+    jackery_device_name: jdev?.name || jdev?.model_name || jackerySn || null,
     enabled: $('auto-enabled').checked,
-    trigger: 'battery_percent',
   };
   const status = $('auto-status');
   status.hidden = false; status.textContent = 'Saving…';
@@ -2639,8 +2982,8 @@ async function loadCostPlan() {
         chip.textContent = ['Flat', rate, cur === 'USD' ? null : cur]
           .filter(Boolean).join(' · ');
       } else if (p.type === 'tou') {
-        const n = (p.slots || []).length;
-        chip.textContent = `TOU · ${n} slot${n === 1 ? '' : 's'} · ${cur}`;
+        const n = (p.tou_rates || p.slots || []).length;
+        chip.textContent = ['TOU', `${n} slot${n === 1 ? '' : 's'}`, cur].filter(Boolean).join(' · ');
       } else {
         chip.textContent = '—';
       }
@@ -2673,6 +3016,13 @@ function renderCostFields(plan) {
   customTouOpt.textContent = 'Custom TOU';
   sel.appendChild(customTouOpt);
 
+  const curInput = $('cost-currency');
+  if (curInput) curInput.value = plan?.currency || 'USD';
+  const calSelect = $('cost-holiday-calendar');
+  if (calSelect) calSelect.value = plan?.holiday_calendar || '';
+  const customHolsInput = $('cost-custom-holidays');
+  if (customHolsInput) customHolsInput.value = (plan?.holidays || []).join(', ');
+
   // Match against presets first; fall through to "Custom TOU" or "Custom
   // flat rate" depending on the saved plan shape.
   const matchPreset = _costPresets.find((p) => deepEqualPlan(p.plan, plan));
@@ -2685,7 +3035,7 @@ function renderCostFields(plan) {
   }
 
   if (plan?.type === 'flat') {
-    $('cost-flat-rate').value = plan.rate_per_kwh;
+    $('cost-flat-rate').value = plan.rate_per_kwh != null ? plan.rate_per_kwh : 0.30;
   }
   // applyCostSelection wires the visible rows to the dropdown choice. For
   // a custom TOU plan we want to render the SAVED plan's slots, not the
@@ -2693,6 +3043,8 @@ function renderCostFields(plan) {
   if (sel.value === '__custom_tou__') {
     $('cost-flat-row').hidden = true;
     $('cost-tou-row').hidden = false;
+    $('cost-holidays-row').hidden = false;
+    $('cost-custom-holidays-row').hidden = false;
     renderTouEditor(JSON.parse(JSON.stringify(plan)));
   } else {
     applyCostSelection();
@@ -2701,8 +3053,13 @@ function renderCostFields(plan) {
 
 function deepEqualPlan(a, b) {
   if (!a || !b || a.type !== b.type) return false;
+  if ((a.currency || 'USD') !== (b.currency || 'USD')) return false;
   if (a.type === 'flat') return a.rate_per_kwh === b.rate_per_kwh;
   if (a.type === 'tou') {
+    if ((a.holiday_calendar || '') !== (b.holiday_calendar || '')) return false;
+    const ha = (a.holidays || []).join(',');
+    const hb = (b.holidays || []).join(',');
+    if (ha !== hb) return false;
     const sa = a.tou_rates || [];
     const sb = b.tou_rates || [];
     if (sa.length !== sb.length) return false;
@@ -2710,6 +3067,13 @@ function deepEqualPlan(a, b) {
       if (sa[i].start_hour !== sb[i].start_hour) return false;
       if (sa[i].end_hour !== sb[i].end_hour) return false;
       if (Math.abs(sa[i].rate - sb[i].rate) > 1e-6) return false;
+      const ma = (sa[i].months || []).join(',');
+      const mb = (sb[i].months || []).join(',');
+      if (ma !== mb) return false;
+      const wa = (sa[i].weekdays || []).join(',');
+      const wb = (sb[i].weekdays || []).join(',');
+      if (wa !== wb) return false;
+      if ((sa[i].holidays || '') !== (sb[i].holidays || '')) return false;
     }
     return true;
   }
@@ -2717,26 +3081,20 @@ function deepEqualPlan(a, b) {
 }
 
 // Tracks the currently-rendered TOU plan so the save handler can recover
-// the slot windows + labels. Only the per-slot RATES are user-editable;
-// start/end hours are utility-defined and stay locked to the preset.
+// the slot windows + labels.
 let _costTouCurrent = null;
 
 // Compact "Jun-Sep" / "Oct-May" / etc. label from a months list.
 function _monthsToString(months) {
   if (!months || !months.length) return '';
   const NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  // If the months form a single contiguous run (mod 12), show "first-last".
-  // Otherwise, list them.
   const sorted = [...new Set(months)].sort((a, b) => a - b);
-  // Try contiguous detection in normal order
   let contiguous = true;
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i] !== sorted[i - 1] + 1) { contiguous = false; break; }
   }
   if (contiguous) return `${NAMES[sorted[0] - 1]}–${NAMES[sorted[sorted.length - 1] - 1]}`;
-  // Try contiguous wrapping (e.g. winter = 1,2,3,4,5,10,11,12 wraps Oct-May)
   const present = new Set(sorted);
-  // Find the start of the longest gap
   for (let start = 1; start <= 12; start++) {
     if (!present.has(start)) continue;
     if (present.has(start - 1 < 1 ? 12 : start - 1)) continue;
@@ -2754,6 +3112,14 @@ function _monthsToString(months) {
   return sorted.map(m => NAMES[m - 1]).join(',');
 }
 
+function _weekdaysToOption(weekdays) {
+  if (!weekdays || !weekdays.length || weekdays.length === 7) return 'all';
+  const sorted = [...new Set(weekdays)].sort((a, b) => a - b);
+  if (sorted.length === 5 && sorted.every((v, i) => v === i + 1)) return 'weekdays';
+  if (sorted.length === 2 && sorted[0] === 6 && sorted[1] === 7) return 'weekends';
+  return 'custom';
+}
+
 function renderTouEditor(plan) {
   _costTouCurrent = plan;
   const wrap = $('cost-tou-slots');
@@ -2768,16 +3134,80 @@ function renderTouEditor(plan) {
     const timeText = monthsStr
       ? `${monthsStr} · ${start}:00–${end}:00`
       : `${start}:00–${end}:00`;
+
+    const wdVal = _weekdaysToOption(slot.weekdays);
+    const holVal = slot.holidays === 'exclude' ? 'exclude' : (slot.holidays === 'include' ? 'include' : (slot.holidays === 'only' ? 'only' : ''));
+
     row.innerHTML = `
-      <span class="slot-time">${timeText}</span>
-      <span><input type="number" class="slot-rate" data-idx="${i}"
-             step="0.001" min="0" max="5"
-             value="${slot.rate.toFixed(3)}" /> $/kWh</span>
-      <span class="slot-label">${escapeHtml(slot.label || '')}</span>
+      <span class="slot-time">${escapeHtml(timeText)}</span>
+      <select class="slot-days" data-idx="${i}" title="Days of week">
+        <option value="all"${wdVal === 'all' ? ' selected' : ''}>All days</option>
+        <option value="weekdays"${wdVal === 'weekdays' ? ' selected' : ''}>Mon–Fri</option>
+        <option value="weekends"${wdVal === 'weekends' ? ' selected' : ''}>Sat–Sun</option>
+      </select>
+      <select class="slot-holidays" data-idx="${i}" title="Holiday rule">
+        <option value=""${holVal === '' ? ' selected' : ''}>Standard</option>
+        <option value="exclude"${holVal === 'exclude' ? ' selected' : ''}>Excl. holidays</option>
+        <option value="include"${holVal === 'include' ? ' selected' : ''}>+ Holidays</option>
+        <option value="only"${holVal === 'only' ? ' selected' : ''}>Holidays only</option>
+      </select>
+      <span class="slot-rate-wrap">
+        <input type="number" class="slot-rate" data-idx="${i}"
+               step="0.00001" min="0" max="5"
+               value="${slot.rate != null ? slot.rate : 0}" /> /kWh
+      </span>
+      <input type="text" class="slot-label-input" data-idx="${i}"
+             placeholder="label (e.g. peak)" value="${escapeHtml(slot.label || '')}" />
+      <button type="button" class="btn btn-ghost btn-tiny slot-del-btn" data-idx="${i}" title="Remove slot">✕</button>
     `;
     wrap.appendChild(row);
   }
+
+  // Wire delete buttons
+  wrap.querySelectorAll('.slot-del-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.currentTarget.getAttribute('data-idx'), 10);
+      if (_costTouCurrent && _costTouCurrent.tou_rates && !isNaN(idx)) {
+        _costTouCurrent.tou_rates.splice(idx, 1);
+        _markAsCustomTou();
+        renderTouEditor(_costTouCurrent);
+      }
+    });
+  });
+
+  // Wire change events to mark as custom when user edits values
+  wrap.querySelectorAll('input, select').forEach(el => {
+    el.addEventListener('change', () => {
+      _markAsCustomTou();
+    });
+  });
 }
+
+function _markAsCustomTou() {
+  const sel = $('cost-preset');
+  if (sel && sel.value !== '__custom_tou__') {
+    sel.value = '__custom_tou__';
+  }
+}
+
+$('cost-add-slot')?.addEventListener('click', () => {
+  if (!_costTouCurrent) {
+    _costTouCurrent = {
+      type: 'tou',
+      currency: $('cost-currency')?.value.trim() || 'USD',
+      tou_rates: [],
+    };
+  }
+  if (!_costTouCurrent.tou_rates) _costTouCurrent.tou_rates = [];
+  _costTouCurrent.tou_rates.push({
+    start_hour: 0,
+    end_hour: 24,
+    rate: 0.15,
+    label: 'new slot',
+  });
+  _markAsCustomTou();
+  renderTouEditor(_costTouCurrent);
+});
 
 function applyCostSelection() {
   const sel = $('cost-preset');
@@ -2785,10 +3215,32 @@ function applyCostSelection() {
   const id = sel.value;
   const flatRow = $('cost-flat-row');
   const touRow  = $('cost-tou-row');
+  const holRow  = $('cost-holidays-row');
+  const custHolRow = $('cost-custom-holidays-row');
+
   if (id === '__custom_flat__') {
     flatRow.hidden = false;
     touRow.hidden = true;
+    if (holRow) holRow.hidden = true;
+    if (custHolRow) custHolRow.hidden = true;
     _costTouCurrent = null;
+    return;
+  }
+  if (id === '__custom_tou__') {
+    flatRow.hidden = true;
+    touRow.hidden = false;
+    if (holRow) holRow.hidden = false;
+    if (custHolRow) custHolRow.hidden = false;
+    if (!_costTouCurrent) {
+      _costTouCurrent = {
+        type: 'tou',
+        currency: $('cost-currency')?.value.trim() || 'USD',
+        tou_rates: [
+          { start_hour: 0, end_hour: 24, rate: 0.25, label: 'custom rate' },
+        ],
+      };
+    }
+    renderTouEditor(JSON.parse(JSON.stringify(_costTouCurrent)));
     return;
   }
   const preset = _costPresets.find((p) => p.id === id);
@@ -2796,11 +3248,19 @@ function applyCostSelection() {
   if (preset.plan.type === 'flat') {
     flatRow.hidden = false;
     touRow.hidden = true;
+    if (holRow) holRow.hidden = true;
+    if (custHolRow) custHolRow.hidden = true;
     _costTouCurrent = null;
-    $('cost-flat-rate').value = preset.plan.rate_per_kwh;
+    $('cost-flat-rate').value = preset.plan.rate_per_kwh != null ? preset.plan.rate_per_kwh : 0.30;
+    if ($('cost-currency')) $('cost-currency').value = preset.plan.currency || 'USD';
   } else if (preset.plan.type === 'tou') {
     flatRow.hidden = true;
     touRow.hidden = false;
+    if (holRow) holRow.hidden = false;
+    if (custHolRow) custHolRow.hidden = false;
+    if ($('cost-currency')) $('cost-currency').value = preset.plan.currency || 'USD';
+    if ($('cost-holiday-calendar')) $('cost-holiday-calendar').value = preset.plan.holiday_calendar || '';
+    if ($('cost-custom-holidays')) $('cost-custom-holidays').value = (preset.plan.holidays || []).join(', ');
     // Deep-copy so the user editing rates doesn't mutate _costPresets.
     renderTouEditor(JSON.parse(JSON.stringify(preset.plan)));
   }
@@ -2813,38 +3273,67 @@ document.getElementById('cost-form')?.addEventListener('submit', async (e) => {
   const status = $('cost-status');
   const sel = $('cost-preset');
   const id = sel.value;
+  const currency = $('cost-currency')?.value.trim().toUpperCase() || 'USD';
   let plan;
   if (id === '__custom_flat__') {
     plan = {
       type: 'flat',
       rate_per_kwh: parseFloat($('cost-flat-rate').value) || 0,
-      currency: 'USD',
+      currency: currency,
     };
   } else if (_costTouCurrent) {
-    // TOU: walk the editable rate inputs and rebuild the plan from
-    // _costTouCurrent (which holds the current windows + labels).
-    const inputs = document.querySelectorAll('#cost-tou-slots input.slot-rate');
-    const touRates = (_costTouCurrent.tou_rates || []).map((slot, i) => {
-      const inp = inputs[i];
-      const editedRate = inp ? parseFloat(inp.value) : slot.rate;
+    const slotRows = document.querySelectorAll('#cost-tou-slots .cost-tou-slot');
+    const touRates = [];
+    slotRows.forEach((row, i) => {
+      const slot = (_costTouCurrent.tou_rates || [])[i] || {};
+      const rateInp = row.querySelector('.slot-rate');
+      const labelInp = row.querySelector('.slot-label-input');
+      const daysSel = row.querySelector('.slot-days');
+      const holSel = row.querySelector('.slot-holidays');
+
+      const editedRate = rateInp ? parseFloat(rateInp.value) : slot.rate;
+      const editedLabel = labelInp ? labelInp.value.trim() : (slot.label || '');
+      const daysVal = daysSel ? daysSel.value : 'all';
+      const holVal = holSel ? holSel.value : '';
+
       const out = {
-        start_hour: slot.start_hour,
-        end_hour: slot.end_hour,
-        rate: Number.isFinite(editedRate) ? editedRate : slot.rate,
-        label: slot.label || '',
+        start_hour: slot.start_hour != null ? slot.start_hour : 0,
+        end_hour: slot.end_hour != null ? slot.end_hour : 24,
+        rate: Number.isFinite(editedRate) ? editedRate : (slot.rate || 0),
+        label: editedLabel,
       };
-      // Preserve the seasonal `months` filter so the saved plan keeps
-      // its per-season grouping.
       if (slot.months && slot.months.length) {
         out.months = [...slot.months];
       }
-      return out;
+      if (daysVal === 'weekdays') {
+        out.weekdays = [1, 2, 3, 4, 5];
+      } else if (daysVal === 'weekends') {
+        out.weekdays = [6, 7];
+      } else if (daysVal === 'custom' && slot.weekdays) {
+        out.weekdays = [...slot.weekdays];
+      }
+      if (holVal === 'exclude') {
+        out.holidays = 'exclude';
+      } else if (holVal === 'include') {
+        out.holidays = 'include';
+      } else if (holVal === 'only') {
+        out.holidays = 'only';
+      }
+      touRates.push(out);
     });
+
     plan = {
       type: 'tou',
-      currency: _costTouCurrent.currency || 'USD',
+      currency: currency,
       tou_rates: touRates,
     };
+
+    const cal = $('cost-holiday-calendar')?.value.trim();
+    if (cal) plan.holiday_calendar = cal;
+
+    const customHolsRaw = $('cost-custom-holidays')?.value || '';
+    const customHols = customHolsRaw.split(',').map(s => s.trim()).filter(Boolean);
+    if (customHols.length) plan.holidays = customHols;
   } else {
     const preset = _costPresets.find((p) => p.id === id);
     if (!preset) return;
@@ -3945,6 +4434,7 @@ function applyStatus(s) {
   const newDeviceSn = activeJackeryDevice()?.device_sn;
   if (activeTab === 'device' && prevDeviceSn !== newDeviceSn) {
     loadInverterWatchdogConfig();
+    loadHardwareSettings();
   }
   if (activeTab === 'automation' && prevDeviceSn !== newDeviceSn) {
     if (_allRules.length) renderRulesWithFilter();
@@ -3960,6 +4450,13 @@ function applyStatus(s) {
     if (activeTab === 'forecast') {
       forecastCache = null;
       fetchForecast();
+    }
+    if (activeTab === 'cost') {
+      costSummaryCache = null;
+      costDistCache = null;
+      costHistoryCache = null;
+      costBreakdownCache = null;
+      loadCostTab();
     }
     // Daily table/records are per-device — drop the old cache so a CSV
     // export can't carry the previous device's data, and refresh in
@@ -4206,10 +4703,32 @@ function applyStatus(s) {
   _lastCloudMeta = s.cloud || null;
   renderPausePill();
   $('dev-updated').textContent = s.last_update_ts ? new Date(s.last_update_ts * 1000).toLocaleString() : '—';
-  const upsParts = [t.ups_on && 'UPS', t.super_charge_on && 'Super charge'].filter(Boolean);
+  const devModelCode = dev.model_code;
+  const devOverrides = devModelCode != null ? MODEL_FEATURE_OVERRIDES[devModelCode] : null;
+  const upsSupported = !devOverrides || devOverrides.ups_mode !== false;
+  const sfcSupported = !devOverrides || devOverrides.super_charge !== false;
+  const upsParts = [
+    (upsSupported && t.ups_on) && 'UPS',
+    (sfcSupported && t.super_charge_on) && 'Super charge',
+  ].filter(Boolean);
   $('dev-ups').textContent = upsParts.length ? upsParts.join(' + ')
-    : (t.ups_on === false || t.super_charge_on === false) ? 'Off' : '—';
+    : ((upsSupported && t.ups_on === false) || (sfcSupported && t.super_charge_on === false)) ? 'Off' : '—';
   $('dev-err').textContent     = t.error_code != null ? String(t.error_code) : '—';
+
+  // Hardware settings on Device tab
+  if (t) {
+    const sets = t.settings || {
+      battery_saving: t.battery_saving,
+      charge_speed: t.charge_speed,
+      super_charge: t.super_charge,
+      energy_saving: t.energy_saving,
+      screen_timeout: t.screen_timeout,
+      auto_shutdown: t.auto_shutdown,
+      light_mode: t.light_mode,
+      ups_mode: t.ups_on,
+    };
+    renderHardwareSettings(sets, dev.device_sn);
+  }
 
   // Energy KPIs (cards on Energy tab)
   if (s.energy) renderEnergyKpis(s.energy);
@@ -5102,6 +5621,7 @@ function drawLiveChart(s) {
   }
 
   // Hover state stored on the canvas element
+  canvas._redraw = () => lastStatus && drawLiveChart(lastStatus);
   _attachChartHover(canvas, hist, (i, evt) => {
     const p = hist[i];
     const d = p.ts ? new Date(p.ts * 1000) : null;
@@ -5133,22 +5653,173 @@ function _attachChartHover(canvas, hist, htmlFn, geomFn) {
     if (!data?.length || !geom || !html) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const t = (x - geom.padL) / (geom.w - geom.padL - geom.padR);
-    const idx = Math.max(0, Math.min(data.length - 1, Math.round(t * (data.length - 1))));
-    // Redraw the chart, then overlay the crosshair.
+    const y = e.clientY - rect.top;
+    if (x < geom.padL || x > geom.w - geom.padR || y < geom.padT || y > geom.baseY) {
+      chartTooltip(null);
+      if (canvas._redraw) canvas._redraw();
+      return;
+    }
+    let idx;
+    if (geom.getIdx) {
+      idx = geom.getIdx(x);
+    } else {
+      const t = (x - geom.padL) / (geom.w - geom.padL - geom.padR);
+      idx = Math.max(0, Math.min(data.length - 1, Math.round(t * (data.length - 1))));
+    }
+    // Redraw the chart, then overlay the crosshair / highlight.
     if (canvas._redraw) canvas._redraw();
     const ctx = canvas.getContext('2d');
-    const xPos = geom.xs(idx);
-    ctx.strokeStyle = 'rgba(255,255,255,.18)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(xPos, geom.padT); ctx.lineTo(xPos, geom.baseY); ctx.stroke();
+    if (geom.drawHover) {
+      geom.drawHover(ctx, idx, geom);
+    } else {
+      const xPos = geom.xs(idx);
+      ctx.strokeStyle = 'rgba(255,255,255,.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xPos, geom.padT); ctx.lineTo(xPos, geom.baseY); ctx.stroke();
+    }
     chartTooltip({ x: e.clientX, y: e.clientY, html: html(idx, e) });
   };
-  const onLeave = () => chartTooltip(null);
+  const onLeave = () => {
+    chartTooltip(null);
+    if (canvas._redraw) canvas._redraw();
+  };
   canvas.addEventListener('mousemove', onMove);
   canvas.addEventListener('mouseleave', onLeave);
-  canvas._redraw = () => drawLiveChart(lastStatus);
+}
+
+function timeToX(t, hist, padL, totalW, bucket_s) {
+  const n = hist.length;
+  if (n === 0) return padL;
+  const slot = totalW / n;
+  if (t <= hist[0].ts) return padL;
+  const lastEnd = hist[n - 1].ts + bucket_s;
+  if (t >= lastEnd) return padL + totalW;
+
+  let low = 0, high = n - 1, idx = 0;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (hist[mid].ts <= t) {
+      idx = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const bStart = hist[idx].ts;
+  const bDuration = (idx < n - 1) ? (hist[idx + 1].ts - bStart) : bucket_s;
+  const frac = bDuration > 0 ? Math.min(1, Math.max(0, (t - bStart) / bDuration)) : 0;
+  return padL + (idx + frac) * slot;
+}
+
+function getRoundTicks(tMin, tMax) {
+  const spanSec = tMax - tMin;
+  const spanHours = spanSec / 3600;
+  const ticks = [];
+  const cur = new Date(tMin * 1000);
+
+  if (spanHours <= 3) {
+    cur.setSeconds(0, 0);
+    const m = cur.getMinutes();
+    cur.setMinutes(m < 30 ? 0 : 30);
+    while (cur.getTime() / 1000 < tMin) cur.setMinutes(cur.getMinutes() + 30);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ticks.push({ ts, label });
+      cur.setMinutes(cur.getMinutes() + 30);
+    }
+  } else if (spanHours <= 8) {
+    cur.setMinutes(0, 0, 0);
+    while (cur.getTime() / 1000 < tMin) cur.setHours(cur.getHours() + 1);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ticks.push({ ts, label });
+      cur.setHours(cur.getHours() + 1);
+    }
+  } else if (spanHours <= 16) {
+    cur.setMinutes(0, 0, 0);
+    cur.setHours(cur.getHours() - (cur.getHours() % 2));
+    while (cur.getTime() / 1000 < tMin) cur.setHours(cur.getHours() + 2);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ticks.push({ ts, label });
+      cur.setHours(cur.getHours() + 2);
+    }
+  } else if (spanHours <= 36) {
+    cur.setMinutes(0, 0, 0);
+    cur.setHours(cur.getHours() - (cur.getHours() % 4));
+    while (cur.getTime() / 1000 < tMin) cur.setHours(cur.getHours() + 4);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = (cur.getHours() === 0)
+        ? cur.toLocaleDateString([], { month: 'short', day: 'numeric' })
+        : cur.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ticks.push({ ts, label });
+      cur.setHours(cur.getHours() + 4);
+    }
+  } else if (spanHours <= 96) {
+    cur.setMinutes(0, 0, 0);
+    cur.setHours(cur.getHours() - (cur.getHours() % 12));
+    while (cur.getTime() / 1000 < tMin) cur.setHours(cur.getHours() + 12);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = (cur.getHours() === 0)
+        ? cur.toLocaleDateString([], { month: 'short', day: 'numeric' })
+        : cur.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ticks.push({ ts, label });
+      cur.setHours(cur.getHours() + 12);
+    }
+  } else if (spanHours <= 240) {
+    cur.setHours(0, 0, 0, 0);
+    while (cur.getTime() / 1000 < tMin) cur.setDate(cur.getDate() + 1);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      ticks.push({ ts, label });
+      cur.setDate(cur.getDate() + 1);
+    }
+  } else if (spanHours <= 1000) {
+    cur.setHours(0, 0, 0, 0);
+    if (cur.getDate() % 5 !== 0) {
+      cur.setDate(Math.ceil(cur.getDate() / 5) * 5 || 1);
+    }
+    while (cur.getTime() / 1000 < tMin) cur.setDate(cur.getDate() + 5);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      ticks.push({ ts, label });
+      cur.setDate(cur.getDate() + 5);
+    }
+  } else if (spanHours <= 2500) {
+    cur.setHours(0, 0, 0, 0);
+    cur.setDate(cur.getDate() < 15 ? 1 : 15);
+    while (cur.getTime() / 1000 < tMin) {
+      if (cur.getDate() === 1) cur.setDate(15);
+      else { cur.setDate(1); cur.setMonth(cur.getMonth() + 1); }
+    }
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      ticks.push({ ts, label });
+      if (cur.getDate() === 1) cur.setDate(15);
+      else { cur.setDate(1); cur.setMonth(cur.getMonth() + 1); }
+    }
+  } else {
+    cur.setHours(0, 0, 0, 0);
+    cur.setDate(1);
+    while (cur.getTime() / 1000 < tMin) cur.setMonth(cur.getMonth() + 1);
+    while (cur.getTime() / 1000 <= tMax && ticks.length < 50) {
+      const ts = Math.floor(cur.getTime() / 1000);
+      const label = cur.toLocaleDateString([], { month: 'short' });
+      ticks.push({ ts, label });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
+  return ticks;
 }
 
 function drawEnergyChart(j) {
@@ -5183,28 +5854,78 @@ function drawEnergyChart(j) {
   }
   ctx.textAlign = 'start';
 
-  // X-axis labels (a few timestamps)
-  if (hist.length >= 2) {
-    const first = hist[0].ts, last = hist[hist.length - 1].ts;
-    const span = last - first;
-    const fmtTs = (ts) => {
-      const d = new Date(ts * 1000);
-      if (span > 24 * 3600) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
-    const ticks = 4;
-    ctx.fillStyle = '#6b7280';
-    for (let i = 0; i <= ticks; i++) {
-      const idx = Math.floor((hist.length - 1) * (i / ticks));
-      const x = padL + (i / ticks) * (w - padL - padR);
-      ctx.fillText(fmtTs(hist[idx].ts), x - 18, h - 8);
-    }
-  }
-
-  // Bars: consumed (left of slot) + charged (right of slot), interleaved.
   const n = hist.length;
   const totalW = w - padL - padR;
   const slot = totalW / n;
+  const bucket_s = j?.bucket_s || (hist.length > 1 ? (hist[1].ts - hist[0].ts) : 60);
+  const tMin = hist[0].ts;
+  const tMax = hist[n - 1].ts + bucket_s;
+  const spanSec = tMax - tMin;
+
+  // Round-number ticks on the x-axis
+  const rawTicks = getRoundTicks(tMin, tMax);
+  let candidateTicks = rawTicks;
+  if (candidateTicks.length > 2) {
+    const avgDist = totalW / (candidateTicks.length - 1);
+    if (avgDist < 48) {
+      const step = Math.ceil(48 / avgDist);
+      candidateTicks = candidateTicks.filter((_, idx) => idx % step === 0);
+    }
+  }
+
+  const validTicks = [];
+  for (const tick of candidateTicks) {
+    const x = timeToX(tick.ts, hist, padL, totalW, bucket_s);
+    if (x >= padL && x <= w - padR) {
+      validTicks.push({ ...tick, x });
+    }
+  }
+
+  // Dim dotted vertical lines for round intervals
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 3]);
+  for (const tick of validTicks) {
+    if (tick.x > padL + 1 && tick.x < w - padR - 1) {
+      ctx.beginPath();
+      ctx.moveTo(tick.x, padT);
+      ctx.lineTo(tick.x, h - padB);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // X-axis labels
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '11px Inter';
+  for (const tick of validTicks) {
+    if (tick.x - padL < 18) {
+      ctx.textAlign = 'left';
+      ctx.fillText(tick.label, padL, h - 8);
+    } else if ((w - padR) - tick.x < 18) {
+      ctx.textAlign = 'right';
+      ctx.fillText(tick.label, w - padR, h - 8);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillText(tick.label, tick.x, h - 8);
+    }
+  }
+  ctx.textAlign = 'start';
+
+  // Fallback if no round ticks fit (e.g. initial few minutes of data)
+  if (validTicks.length === 0 && hist.length >= 2) {
+    const fmtTs = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '11px Inter';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmtTs(hist[0].ts), padL, h - 8);
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtTs(hist[n - 1].ts), w - padR, h - 8);
+    ctx.textAlign = 'start';
+  }
+
+  // Bars: consumed (left of slot) + charged (right of slot), interleaved.
   const barW = Math.max(1, Math.min(slot * 0.4, 16));
   for (let i = 0; i < n; i++) {
     const xCenter = padL + slot * (i + 0.5);
@@ -5234,12 +5955,616 @@ function drawEnergyChart(j) {
     });
     ctx.stroke();
   }
+
+  // Hover state stored on the canvas element
+  canvas._redraw = () => energyHistoryCache && drawEnergyChart(energyHistoryCache);
+  _attachChartHover(canvas, hist, (i) => {
+    const p = hist[i];
+    const bPct = p.avg_battery_percent ?? p.battery_pct;
+    const dStart = new Date(p.ts * 1000);
+    const dEnd = new Date((p.ts + bucket_s) * 1000);
+    let timeStr;
+    if (bucket_s >= 86400) {
+      timeStr = dStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    } else if (spanSec > 24 * 3600) {
+      timeStr = `${dStart.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${dStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${dEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      timeStr = `${dStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${dEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+
+    const fmtWh = (wh) => {
+      if (wh == null || Number.isNaN(wh)) return '—';
+      const val = Number(wh);
+      if (val >= 1000) {
+        return `${Math.round(val).toLocaleString()} Wh <span style="font-weight:normal;opacity:0.7;font-size:10px">(${(val / 1000).toFixed(2)} kWh)</span>`;
+      }
+      return `${val.toFixed(val < 10 && val > 0 ? 1 : 0)} Wh`;
+    };
+
+    let html = `<div class="cht-ts">${timeStr}</div>`;
+    if (_seriesVisible.energy.output) {
+      html += `<div class="cht-row"><i style="background:${SERIES_COLORS.output}"></i> Consumed <b>${fmtWh(p.output_wh || 0)}</b></div>`;
+    }
+    if (_seriesVisible.energy.input) {
+      html += `<div class="cht-row"><i style="background:${SERIES_COLORS.input}"></i> Charged <b>${fmtWh(p.input_wh || 0)}</b></div>`;
+    }
+    if (_seriesVisible.energy.battery && bPct != null) {
+      html += `<div class="cht-row"><i style="background:${SERIES_COLORS.battery}"></i> Battery <b>${fmt(bPct, 0)}%</b></div>`;
+    }
+    if ((p.solar_wh > 0 || p.ac_input_wh > 0) && _seriesVisible.energy.input) {
+      html += `<div class="cht-row" style="color:#6b7280;font-size:10px;margin-top:3px">
+        Solar: ${fmtWh(p.solar_wh || 0)} · Grid: ${fmtWh(p.ac_input_wh || 0)}
+      </div>`;
+    }
+    return html;
+  }, () => ({
+    padL, padR, padT, padB, w, h, baseY: h - padB, slot,
+    getIdx: (x) => Math.max(0, Math.min(n - 1, Math.floor((x - padL) / slot))),
+    drawHover: (ctx, idx) => {
+      const xSlot = padL + idx * slot;
+      const xCenter = padL + slot * (idx + 0.5);
+      // Subtle column slot highlight band
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.fillRect(xSlot, padT, slot, h - padT - padB);
+      // Center guideline
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xCenter, padT);
+      ctx.lineTo(xCenter, h - padB);
+      ctx.stroke();
+      // Battery dot if battery line is shown
+      if (_seriesVisible.energy.battery && bat[idx] != null) {
+        const yBat = (h - padB) - (bat[idx] / 100) * (h - padT - padB);
+        ctx.fillStyle = SERIES_COLORS.battery;
+        ctx.beginPath();
+        ctx.arc(xCenter, yBat, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#0f141c';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }));
 }
 
 // Redraw on resize
 window.addEventListener('resize', () => {
   _chartRedraw[activeTab]?.();
 });
+
+// ============================================================
+// COST TAB
+// ============================================================
+let costSummaryCache = null;
+let costDistDays = 30;
+let costDistCache = null;
+let costRangeHours = 24;
+let costHistoryCache = null;
+let costBreakdownGroup = 'day';
+let costBreakdownCache = null;
+let costTableSort = { key: 'period', dir: 'desc' };
+let costSearchQuery = '';
+let costMode = localStorage.getItem('jackery_cost_mode') || 'battery';
+
+const COST_MODE_HINTS = {
+  battery: '<strong>Battery Arbitrage:</strong> Isolates battery cell charging and discharging. Bypasses AC grid passthrough to show true battery efficiency and time-shifting savings.',
+  total: '<strong>Total Equipment:</strong> Includes AC grid passthrough in consumption and synthesizes grid draw. Shows full appliance electricity cost without inflating net savings.',
+};
+
+function updateCostModeUI() {
+  document.querySelectorAll('.cost-mode-btn').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.mode === costMode);
+  });
+  const hintEl = $('cost-mode-hint');
+  if (hintEl) {
+    hintEl.innerHTML = COST_MODE_HINTS[costMode] || COST_MODE_HINTS.battery;
+  }
+}
+
+function fmtRate(rate, currency = 'USD') {
+  if (rate == null || !Number.isFinite(Number(rate))) return '—';
+  const val = Number(rate);
+  if (currency === 'USD' || currency === 'CAD') {
+    return `${(val * 100).toFixed(1)}¢/kWh`;
+  }
+  return `${fmtMoney(val, currency)}/kWh`;
+}
+
+function fmtSavingsClass(val) {
+  if (val == null || !Number.isFinite(Number(val)) || Math.abs(Number(val)) < 0.005) return 'savings-zero';
+  return Number(val) > 0 ? 'savings-positive' : 'savings-negative';
+}
+
+function fmtCostPeriod(period, groupBy) {
+  const s = String(period || '');
+  if (groupBy === 'day') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (m) {
+      return `${MONTHS_SHORT[Number(m[2]) - 1] || m[2]} ${Number(m[3])}, ${m[1]}`;
+    }
+    return s;
+  }
+  if (groupBy === 'week') {
+    const m = /^(\d{4})-W(\d{1,2})$/.exec(s);
+    if (m) return `Week ${m[2]}, ${m[1]}`;
+    return s;
+  }
+  if (groupBy === 'month') {
+    const m = /^(\d{4})-(\d{2})$/.exec(s);
+    if (m) {
+      const fullMonths = ['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+      return `${fullMonths[Number(m[2]) - 1] || m[2]} ${m[1]}`;
+    }
+    return s;
+  }
+  return s;
+}
+
+async function fetchCostSummary() {
+  const sn = activeJackeryDevice()?.device_sn;
+  const url = `/api/cost/summary?mode=${encodeURIComponent(costMode)}` + (sn ? `&device_sn=${encodeURIComponent(sn)}` : '');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const j = await r.json();
+    costSummaryCache = j;
+    renderCostSummary(j);
+  } catch (e) {
+    console.warn('cost summary fetch failed', e);
+  }
+}
+
+function renderCostSummary(j) {
+  if (!j) return;
+  const cur = j.currency || 'USD';
+  const periods = [
+    { key: 'today', idNet: 'cost-today-net', idGrid: 'cost-today-grid', idSolar: 'cost-today-solar', idBase: 'cost-today-baseline', idRates: 'cost-today-rates' },
+    { key: 'last_7d', idNet: 'cost-7d-net', idGrid: 'cost-7d-grid', idSolar: 'cost-7d-solar', idBase: 'cost-7d-baseline', idRates: 'cost-7d-rates' },
+    { key: 'last_30d', idNet: 'cost-30d-net', idGrid: 'cost-30d-grid', idSolar: 'cost-30d-solar', idBase: 'cost-30d-baseline', idRates: 'cost-30d-rates' },
+    { key: 'lifetime', idNet: 'cost-life-net', idGrid: 'cost-life-grid', idSolar: 'cost-life-solar', idBase: 'cost-life-baseline', idRates: 'cost-life-rates' },
+  ];
+
+  for (const p of periods) {
+    const d = j[p.key];
+    const elNet = $(p.idNet);
+    const elGrid = $(p.idGrid);
+    const elSolar = $(p.idSolar);
+    const elBase = $(p.idBase);
+    const elRates = $(p.idRates);
+
+    if (!d) {
+      if (elNet) elNet.textContent = '—';
+      if (elGrid) elGrid.textContent = '—';
+      if (elSolar) elSolar.textContent = fmtMoney(0, cur);
+      if (elBase) elBase.textContent = '—';
+      if (elRates) elRates.textContent = '—';
+      continue;
+    }
+
+    const net = d.net_saved ?? d.net_savings ?? 0;
+    if (elNet) {
+      elNet.textContent = `${net >= 0 ? '+' : ''}${fmtMoney(net, cur)}`;
+      elNet.className = fmtSavingsClass(net);
+    }
+    if (elGrid) elGrid.textContent = fmtMoney(d.grid_cost, cur);
+    if (elSolar) elSolar.textContent = fmtMoney(d.solar_cost ?? 0, cur);
+    if (elBase) elBase.textContent = fmtMoney(d.baseline_cost, cur);
+
+    if (elRates) {
+      const buy = d.avg_buy_rate;
+      const use = d.avg_use_rate;
+      if (buy != null && use != null) {
+        elRates.textContent = `${fmtRate(buy, cur)} buy → ${fmtRate(use, cur)} use`;
+      } else if (buy != null) {
+        elRates.textContent = `${fmtRate(buy, cur)} buy`;
+      } else if (use != null) {
+        elRates.textContent = `${fmtRate(use, cur)} use`;
+      } else {
+        elRates.textContent = '—';
+      }
+    }
+  }
+}
+
+async function fetchCostDistribution(days = costDistDays) {
+  costDistDays = days;
+  const sn = activeJackeryDevice()?.device_sn;
+  const url = `/api/cost/distribution?days=${days}&mode=${encodeURIComponent(costMode)}` + (sn ? `&device_sn=${encodeURIComponent(sn)}` : '');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const j = await r.json();
+    costDistCache = j;
+    renderCostDistribution(j);
+  } catch (e) {
+    console.warn('cost distribution fetch failed', e);
+  }
+}
+
+function renderCostDistribution(j) {
+  const container = $('cost-tou-bars');
+  const summaryEl = $('cost-arbitrage-summary');
+  if (!container || !summaryEl) return;
+  if (!j) {
+    container.innerHTML = '<p class="hint">No data available.</p>';
+    summaryEl.innerHTML = '';
+    return;
+  }
+  const cur = j.currency || 'USD';
+  const tiers = j.tiers || [];
+
+  if (j.plan_type !== 'tou' || !tiers.length) {
+    container.innerHTML = `
+      <p class="hint">
+        ${j.plan_type === 'flat' 
+          ? 'Your active electricity plan is configured with Flat rates. Time-of-Use distribution is available for TOU plans (configure in Settings → Electricity plan).'
+          : 'No TOU rate slots configured. Visit Settings → Electricity plan to configure Time-of-Use hours.'}
+      </p>`;
+    summaryEl.innerHTML = '';
+    return;
+  }
+
+  const activeTiers = tiers.filter(t => (t.charged_kwh || 0) > 0 || (t.discharged_kwh || 0) > 0);
+  const displayTiers = activeTiers.length > 0 ? activeTiers : tiers;
+
+  container.innerHTML = displayTiers.map(t => {
+    const cVal = t.charged_kwh ?? t.charge_kwh ?? 0;
+    const dVal = t.discharged_kwh ?? t.discharge_kwh ?? 0;
+    const chgKwh = cVal.toFixed(2);
+    const disKwh = dVal.toFixed(2);
+    const chgPctVal = t.charged_pct ?? t.charge_pct ?? 0;
+    const disPctVal = t.discharged_pct ?? t.discharge_pct ?? 0;
+    const chgPct = chgPctVal.toFixed(1);
+    const disPct = disPctVal.toFixed(1);
+    // Distribution percentage widths (0 - 100%)
+    const chgBarWidth = Math.max(cVal > 0 ? 1 : 0, Math.min(100, Math.round(chgPctVal)));
+    const disBarWidth = Math.max(dVal > 0 ? 1 : 0, Math.min(100, Math.round(disPctVal)));
+
+    return `
+      <div class="cost-bar-row">
+        <div class="cost-bar-label">
+          <span>${escapeHtml(t.label || t.name || t.tier_id)}</span>
+          <small>${fmtRate(t.rate, cur)}</small>
+        </div>
+        <div class="cost-bar-track">
+          <div class="cost-bar-subline">
+            <span class="cost-bar-subline-label">Charge</span>
+            <div class="cost-bar-outer">
+              <div class="cost-bar-fill charge" style="width: ${chgBarWidth}%"></div>
+            </div>
+            <span class="cost-bar-val">${chgKwh} kWh (${chgPct}%)</span>
+          </div>
+          <div class="cost-bar-subline">
+            <span class="cost-bar-subline-label">Output</span>
+            <div class="cost-bar-outer">
+              <div class="cost-bar-fill discharge" style="width: ${disBarWidth}%"></div>
+            </div>
+            <span class="cost-bar-val">${disKwh} kWh (${disPct}%)</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const avgChg = j.avg_charge_rate ?? (j.total_charged_kwh > 0 ? (tiers.reduce((s, t) => s + (t.charged_cost || 0), 0) / j.total_charged_kwh) : null);
+  const avgDis = j.avg_discharge_rate ?? (j.total_discharged_kwh > 0 ? (tiers.reduce((s, t) => s + (t.avoided_cost || 0), 0) / j.total_discharged_kwh) : null);
+  const chgRateStr = fmtRate(avgChg, cur);
+  const disRateStr = fmtRate(avgDis, cur);
+  const scoreStr = j.arbitrage_score != null ? `${Number(j.arbitrage_score).toFixed(1)}%` : '—';
+  const marginStr = (avgDis != null && avgChg != null)
+    ? fmtRate(avgDis - avgChg, cur)
+    : '—';
+
+  summaryEl.innerHTML = `
+    <div class="cost-summary-stat">
+      <span class="stat-label">Effective buy rate:</span>
+      <span class="stat-value">${chgRateStr}</span>
+    </div>
+    <div class="cost-summary-stat">
+      <span class="stat-label">Displaced grid rate:</span>
+      <span class="stat-value">${disRateStr}</span>
+    </div>
+    <div class="cost-summary-stat">
+      <span class="stat-label">Spread margin:</span>
+      <span class="stat-value savings-positive">${marginStr}</span>
+    </div>
+    <div class="cost-summary-stat">
+      <span class="stat-label">Arbitrage efficiency score:</span>
+      <span class="stat-value">${scoreStr}</span>
+    </div>
+  `;
+}
+
+async function fetchCostHistory(hours = costRangeHours) {
+  costRangeHours = hours;
+  const sn = activeJackeryDevice()?.device_sn;
+  const url = `/api/cost/history?hours=${hours}&mode=${encodeURIComponent(costMode)}` + (sn ? `&device_sn=${encodeURIComponent(sn)}` : '');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const j = await r.json();
+    costHistoryCache = j;
+    drawCostChart(j);
+  } catch (e) {
+    console.warn('cost history fetch failed', e);
+  }
+}
+
+function drawCostChart(j) {
+  const canvas = $('chart-cost');
+  if (!canvas) return;
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const padL = 50, padR = 24, padT = 14, padB = 28;
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  const hist = (j?.history) || [];
+  if (!hist.length) {
+    ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter';
+    ctx.fillText('No cost history data for this period.', padL + 8, padT + 20);
+    return;
+  }
+
+  const cur = j?.currency || 'USD';
+  const baseline = hist.map(p => p.baseline_cost || 0);
+  const grid = hist.map(p => p.grid_cost || 0);
+  const net = hist.map(p => p.net_saved || 0);
+
+  const activeVals = [0.01];
+  if (_seriesVisible.cost.baseline) activeVals.push(...baseline);
+  if (_seriesVisible.cost.grid)     activeVals.push(...grid);
+  if (_seriesVisible.cost.net)      activeVals.push(...net);
+  const maxVal = Math.max(...activeVals);
+  const minVal = Math.min(0, ...(_seriesVisible.cost.net ? net : [0]));
+
+  const valRange = Math.max(0.01, maxVal - minVal);
+  const ys = (v) => (h - padB) - ((v - minVal) / valRange) * (h - padT - padB);
+  const xs = (i) => padL + (i / Math.max(1, hist.length - 1)) * (w - padL - padR);
+  const baseY = ys(0);
+
+  ctx.strokeStyle = 'rgba(35,42,51,.7)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    const v = maxVal - (valRange * i) / 4;
+    ctx.fillStyle = '#6b7280'; ctx.font = '11px Inter';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtMoney(v, cur), padL - 6, y + 3);
+  }
+  ctx.textAlign = 'start';
+
+  if (minVal < 0) {
+    ctx.strokeStyle = 'rgba(255,255,255,.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, baseY); ctx.lineTo(w - padR, baseY);
+    ctx.stroke();
+  }
+
+  if (hist.length >= 2) {
+    const first = hist[0].ts || 0, last = hist[hist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    const fmtTs = (ts) => {
+      const d = new Date(ts * 1000);
+      if (spanH > 24) {
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      }
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+    const ticks = Math.min(5, hist.length - 1);
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.floor((hist.length - 1) * (i / ticks));
+      const x = xs(idx);
+      ctx.fillText(fmtTs(hist[idx].ts), x, h - 8);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  if (_seriesVisible.cost.baseline) {
+    drawSmoothLine(ctx, baseline, xs, ys, SERIES_COLORS.baseline, 2);
+  }
+  if (_seriesVisible.cost.grid) {
+    drawSmoothLine(ctx, grid, xs, ys, SERIES_COLORS.grid, 2);
+  }
+  if (_seriesVisible.cost.net) {
+    drawAreaFill(ctx, net, xs, ys, baseY, SERIES_COLORS.net, .18);
+    drawSmoothLine(ctx, net, xs, ys, SERIES_COLORS.net, 2.5);
+  }
+
+  canvas._redraw = () => drawCostChart(costHistoryCache);
+  _attachChartHover(canvas, hist, (i) => {
+    const p = hist[i];
+    const d = p.ts ? new Date(p.ts * 1000) : null;
+    const timeStr = d ? d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const netVal = p.net_saved ?? 0;
+    return `
+      <div class="cht-time">${timeStr}</div>
+      <div class="cht-row"><i style="background:${SERIES_COLORS.baseline}"></i> Baseline: <b>${fmtMoney(p.baseline_cost, cur)}</b></div>
+      <div class="cht-row"><i style="background:${SERIES_COLORS.grid}"></i> Grid paid: <b>${fmtMoney(p.grid_cost, cur)}</b></div>
+      <div class="cht-row"><i style="background:${SERIES_COLORS.net}"></i> Net saved: <b>${netVal >= 0 ? '+' : ''}${fmtMoney(netVal, cur)}</b></div>
+      <div class="cht-row" style="color:#6b7280;font-size:10px;margin-top:3px">
+        Out: ${(p.output_kwh != null ? p.output_kwh : ((p.output_wh || 0) / 1000)).toFixed(2)} kWh · In: ${(p.grid_kwh != null ? p.grid_kwh : ((p.ac_input_wh || 0) / 1000)).toFixed(2)} kWh
+      </div>
+    `;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+async function fetchCostBreakdown(groupBy = costBreakdownGroup) {
+  costBreakdownGroup = groupBy;
+  const sn = activeJackeryDevice()?.device_sn;
+  const url = `/api/cost/breakdown?group_by=${groupBy}&days=1825&mode=${encodeURIComponent(costMode)}` + (sn ? `&device_sn=${encodeURIComponent(sn)}` : '');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const j = await r.json();
+    costBreakdownCache = j;
+    renderCostTable();
+  } catch (e) {
+    console.warn('cost breakdown fetch failed', e);
+  }
+}
+
+function _costFilteredRows() {
+  const rows = costBreakdownCache?.rows || [];
+  const q = costSearchQuery.trim().toLowerCase();
+  let filtered = rows;
+  if (q) {
+    filtered = rows.filter(r => {
+      const p = String(r.period || '').toLowerCase();
+      const humanP = String(r.label || fmtCostPeriod(r.period, costBreakdownGroup)).toLowerCase();
+      return p.includes(q) || humanP.includes(q);
+    });
+  }
+  const { key, dir } = costTableSort;
+  const sign = dir === 'asc' ? 1 : -1;
+  return filtered.slice().sort((a, b) => {
+    if (key === 'period') return sign * String(a.period).localeCompare(String(b.period));
+    const av = a[key], bv = b[key];
+    const an = (av == null || !Number.isFinite(Number(av))) ? -Infinity : Number(av);
+    const bn = (bv == null || !Number.isFinite(Number(bv))) ? -Infinity : Number(bv);
+    if (an !== bn) return sign * (an - bn);
+    return String(b.period).localeCompare(String(a.period));
+  });
+}
+
+function renderCostTable() {
+  const tbody = $('cost-table-body');
+  const emptyEl = $('cost-table-empty');
+  if (!tbody) return;
+  const cur = costBreakdownCache?.currency || 'USD';
+  const rows = _costFilteredRows();
+
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    if (emptyEl) emptyEl.hidden = false;
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  tbody.innerHTML = rows.map(r => {
+    const isToday = costBreakdownGroup === 'day' && r.period === todayStr;
+    const badge = isToday ? ' <span class="today-badge">today</span>' : '';
+    const humanPeriod = r.label || fmtCostPeriod(r.period, costBreakdownGroup);
+    const net = r.net_saved ?? 0;
+    const netClass = fmtSavingsClass(net);
+    const effStr = (r.efficiency_pct != null && Number.isFinite(Number(r.efficiency_pct)))
+      ? `${Number(r.efficiency_pct).toFixed(1)}%`
+      : '—';
+
+    return `
+      <tr>
+        <td>${escapeHtml(humanPeriod)}${badge}</td>
+        <td class="num">${fmtMoney(r.grid_cost, cur)}</td>
+        <td class="num">${fmtMoney(r.solar_cost ?? 0, cur)}</td>
+        <td class="num">${fmtMoney(r.baseline_cost, cur)}</td>
+        <td class="num ${netClass}">${net >= 0 ? '+' : ''}${fmtMoney(net, cur)}</td>
+        <td class="num">${fmtRate(r.avg_buy_rate, cur)}</td>
+        <td class="num">${fmtRate(r.avg_use_rate, cur)}</td>
+        <td class="num">${effStr}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function exportCostCsv() {
+  if (!costBreakdownCache) return;
+  const rows = _costFilteredRows();
+  const cols = [
+    'period', 'grid_cost', 'solar_cost', 'baseline_cost', 'net_saved',
+    'avg_buy_rate', 'avg_use_rate', 'ac_input_kwh', 'output_kwh', 'efficiency_pct'
+  ];
+  const lines = [cols.join(',')];
+  for (const r of rows) {
+    lines.push(cols.map(c => (r[c] == null ? '' : String(r[c]))).join(','));
+  }
+  const sn = String(costBreakdownCache.device_sn || 'device').replace(/[^A-Za-z0-9._-]/g, '_');
+  const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cost-breakdown-${costBreakdownGroup}-${sn}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function initCostTab() {
+  updateCostModeUI();
+
+  document.querySelectorAll('.cost-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (mode && mode !== costMode) {
+        costMode = mode;
+        localStorage.setItem('jackery_cost_mode', costMode);
+        updateCostModeUI();
+        loadCostTab();
+      }
+    });
+  });
+
+  document.querySelectorAll('.cost-dist-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cost-dist-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      fetchCostDistribution(parseInt(btn.dataset.days, 10) || 30);
+    });
+  });
+
+  document.querySelectorAll('.cost-range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cost-range-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      fetchCostHistory(parseInt(btn.dataset.hours, 10) || 24);
+    });
+  });
+
+  document.querySelectorAll('.cbreakdown-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cbreakdown-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      fetchCostBreakdown(btn.dataset.group || 'day');
+    });
+  });
+
+  $('cost-search')?.addEventListener('input', (e) => {
+    costSearchQuery = e.target.value || '';
+    renderCostTable();
+  });
+
+  $('cost-export')?.addEventListener('click', exportCostCsv);
+
+  document.querySelectorAll('.cost-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (!key) return;
+      if (costTableSort.key === key) {
+        costTableSort.dir = costTableSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        costTableSort = { key, dir: 'desc' };
+      }
+      document.querySelectorAll('.cost-table th.sortable').forEach(t => {
+        t.classList.toggle('sort-asc', t === th && costTableSort.dir === 'asc');
+        t.classList.toggle('sort-desc', t === th && costTableSort.dir === 'desc');
+      });
+      renderCostTable();
+    });
+  });
+}
+
+function loadCostTab() {
+  fetchCostSummary();
+  fetchCostDistribution(costDistDays);
+  fetchCostHistory(costRangeHours);
+  fetchCostBreakdown(costBreakdownGroup);
+}
 
 // ============================================================
 // FORECAST TAB
@@ -7751,6 +9076,7 @@ function initHeroSortable() {
   // (otherwise the user has to switch tabs once before history populates).
   fetchEnergyHistory();
   fetchEnergyAllDevices();
+  initCostTab();
 
   // Once-per-app-load geolocation prompt for the forecast feature. Skipped
   // if location is already saved or the user previously denied.
@@ -7780,6 +9106,9 @@ function initHeroSortable() {
   // Refresh energy history at a slower cadence — it's a heavier query and
   // doesn't change every tick. Picks up new samples for the chart.
   setInterval(fetchEnergyHistory, 30000);
+
+  // Cost: refresh when active tab is cost
+  setInterval(() => { if (activeTab === 'cost') loadCostTab(); }, 30_000);
 
   // Forecast: weather updates hourly, fit + simulation are cheap, refresh
   // every 5 min while the tab is visible. fetchForecast is a no-op if the

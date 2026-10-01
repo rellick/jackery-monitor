@@ -49,7 +49,82 @@ EQUALS_TOLERANCE = 0.5   # SOC is noisy; "= 50" matches 49.5..50.5 to avoid flap
 
 VALID_OPERATORS = ("<", "<=", "=", ">=", ">")
 VALID_ACTIONS = ("on", "off")
-VALID_TRIGGERS = ("battery_percent",)
+VALID_TRIGGERS = ("battery_percent", "time_of_day")
+VALID_CONDITION_TYPES = ("battery_percent", "time_of_day")
+
+CONDITION_TYPE_ALIASES = {
+    "soc": "battery_percent",
+    "battery": "battery_percent",
+    "battery_soc": "battery_percent",
+    "battery_percent": "battery_percent",
+    "time": "time_of_day",
+    "time_of_day": "time_of_day",
+    "tod": "time_of_day",
+}
+
+
+def _parse_time_of_day(val: str | int | float) -> int:
+    """Parse a time-of-day specification into minute-of-day (0..1439).
+
+    Supports:
+      - '20:00', '20:30', '8:15', '08:15'
+      - '20h00', '20h', '8h30'
+      - '8:30 PM', '8:30pm', '8pm', '12:00 AM', '12:00 PM'
+      - '20:00:00'
+      - integers/floats (treated as minutes from midnight)
+    """
+    if isinstance(val, (int, float)):
+        val_int = int(val)
+        if 0 <= val_int < 1440:
+            return val_int
+        return val_int % 1440
+
+    s = str(val).strip().lower()
+    if not s:
+        raise AutomationError("Time of day cannot be empty")
+
+    is_pm = "pm" in s
+    is_am = "am" in s
+    s = s.replace("pm", "").replace("am", "").strip()
+    s = s.replace("h", ":")
+
+    parts = s.split(":")
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1]) if len(parts) > 1 and parts[1].strip() else 0
+    except (TypeError, ValueError):
+        raise AutomationError(f"Invalid time format: {val}")
+
+    if is_pm:
+        if hours < 12:
+            hours += 12
+    elif is_am:
+        if hours == 12:
+            hours = 0
+
+    if not (0 <= hours <= 23) or not (0 <= minutes <= 59):
+        raise AutomationError(f"Invalid time of day: {val} (hours 0-23, minutes 0-59)")
+
+    return hours * 60 + minutes
+
+
+def _format_time_of_day(minute_of_day: int) -> str:
+    m = int(minute_of_day) % 1440
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def _resolve_tz_offset(tz_offset: int | None = None, now_ts: float | None = None) -> int:
+    if tz_offset is not None:
+        return int(tz_offset)
+    try:
+        import location as device_location
+        off = device_location.get_tz_offset()
+        if off is not None:
+            return int(off)
+    except Exception:
+        pass
+    ts = now_ts if now_ts is not None else time.time()
+    return int(getattr(time.localtime(ts), "tm_gmtoff", 0))
 
 
 def find_conflicting_rules(rules: list[dict], *,
@@ -90,51 +165,139 @@ class AutomationError(ConfigError, ValueError):
     pass
 
 
-def _matches(rule: dict, soc: float) -> bool:
-    op = rule.get("operator")
-    try:
-        threshold = float(rule.get("value"))
-    except (TypeError, ValueError):
+def _evaluate_condition(cond: dict, soc: float | None, now_ts: float, tz_offset: int) -> bool:
+    raw_type = cond.get("type") or cond.get("trigger") or "battery_percent"
+    cond_type = CONDITION_TYPE_ALIASES.get(raw_type, raw_type)
+    op = cond.get("operator")
+    val = cond.get("value")
+
+    if cond_type == "battery_percent":
+        if soc is None:
+            return False
+        try:
+            threshold = float(val)
+        except (TypeError, ValueError):
+            return False
+        if op == "<":
+            return soc < threshold
+        if op == "<=":
+            return soc <= threshold
+        if op == "=":
+            return abs(soc - threshold) <= EQUALS_TOLERANCE
+        if op == ">=":
+            return soc >= threshold
+        if op == ">":
+            return soc > threshold
         return False
-    if op == "<":
-        return soc < threshold
-    if op == "<=":
-        return soc <= threshold
-    if op == "=":
-        return abs(soc - threshold) <= EQUALS_TOLERANCE
-    if op == ">=":
-        return soc >= threshold
-    if op == ">":
-        return soc > threshold
+
+    elif cond_type == "time_of_day":
+        try:
+            target_min = _parse_time_of_day(val)
+        except Exception:
+            return False
+        local_ts = now_ts + tz_offset
+        gm = time.gmtime(local_ts)
+        curr_min = gm.tm_hour * 60 + gm.tm_min
+        if op == "<":
+            return curr_min < target_min
+        if op == "<=":
+            return curr_min <= target_min
+        if op == "=":
+            return curr_min == target_min
+        if op == ">=":
+            return curr_min >= target_min
+        if op == ">":
+            return curr_min > target_min
+        return False
+
     return False
+
+
+def _matches(rule: dict, soc: float | None, now_ts: float | None = None, tz_offset: int | None = None) -> bool:
+    ts = now_ts if now_ts is not None else time.time()
+    tz = _resolve_tz_offset(tz_offset, ts)
+    conditions = rule.get("conditions")
+    if conditions:
+        return all(_evaluate_condition(c, soc, ts, tz) for c in conditions)
+    # Legacy fallback: single trigger condition
+    legacy_cond = {
+        "type": rule.get("trigger") or "battery_percent",
+        "operator": rule.get("operator"),
+        "value": rule.get("value"),
+    }
+    return _evaluate_condition(legacy_cond, soc, ts, tz)
+
+
+def _validate_condition(cond: dict) -> dict:
+    if not isinstance(cond, dict):
+        raise AutomationError("Each condition must be an object")
+    raw_type = cond.get("type") or cond.get("trigger") or "battery_percent"
+    cond_type = CONDITION_TYPE_ALIASES.get(raw_type, raw_type)
+    if cond_type not in VALID_CONDITION_TYPES:
+        raise AutomationError(f"condition type must be one of {VALID_CONDITION_TYPES}")
+    op = cond.get("operator")
+    if op not in VALID_OPERATORS:
+        raise AutomationError(f"operator must be one of {VALID_OPERATORS}")
+    val = cond.get("value")
+    if val is None or val == "":
+        raise AutomationError("condition value is required")
+
+    if cond_type == "battery_percent":
+        try:
+            val_num = float(val)
+        except (TypeError, ValueError):
+            raise AutomationError("value must be a number")
+        if not (0 <= val_num <= 100):
+            raise AutomationError("battery_percent value must be between 0 and 100")
+        clean_val = val_num
+    elif cond_type == "time_of_day":
+        min_of_day = _parse_time_of_day(val)
+        clean_val = _format_time_of_day(min_of_day)
+    else:
+        clean_val = val
+
+    return {
+        "type": cond_type,
+        "operator": op,
+        "value": clean_val,
+    }
 
 
 def _validate(rule: dict) -> dict:
     """Normalise + reject obviously bad rules. Returns a clean rule dict."""
     name = (rule.get("name") or "").strip() or "Unnamed rule"
-    trigger = rule.get("trigger") or "battery_percent"
-    if trigger not in VALID_TRIGGERS:
-        raise AutomationError(f"trigger must be one of {VALID_TRIGGERS}")
-    op = rule.get("operator")
-    if op not in VALID_OPERATORS:
-        raise AutomationError(f"operator must be one of {VALID_OPERATORS}")
-    try:
-        value = float(rule.get("value"))
-    except (TypeError, ValueError):
-        raise AutomationError("value must be a number")
     action = rule.get("action")
     if action not in VALID_ACTIONS:
         raise AutomationError(f"action must be one of {VALID_ACTIONS}")
     host = (rule.get("kasa_host") or "").strip()
     if not host:
         raise AutomationError("kasa_host is required")
+
+    raw_conditions = rule.get("conditions")
+    if raw_conditions is not None:
+        if not isinstance(raw_conditions, list) or len(raw_conditions) == 0:
+            raise AutomationError("conditions must be a non-empty list")
+        conditions = [_validate_condition(c) for c in raw_conditions]
+    else:
+        # Legacy rule format: top-level trigger, operator, value
+        trigger = rule.get("trigger") or "battery_percent"
+        op = rule.get("operator")
+        val = rule.get("value")
+        conditions = [_validate_condition({"type": trigger, "operator": op, "value": val})]
+
+    # For backward-compatibility with logs/legacy consumers, populate top-level
+    # trigger, operator, and value from the first battery condition, or first condition
+    batt_cond = next((c for c in conditions if c["type"] == "battery_percent"), None)
+    primary = batt_cond or conditions[0]
+
     return {
         "id":         (rule.get("id") or uuid.uuid4().hex[:8]),
         "name":       name,
         "enabled":    bool(rule.get("enabled", True)),
-        "trigger":    trigger,
-        "operator":   op,
-        "value":      value,
+        "conditions": conditions,
+        "trigger":    primary["type"],
+        "operator":   primary["operator"],
+        "value":      primary["value"],
         "action":     action,
         "kasa_host":  host,
         "kasa_alias": (rule.get("kasa_alias") or "").strip() or host,
@@ -235,18 +398,39 @@ class AutomationEngine:
         return disabled
 
     # ---- evaluation ----
-    async def evaluate(self, soc_by_sn: dict, active_sn: str | None = None) -> list[dict]:
+    async def evaluate(self, soc_by_sn: dict, active_sn: str | None = None,
+                       now_ts: float | None = None, tz_offset: int | None = None) -> list[dict]:
         """Walk all enabled rules. `soc_by_sn` is a dict mapping each Jackery
            device's serial number to its current battery_percent (None for
            devices we don't have data for yet). Each rule is evaluated
-           against ITS target device's SOC; rules with no target sn fall
-           back to the active device (legacy behavior).
+           against ITS target device's SOC (if battery conditions are present);
+           rules with no target sn fall back to the active device (legacy behavior).
 
            Edge-triggered: fire (and return) the ones whose condition just
            transitioned from false to true. State is mutated in place and
            persisted on any change."""
-        if not soc_by_sn:
+        soc_map = soc_by_sn or {}
+        if not self.rules:
             return []
+
+        # Fast exit if all enabled rules require battery data and none is available
+        def _requires_batt(r: dict) -> bool:
+            conds = r.get("conditions")
+            if conds:
+                return any(
+                    CONDITION_TYPE_ALIASES.get(c.get("type", "battery_percent"), c.get("type")) == "battery_percent"
+                    for c in conds
+                )
+            return CONDITION_TYPE_ALIASES.get(r.get("trigger", "battery_percent"), r.get("trigger")) == "battery_percent"
+
+        enabled_rules = [r for r in self.rules if r.get("enabled", True)]
+        if not enabled_rules:
+            return []
+        if not soc_map and all(_requires_batt(r) for r in enabled_rules):
+            return []
+
+        ts = now_ts if now_ts is not None else time.time()
+        tz = _resolve_tz_offset(tz_offset, ts)
         fired: list[dict] = []
         dirty = False
         async with self._lock:
@@ -255,13 +439,13 @@ class AutomationEngine:
                     rule["last_state"] = None  # reset edge state when disabled
                     continue
                 target_sn = rule.get("jackery_device_sn") or active_sn
-                soc = soc_by_sn.get(target_sn) if target_sn else None
-                if soc is None:
+                soc = soc_map.get(target_sn) if target_sn else None
+                if _requires_batt(rule) and soc is None:
                     # No data for this rule's target device; skip without
                     # changing edge state so we don't spuriously fire when
                     # it comes back online.
                     continue
-                matches_now = _matches(rule, float(soc))
+                matches_now = _matches(rule, float(soc) if soc is not None else None, ts, tz)
                 last = rule.get("last_state")
                 if matches_now and not last:
                     # Edge: transition from false -> true (or unknown -> true)
@@ -270,7 +454,7 @@ class AutomationEngine:
                             rule["kasa_host"],
                             rule["action"] == "on",
                         )
-                        rule["last_fired"] = time.time()
+                        rule["last_fired"] = ts
                         rule["last_error"] = None
                         rule["last_state"] = True   # consume the edge ONLY on success
                         fired.append(rule)
@@ -282,15 +466,26 @@ class AutomationEngine:
                         # successful Kasa toggle or block subsequent rules.
                         if self._firing_recorder:
                             try:
+                                conds = rule.get("conditions") or []
+                                batt_cond = next(
+                                    (c for c in conds
+                                     if CONDITION_TYPE_ALIASES.get(c.get("type", "battery_percent"), c.get("type")) == "battery_percent"),
+                                    None,
+                                )
+                                primary = batt_cond or (conds[0] if conds else {})
+                                op = primary.get("operator") or rule.get("operator")
+                                val = primary.get("value") or rule.get("value")
+                                thresh = float(val) if val is not None and isinstance(val, (int, float)) else None
                                 self._firing_recorder(
                                     rule_id=rule["id"],
                                     rule_name=rule.get("name"),
                                     action=rule["action"],
                                     kasa_host=rule["kasa_host"],
                                     jackery_sn=target_sn,
-                                    soc_at_fire=float(soc),
-                                    operator=rule.get("operator"),
-                                    threshold=float(rule.get("value") or 0),
+                                    soc_at_fire=float(soc) if soc is not None else None,
+                                    operator=op,
+                                    threshold=thresh,
+                                    fired_at=int(ts),
                                 )
                             except Exception as e:
                                 log.warning(
