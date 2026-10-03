@@ -339,6 +339,20 @@
         </div>
         <canvas id="chart-live" class="chart"></canvas>
       </section>
+
+      <!-- Live Temperature chart -->
+      <section class="card" id="card-live-temp">
+        <div class="card-header">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+            <h2>Battery Temperature</h2>
+            <span id="live-temp-stat" class="hint" style="font-size:12px"></span>
+          </div>
+          <div class="legend" data-chart="live-temp">
+            <button type="button" class="legend-item" data-series="temp"><i class="lg-temp"></i> Temperature</button>
+          </div>
+        </div>
+        <canvas id="chart-live-temp" class="chart"></canvas>
+      </section>
     </section>
 
     <!-- ============== ENERGY TAB ============== -->
@@ -403,6 +417,20 @@
           <button type="button" class="legend-item" data-series="input"><i class="lg-in"></i> Charged (Wh per bucket)</button>
           <button type="button" class="legend-item" data-series="battery"><i class="lg-bat"></i> Battery %</button>
         </div>
+      </section>
+
+      <!-- Energy Temperature History chart -->
+      <section class="card" id="card-energy-temp">
+        <div class="card-header">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+            <h2>Battery Temperature History</h2>
+            <span id="energy-temp-stat" class="hint" style="font-size:12px"></span>
+          </div>
+          <div class="legend energy-legend" data-chart="energy-temp" style="margin-top:0">
+            <button type="button" class="legend-item" data-series="temp"><i class="lg-temp"></i> Temperature</button>
+          </div>
+        </div>
+        <canvas id="chart-energy-temp" class="chart"></canvas>
       </section>
 
       <section id="energy-devices" class="card" hidden>
@@ -1555,20 +1583,47 @@
             </fieldset>
 
             <fieldset class="auto-field">
-              <legend class="auto-label">Then turn the device</legend>
+              <legend class="auto-label">Action type</legend>
               <div class="auto-action-row">
-                <label><input type="radio" name="auto-action" value="on" /> On</label>
-                <label><input type="radio" name="auto-action" value="off" checked /> Off</label>
+                <label><input type="radio" name="auto-action-type" value="kasa" checked /> Kasa smart plug</label>
+                <label><input type="radio" name="auto-action-type" value="jackery_setting" /> Jackery battery setting</label>
               </div>
             </fieldset>
 
-            <label class="auto-field">
-              <span class="auto-label">Kasa device</span>
-              <select id="auto-kasa-pick" required>
-                <option value="">— choose a saved device —</option>
-              </select>
-              <span class="hint" id="auto-kasa-pick-hint"></span>
-            </label>
+            <div id="auto-kasa-action-group">
+              <fieldset class="auto-field">
+                <legend class="auto-label">Then turn the plug</legend>
+                <div class="auto-action-row">
+                  <label><input type="radio" name="auto-action" value="on" /> On</label>
+                  <label><input type="radio" name="auto-action" value="off" checked /> Off</label>
+                </div>
+              </fieldset>
+
+              <label class="auto-field" id="auto-kasa-pick-label">
+                <span class="auto-label">Kasa device</span>
+                <select id="auto-kasa-pick">
+                  <option value="">— choose a saved device —</option>
+                </select>
+                <span class="hint" id="auto-kasa-pick-hint"></span>
+              </label>
+            </div>
+
+            <div id="auto-setting-action-group" hidden>
+              <label class="auto-field">
+                <span class="auto-label">Jackery setting</span>
+                <select id="auto-setting-pick">
+                  <option value="battery_saving">Battery Saving Mode (15%–85% eco limit)</option>
+                </select>
+              </label>
+
+              <fieldset class="auto-field">
+                <legend class="auto-label">Set mode to</legend>
+                <div class="auto-action-row">
+                  <label><input type="radio" name="auto-setting-val" value="on" checked /> True / Enabled (cap at 85%)</label>
+                  <label><input type="radio" name="auto-setting-val" value="off" /> False / Disabled (charge to 100%)</label>
+                </div>
+              </fieldset>
+            </div>
 
             <label class="auto-enabled">
               <input id="auto-enabled" type="checkbox" checked /> Rule enabled

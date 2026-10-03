@@ -47,10 +47,11 @@ RULES_PATH = os.environ.get("JACKERY_RULES_FILE", "/data/automation.json")
 EQUALS_TOLERANCE = 0.5   # SOC is noisy; "= 50" matches 49.5..50.5 to avoid flap
 
 
-VALID_OPERATORS = ("<", "<=", "=", ">=", ">")
-VALID_ACTIONS = ("on", "off")
-VALID_TRIGGERS = ("battery_percent", "time_of_day")
-VALID_CONDITION_TYPES = ("battery_percent", "time_of_day")
+VALID_OPERATORS = ("<", "<=", "=", "==", "!=", ">=", ">", "in", "not in")
+VALID_ACTIONS = ("on", "off", "enable", "disable", "true", "false")
+VALID_TRIGGERS = ("battery_percent", "time_of_day", "day_of_week", "weekday", "day_of_month")
+VALID_CONDITION_TYPES = ("battery_percent", "time_of_day", "day_of_week", "day_of_month")
+VALID_ACTION_TYPES = ("kasa", "jackery_setting", "setting")
 
 CONDITION_TYPE_ALIASES = {
     "soc": "battery_percent",
@@ -60,6 +61,15 @@ CONDITION_TYPE_ALIASES = {
     "time": "time_of_day",
     "time_of_day": "time_of_day",
     "tod": "time_of_day",
+    "weekday": "day_of_week",
+    "weekdays": "day_of_week",
+    "day": "day_of_week",
+    "day_of_week": "day_of_week",
+    "days": "day_of_week",
+    "dom": "day_of_month",
+    "day_of_month": "day_of_month",
+    "month_day": "day_of_month",
+    "mday": "day_of_month",
 }
 
 
@@ -210,6 +220,121 @@ def _evaluate_condition(cond: dict, soc: float | None, now_ts: float, tz_offset:
             return curr_min > target_min
         return False
 
+    elif cond_type == "day_of_week":
+        local_ts = now_ts + tz_offset
+        gm = time.gmtime(local_ts)
+        isoweekday = gm.tm_wday + 1  # 1=Monday .. 7=Sunday
+        is_weekend = isoweekday in (6, 7)
+        is_weekday = isoweekday in (1, 2, 3, 4, 5)
+
+        is_hol = False
+        try:
+            from datetime import date
+            import cost
+            d = date(gm.tm_year, gm.tm_mon, gm.tm_mday)
+            plan = cost.get_plan()
+            if plan:
+                is_hol = cost.is_holiday(d, plan)
+        except Exception:
+            pass
+
+        raw_val = str(val).strip().lower()
+
+        def match_single(token: str) -> bool:
+            tok = token.strip().lower()
+            if tok in ("weekend_or_holiday", "weekend_holiday", "weekends_holidays",
+                       "weekends and holidays", "weekend/holiday", "weekends_or_holidays"):
+                return is_weekend or is_hol
+            if tok in ("weekday_not_holiday", "weekday_excl_holiday",
+                       "weekdays excluding holidays", "weekday_no_holiday", "weekdays_not_holidays"):
+                return is_weekday and not is_hol
+            if tok in ("weekend", "weekends", "sat-sun"):
+                return is_weekend
+            if tok in ("weekday", "weekdays", "mon-fri"):
+                return is_weekday
+            if tok in ("holiday", "holidays"):
+                return is_hol
+
+            day_names = {
+                "mon": 1, "monday": 1,
+                "tue": 2, "tuesday": 2,
+                "wed": 3, "wednesday": 3,
+                "thu": 4, "thursday": 4,
+                "fri": 5, "friday": 5,
+                "sat": 6, "saturday": 6,
+                "sun": 7, "sunday": 7,
+            }
+            if tok in day_names:
+                return isoweekday == day_names[tok]
+            try:
+                return isoweekday == int(tok)
+            except ValueError:
+                return False
+
+        tokens = [t for t in raw_val.split(",") if t.strip()]
+        is_match = any(match_single(t) for t in tokens)
+
+        if op in ("=", "==", "in"):
+            return is_match
+        if op in ("!=", "not in"):
+            return not is_match
+
+        try:
+            int_val = int(raw_val)
+            if op == "<":
+                return isoweekday < int_val
+            if op == "<=":
+                return isoweekday <= int_val
+            if op == ">=":
+                return isoweekday >= int_val
+            if op == ">":
+                return isoweekday > int_val
+        except ValueError:
+            pass
+
+        return False
+
+    elif cond_type == "day_of_month":
+        import calendar
+        local_ts = now_ts + tz_offset
+        gm = time.gmtime(local_ts)
+        dom = gm.tm_mday  # 1..31
+        last_day = calendar.monthrange(gm.tm_year, gm.tm_mon)[1]
+
+        raw_val = str(val).strip().lower()
+
+        def match_single_dom(token: str) -> bool:
+            tok = token.strip().lower()
+            if tok in ("last", "last_day", "end_of_month"):
+                return dom == last_day
+            try:
+                return dom == int(tok)
+            except ValueError:
+                return False
+
+        tokens = [t for t in raw_val.split(",") if t.strip()]
+        is_match = any(match_single_dom(t) for t in tokens)
+
+        if op in ("=", "==", "in"):
+            return is_match
+        if op in ("!=", "not in"):
+            return not is_match
+
+        try:
+            target_num = last_day if raw_val in ("last", "last_day", "end_of_month") else int(raw_val)
+            if op == "<":
+                return dom < target_num
+            if op == "<=":
+                return dom <= target_num
+            if op == ">=":
+                return dom >= target_num
+            if op == ">":
+                return dom > target_num
+        except ValueError:
+            pass
+
+        return False
+
     return False
 
 
@@ -253,6 +378,28 @@ def _validate_condition(cond: dict) -> dict:
     elif cond_type == "time_of_day":
         min_of_day = _parse_time_of_day(val)
         clean_val = _format_time_of_day(min_of_day)
+    elif cond_type == "day_of_week":
+        clean_val = str(val).strip().lower()
+        if not clean_val:
+            raise AutomationError("day_of_week value cannot be empty")
+    elif cond_type == "day_of_month":
+        clean_val = str(val).strip().lower()
+        if not clean_val:
+            raise AutomationError("day_of_month value cannot be empty")
+        tokens = [t.strip() for t in clean_val.split(",") if t.strip()]
+        if not tokens:
+            raise AutomationError("day_of_month value cannot be empty")
+        for t in tokens:
+            if t in ("last", "last_day", "end_of_month"):
+                continue
+            try:
+                n = int(t)
+                if not (1 <= n <= 31):
+                    raise ValueError()
+            except ValueError:
+                raise AutomationError(
+                    f"Invalid day_of_month value: '{t}'. Must be between 1 and 31 (or 'last')"
+                )
     else:
         clean_val = val
 
@@ -266,12 +413,31 @@ def _validate_condition(cond: dict) -> dict:
 def _validate(rule: dict) -> dict:
     """Normalise + reject obviously bad rules. Returns a clean rule dict."""
     name = (rule.get("name") or "").strip() or "Unnamed rule"
-    action = rule.get("action")
+    action = (rule.get("action") or "").strip().lower()
     if action not in VALID_ACTIONS:
         raise AutomationError(f"action must be one of {VALID_ACTIONS}")
-    host = (rule.get("kasa_host") or "").strip()
-    if not host:
-        raise AutomationError("kasa_host is required")
+
+    raw_action_type = (rule.get("action_type") or "").strip().lower()
+    if not raw_action_type:
+        if rule.get("setting"):
+            action_type = "jackery_setting"
+        else:
+            action_type = "kasa"
+    elif raw_action_type in ("jackery_setting", "setting", "jackery", "device"):
+        action_type = "jackery_setting"
+    else:
+        action_type = "kasa"
+
+    if action_type == "jackery_setting":
+        setting = (rule.get("setting") or "battery_saving").strip().lower()
+        host = ""
+        alias = ""
+    else:
+        setting = None
+        host = (rule.get("kasa_host") or "").strip()
+        if not host:
+            raise AutomationError("kasa_host is required")
+        alias = (rule.get("kasa_alias") or "").strip() or host
 
     raw_conditions = rule.get("conditions")
     if raw_conditions is not None:
@@ -299,8 +465,10 @@ def _validate(rule: dict) -> dict:
         "operator":   primary["operator"],
         "value":      primary["value"],
         "action":     action,
+        "action_type": action_type,
+        "setting":    setting,
         "kasa_host":  host,
-        "kasa_alias": (rule.get("kasa_alias") or "").strip() or host,
+        "kasa_alias": alias,
         # null means "any/active device" — preserves behavior of pre-multi-
         # device rules. New rules from the UI always set a specific sn.
         "jackery_device_sn":   (rule.get("jackery_device_sn") or None),
@@ -314,16 +482,21 @@ def _validate(rule: dict) -> dict:
 class AutomationEngine:
     """Stateful rule store + edge-triggered evaluator. One instance per server."""
 
-    def __init__(self, firing_recorder=None) -> None:
+    def __init__(self, firing_recorder=None, device_setting_setter=None) -> None:
         """`firing_recorder` is an optional callable invoked on every
         successful firing — server.py wires it to
         `EnergyDB.record_automation_fire` so each fire lands in a
         persistent audit table. Kept as a callback (rather than a
         direct DB import) to avoid a circular dependency and to keep
-        unit tests free of DB setup."""
+        unit tests free of DB setup.
+
+        `device_setting_setter` is an optional callable or coroutine
+        `(setting, value, device_sn=None)` used to change hardware
+        settings on Jackery devices."""
         self.rules: list[dict] = []
         self._lock = asyncio.Lock()
         self._firing_recorder = firing_recorder
+        self._device_setting_setter = device_setting_setter
         self._load()
 
     # ---- persistence ----
@@ -450,20 +623,34 @@ class AutomationEngine:
                 if matches_now and not last:
                     # Edge: transition from false -> true (or unknown -> true)
                     try:
-                        await kasa_client.set_state(
-                            rule["kasa_host"],
-                            rule["action"] == "on",
-                        )
+                        action_type = rule.get("action_type") or ("jackery_setting" if rule.get("setting") else "kasa")
+                        if action_type == "jackery_setting":
+                            setting = rule.get("setting") or "battery_saving"
+                            is_on = rule["action"] in ("on", "true", "enable", "1", 1, True)
+                            val = 1 if is_on else 0
+                            if self._device_setting_setter:
+                                res = self._device_setting_setter(setting, val, device_sn=target_sn)
+                                if asyncio.iscoroutine(res):
+                                    await res
+                            else:
+                                raise RuntimeError("No device_setting_setter configured on AutomationEngine")
+                            log.info("Automation fired: %s [%s] -> set %s to %s",
+                                     rule["name"], target_sn, setting, val)
+                        else:
+                            await kasa_client.set_state(
+                                rule["kasa_host"],
+                                rule["action"] in ("on", "true", "enable", "1", 1, True),
+                            )
+                            log.info("Automation fired: %s [%s SOC=%s] -> %s %s",
+                                     rule["name"], target_sn, soc,
+                                     rule["action"], rule["kasa_alias"])
                         rule["last_fired"] = ts
                         rule["last_error"] = None
                         rule["last_state"] = True   # consume the edge ONLY on success
                         fired.append(rule)
-                        log.info("Automation fired: %s [%s SOC=%s] -> %s %s",
-                                 rule["name"], target_sn, soc,
-                                 rule["action"], rule["kasa_alias"])
                         # Persist a row to the firings audit table. Best-
                         # effort — DB hiccups shouldn't roll back the
-                        # successful Kasa toggle or block subsequent rules.
+                        # successful action or block subsequent rules.
                         if self._firing_recorder:
                             try:
                                 conds = rule.get("conditions") or []
@@ -476,11 +663,12 @@ class AutomationEngine:
                                 op = primary.get("operator") or rule.get("operator")
                                 val = primary.get("value") or rule.get("value")
                                 thresh = float(val) if val is not None and isinstance(val, (int, float)) else None
+                                kasa_target = rule.get("kasa_host") if action_type == "kasa" else f"setting:{rule.get('setting', 'battery_saving')}"
                                 self._firing_recorder(
                                     rule_id=rule["id"],
                                     rule_name=rule.get("name"),
                                     action=rule["action"],
-                                    kasa_host=rule["kasa_host"],
+                                    kasa_host=kasa_target,
                                     jackery_sn=target_sn,
                                     soc_at_fire=float(soc) if soc is not None else None,
                                     operator=op,

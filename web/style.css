@@ -2103,6 +2103,7 @@ main {
 .lg-bat { background: var(--accent-3); }
 .lg-out { background: var(--accent); }
 .lg-in  { background: var(--accent-2); }
+.lg-temp { background: #f97316; }
 .energy-legend { margin-top: 14px; justify-content: center; }
 
 /* ============== Range picker ============== */

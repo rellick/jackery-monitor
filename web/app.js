@@ -60,20 +60,35 @@ const SERIES_COLORS = {
   baseline: '#38bdf8',  // sky (baseline no battery)
   grid:     '#ef4444',  // red (actual grid cost)
   net:      '#4ade80',  // green (net savings)
+  temp:     '#f97316',  // orange, matches CSS .lg-temp
 };
 
 // ---------- legend / series visibility ----------
 const _seriesVisible = {
-  live:     { battery: true, output: true, input: true },
-  energy:   { battery: true, output: true, input: true },
-  forecast: { soc: true, load: true, solar: true },
-  cost:     { baseline: true, grid: true, net: true },
+  live:        { battery: true, output: true, input: true },
+  'live-temp': { temp: true },
+  energy:      { battery: true, output: true, input: true },
+  'energy-temp': { temp: true },
+  forecast:    { soc: true, load: true, solar: true },
+  cost:        { baseline: true, grid: true, net: true },
 };
 
 // Adding a new chart? Just register its redraw + cache-getter here.
 const _chartRedraw = {
-  live:     () => lastStatus && drawLiveChart(lastStatus),
-  energy:   () => energyHistoryCache && drawEnergyChart(energyHistoryCache),
+  live: () => {
+    if (lastStatus) {
+      drawLiveChart(lastStatus);
+      drawLiveTempChart(lastStatus);
+    }
+  },
+  'live-temp': () => lastStatus && drawLiveTempChart(lastStatus),
+  energy: () => {
+    if (energyHistoryCache) {
+      drawEnergyChart(energyHistoryCache);
+      drawEnergyTempChart(energyHistoryCache);
+    }
+  },
+  'energy-temp': () => energyHistoryCache && drawEnergyTempChart(energyHistoryCache),
   forecast: () => forecastCache && drawForecastChart(forecastCache),
   cost:     () => costHistoryCache && drawCostChart(costHistoryCache),
 };
@@ -450,7 +465,7 @@ function switchTab(name, opts = {}) {
   }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.toggleAttribute('hidden', p.id !== `tab-${name}`));
-  if (name === 'live')     { drawLiveChart(lastStatus); }
+  if (name === 'live')     { drawLiveChart(lastStatus); drawLiveTempChart(lastStatus); }
   if (name === 'energy')   { fetchEnergyHistory(); fetchEnergyAllDevices(); fetchEnergyDaily(); }
   if (name === 'cost')     { loadCostTab(); }
   if (name === 'forecast') { fetchForecast(); }
@@ -2005,7 +2020,20 @@ function renderAutomationRules(rules) {
   }
   const safe = (s) => String(s).replace(/[<>&"]/g, (c) =>
     ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
-  const opLabel = { '<':'&lt;', '<=':'&le;', '=':'=', '>=':'&ge;', '>':'&gt;' };
+  const opLabel = { '<':'&lt;', '<=':'&le;', '=':'=', '==':'=', '!=':'&ne;', '>=':'&ge;', '>':'&gt;' };
+  const formatDayVal = (val) => {
+    const map = {
+      'weekend_or_holiday': 'Weekends & Holidays',
+      'weekday_not_holiday': 'Weekdays (excl. holidays)',
+      'weekday': 'Weekdays',
+      'weekend': 'Weekends',
+      'holiday': 'Holidays',
+      'monday': 'Monday', 'tuesday': 'Tuesday', 'wednesday': 'Wednesday',
+      'thursday': 'Thursday', 'friday': 'Friday', 'saturday': 'Saturday', 'sunday': 'Sunday',
+    };
+    return map[String(val).toLowerCase()] || val;
+  };
+
   list.innerHTML = rules.map((r) => {
     const fired = r.last_fired
       ? 'last fired ' + new Date(r.last_fired * 1000).toLocaleString()
@@ -2013,7 +2041,7 @@ function renderAutomationRules(rules) {
     const errLine = r.last_error
       ? `<div class="ar-meta err">last error: ${safe(r.last_error)}</div>`
       : '';
-    // Make it explicit which Jackery device's SOC drives this rule.
+    // Make it explicit which Jackery device drives or receives this rule.
     const jackeryName = r.jackery_device_name || r.jackery_device_sn || '(any device)';
 
     // Build conditions HTML
@@ -2028,18 +2056,33 @@ function renderAutomationRules(rules) {
       if (c.type === 'time_of_day') {
         return `time <span class="op">${op}</span> <span class="val">${safe(c.value)}</span>`;
       }
+      if (c.type === 'day_of_week' || c.type === 'weekday') {
+        return `day <span class="op">${op}</span> <span class="val">${safe(formatDayVal(c.value))}</span>`;
+      }
+      if (c.type === 'day_of_month' || c.type === 'dom') {
+        return `day of month <span class="op">${op}</span> <span class="val">${safe(c.value)}</span>`;
+      }
       return `battery <span class="op">${op}</span> <span class="val">${c.value}%</span>`;
     });
     const condsText = condParts.join(' <span class="ar-and">AND</span> ');
     const devicePrefix = hasBatt ? `<span class="device">${safe(jackeryName)}</span> ` : '';
+
+    let actionText = '';
+    if (r.action_type === 'jackery_setting' || r.setting) {
+      const isEnable = r.action === 'on' || r.action === 'enable' || r.action === 'true';
+      const settingLabel = r.setting === 'battery_saving' ? 'Battery Saving Mode' : (r.setting || 'Setting');
+      const valLabel = isEnable ? 'ENABLE (85% eco limit)' : 'DISABLE (charge to 100%)';
+      actionText = `set <span class="action ${isEnable ? 'on' : 'off'}">${safe(settingLabel)} → ${valLabel}</span> on <span class="device">${safe(jackeryName)}</span>`;
+    } else {
+      actionText = `turn <span class="action ${r.action}">${r.action.toUpperCase()}</span> → <span class="device">${safe(r.kasa_alias || r.kasa_host)}</span>`;
+    }
 
     return `<div class="auto-rule ${r.enabled ? '' : 'disabled'}" data-id="${r.id}">
       <div>
         <div class="ar-title">${safe(r.name)}</div>
         <div class="ar-cond">
           when ${devicePrefix}${condsText},
-          turn <span class="action ${r.action}">${r.action.toUpperCase()}</span>
-          → <span class="device">${safe(r.kasa_alias || r.kasa_host)}</span>
+          ${actionText}
         </div>
         <div class="ar-meta">${fired}</div>
         ${errLine}
@@ -2100,29 +2143,54 @@ function _renderEditorConditions() {
 
   container.innerHTML = _editorConditions.map((cond, idx) => {
     const isTime = cond.type === 'time_of_day';
+    const isDay = cond.type === 'day_of_week' || cond.type === 'weekday';
+    const isDom = cond.type === 'day_of_month' || cond.type === 'dom';
+    const isBatt = !isTime && !isDay && !isDom;
     const divider = idx > 0
       ? `<div class="auto-cond-divider"><span class="auto-cond-and">AND</span></div>`
       : '';
     return `${divider}
       <div class="auto-cond-row" data-cond-index="${idx}">
         <select class="auto-cond-type">
-          <option value="battery_percent" ${!isTime ? 'selected' : ''}>Battery SOC</option>
+          <option value="battery_percent" ${isBatt ? 'selected' : ''}>Battery SOC</option>
           <option value="time_of_day" ${isTime ? 'selected' : ''}>Time of day</option>
+          <option value="day_of_week" ${isDay ? 'selected' : ''}>Day of week</option>
+          <option value="day_of_month" ${isDom ? 'selected' : ''}>Day of month</option>
         </select>
         <select class="auto-cond-op">
-          <option value="<" ${cond.operator === '<' ? 'selected' : ''}>&lt; less than</option>
-          <option value="<=" ${cond.operator === '<=' ? 'selected' : ''}>&le; less or equal</option>
-          <option value="=" ${cond.operator === '=' ? 'selected' : ''}>= equal to</option>
-          <option value=">=" ${cond.operator === '>=' ? 'selected' : ''}>&ge; greater or equal</option>
-          <option value=">" ${cond.operator === '>' ? 'selected' : ''}>&gt; greater than</option>
+          <option value="=" ${cond.operator === '=' || cond.operator === '==' ? 'selected' : ''}>= is / equal</option>
+          <option value="!=" ${cond.operator === '!=' ? 'selected' : ''}>!= is not</option>
+          <option value="<" ${cond.operator === '<' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&lt; less than</option>
+          <option value="<=" ${cond.operator === '<=' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&le; less or equal</option>
+          <option value=">=" ${cond.operator === '>=' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&ge; greater or equal</option>
+          <option value=">" ${cond.operator === '>' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&gt; greater than</option>
         </select>
         <div class="auto-cond-val-wrap">
-          <div class="auto-cond-batt-wrap" ${isTime ? 'hidden' : ''}>
-            <input type="number" class="auto-cond-val-batt" min="0" max="100" step="1" value="${!isTime ? (cond.value ?? 20) : 20}" placeholder="20" />
+          <div class="auto-cond-batt-wrap" ${!isBatt ? 'hidden' : ''}>
+            <input type="number" class="auto-cond-val-batt" min="0" max="100" step="1" value="${isBatt ? (cond.value ?? 20) : 20}" placeholder="20" />
             <span class="auto-pct">%</span>
           </div>
           <div class="auto-cond-time-wrap" ${!isTime ? 'hidden' : ''}>
             <input type="time" class="auto-cond-val-time" step="60" value="${isTime ? (cond.value || '20:00') : '20:00'}" />
+          </div>
+          <div class="auto-cond-day-wrap" ${!isDay ? 'hidden' : ''}>
+            <select class="auto-cond-val-day">
+              <option value="weekend_or_holiday" ${cond.value === 'weekend_or_holiday' ? 'selected' : ''}>Weekends & Holidays</option>
+              <option value="weekday_not_holiday" ${cond.value === 'weekday_not_holiday' ? 'selected' : ''}>Weekdays (excl. holidays)</option>
+              <option value="weekday" ${cond.value === 'weekday' ? 'selected' : ''}>Weekdays (Mon–Fri)</option>
+              <option value="weekend" ${cond.value === 'weekend' ? 'selected' : ''}>Weekends (Sat–Sun)</option>
+              <option value="holiday" ${cond.value === 'holiday' ? 'selected' : ''}>Statutory Holidays</option>
+              <option value="monday" ${cond.value === 'monday' ? 'selected' : ''}>Monday</option>
+              <option value="tuesday" ${cond.value === 'tuesday' ? 'selected' : ''}>Tuesday</option>
+              <option value="wednesday" ${cond.value === 'wednesday' ? 'selected' : ''}>Wednesday</option>
+              <option value="thursday" ${cond.value === 'thursday' ? 'selected' : ''}>Thursday</option>
+              <option value="friday" ${cond.value === 'friday' ? 'selected' : ''}>Friday</option>
+              <option value="saturday" ${cond.value === 'saturday' ? 'selected' : ''}>Saturday</option>
+              <option value="sunday" ${cond.value === 'sunday' ? 'selected' : ''}>Sunday</option>
+            </select>
+          </div>
+          <div class="auto-cond-dom-wrap" ${!isDom ? 'hidden' : ''}>
+            <input type="text" class="auto-cond-val-dom" style="max-width:140px" placeholder="e.g. 1 or 1, 15 or last" value="${isDom ? (cond.value ?? '1') : '1'}" />
           </div>
         </div>
         <button type="button" class="btn btn-ghost auto-cond-del" title="Remove condition" data-cond-del="${idx}" ${canDelete ? '' : 'disabled style="opacity:0.3;cursor:not-allowed"'}>✕</button>
@@ -2136,16 +2204,33 @@ function _renderEditorConditions() {
     const opSelect = row.querySelector('.auto-cond-op');
     const battWrap = row.querySelector('.auto-cond-batt-wrap');
     const timeWrap = row.querySelector('.auto-cond-time-wrap');
+    const dayWrap = row.querySelector('.auto-cond-day-wrap');
+    const domWrap = row.querySelector('.auto-cond-dom-wrap');
     const battInput = row.querySelector('.auto-cond-val-batt');
     const timeInput = row.querySelector('.auto-cond-val-time');
+    const daySelect = row.querySelector('.auto-cond-val-day');
+    const domInput = row.querySelector('.auto-cond-val-dom');
 
     typeSelect.addEventListener('change', () => {
       const isTime = typeSelect.value === 'time_of_day';
-      battWrap.hidden = isTime;
+      const isDay = typeSelect.value === 'day_of_week';
+      const isDom = typeSelect.value === 'day_of_month';
+      const isBatt = !isTime && !isDay && !isDom;
+      battWrap.hidden = !isBatt;
       timeWrap.hidden = !isTime;
+      dayWrap.hidden = !isDay;
+      domWrap.hidden = !isDom;
       _editorConditions[idx].type = typeSelect.value;
       if (isTime) {
         _editorConditions[idx].value = timeInput.value || '20:00';
+      } else if (isDay) {
+        _editorConditions[idx].value = daySelect.value || 'weekend_or_holiday';
+        if (!['=', '!='].includes(opSelect.value)) {
+          opSelect.value = '=';
+          _editorConditions[idx].operator = '=';
+        }
+      } else if (isDom) {
+        _editorConditions[idx].value = domInput.value || '1';
       } else {
         _editorConditions[idx].value = Number(battInput.value || 20);
       }
@@ -2164,6 +2249,18 @@ function _renderEditorConditions() {
     timeInput.addEventListener('input', () => {
       if (_editorConditions[idx].type === 'time_of_day') {
         _editorConditions[idx].value = timeInput.value;
+      }
+    });
+
+    daySelect.addEventListener('change', () => {
+      if (_editorConditions[idx].type === 'day_of_week') {
+        _editorConditions[idx].value = daySelect.value;
+      }
+    });
+
+    domInput?.addEventListener('input', () => {
+      if (_editorConditions[idx].type === 'day_of_month') {
+        _editorConditions[idx].value = domInput.value;
       }
     });
   });
@@ -2187,10 +2284,14 @@ function _syncEditorConditionsFromDom() {
   const result = [];
   rows.forEach((row) => {
     const type = row.querySelector('.auto-cond-type')?.value || 'battery_percent';
-    const operator = row.querySelector('.auto-cond-op')?.value || '<';
+    const operator = row.querySelector('.auto-cond-op')?.value || '=';
     let value;
     if (type === 'time_of_day') {
       value = row.querySelector('.auto-cond-val-time')?.value || '20:00';
+    } else if (type === 'day_of_week') {
+      value = row.querySelector('.auto-cond-val-day')?.value || 'weekend_or_holiday';
+    } else if (type === 'day_of_month') {
+      value = row.querySelector('.auto-cond-val-dom')?.value || '1';
     } else {
       value = Number(row.querySelector('.auto-cond-val-batt')?.value || 20);
     }
@@ -2205,14 +2306,29 @@ $('auto-cond-add')?.addEventListener('click', () => {
   _syncEditorConditionsFromDom();
   const hasBatt = _editorConditions.some((c) => c.type === 'battery_percent');
   const hasTime = _editorConditions.some((c) => c.type === 'time_of_day');
-  if (hasTime && !hasBatt) {
-    _editorConditions.push({ type: 'battery_percent', operator: '>=', value: 30 });
-  } else if (hasBatt && !hasTime) {
+  const hasDay = _editorConditions.some((c) => c.type === 'day_of_week');
+  if (!hasDay && (hasTime || hasBatt)) {
+    _editorConditions.push({ type: 'day_of_week', operator: '=', value: 'weekend_or_holiday' });
+  } else if (!hasTime && (hasDay || hasBatt)) {
     _editorConditions.push({ type: 'time_of_day', operator: '>=', value: '20:00' });
+  } else if (!hasBatt) {
+    _editorConditions.push({ type: 'battery_percent', operator: '>=', value: 30 });
   } else {
-    _editorConditions.push({ type: 'time_of_day', operator: '<', value: '23:00' });
+    _editorConditions.push({ type: 'day_of_week', operator: '=', value: 'weekday_not_holiday' });
   }
   _renderEditorConditions();
+});
+
+function _syncActionTypeVisibility() {
+  const actionType = document.querySelector('input[name="auto-action-type"]:checked')?.value || 'kasa';
+  const kasaGroup = $('auto-kasa-action-group');
+  const settingGroup = $('auto-setting-action-group');
+  if (kasaGroup) kasaGroup.hidden = (actionType !== 'kasa');
+  if (settingGroup) settingGroup.hidden = (actionType !== 'jackery_setting');
+}
+
+document.querySelectorAll('input[name="auto-action-type"]').forEach((el) => {
+  el.addEventListener('change', _syncActionTypeVisibility);
 });
 
 function openAutomationEditor(rule) {
@@ -2225,7 +2341,7 @@ function openAutomationEditor(rule) {
   if (!_savedKasaDevices.length) {
     pick.innerHTML = '<option value="">(no saved devices)</option>';
     pick.disabled = true;
-    if (hint) hint.textContent = 'Add a Kasa device above before creating a rule.';
+    if (hint) hint.textContent = 'Add a Kasa device above before creating a plug rule.';
   } else {
     pick.disabled = false;
     pick.innerHTML = '<option value="">— choose a device —</option>' +
@@ -2274,11 +2390,26 @@ function openAutomationEditor(rule) {
   $('auto-jackery').value = rule?.jackery_device_sn
     || (activeJackery?.device_sn || '');
   $('auto-enabled').checked = rule ? !!rule.enabled : true;
-  // Action radios
-  const action = rule?.action || 'off';
-  document.querySelectorAll('input[name="auto-action"]').forEach((el) => {
-    el.checked = (el.value === action);
+
+  // Action type and values
+  const actionType = rule?.action_type || (rule?.setting ? 'jackery_setting' : 'kasa');
+  document.querySelectorAll('input[name="auto-action-type"]').forEach((el) => {
+    el.checked = (el.value === actionType);
   });
+
+  if (rule?.setting || actionType === 'jackery_setting') {
+    if ($('auto-setting-pick')) $('auto-setting-pick').value = rule?.setting || 'battery_saving';
+    const isEnable = rule?.action === 'on' || rule?.action === 'enable' || rule?.action === 'true' || rule?.action == null;
+    document.querySelectorAll('input[name="auto-setting-val"]').forEach((el) => {
+      el.checked = (el.value === (isEnable ? 'on' : 'off'));
+    });
+  } else {
+    const action = rule?.action || 'off';
+    document.querySelectorAll('input[name="auto-action"]').forEach((el) => {
+      el.checked = (el.value === action);
+    });
+  }
+  _syncActionTypeVisibility();
   ed.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -2404,12 +2535,26 @@ $('auto-editor-close')?.addEventListener('click', closeAutomationEditor);
 
 document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const action = document.querySelector('input[name="auto-action"]:checked')?.value || 'off';
-  const host = $('auto-kasa-pick').value;
+  const actionType = document.querySelector('input[name="auto-action-type"]:checked')?.value || 'kasa';
   const jackerySn = $('auto-jackery').value;
-  if (!host) {
-    alert('Pick a saved Kasa device first.');
-    return;
+  let action = 'off';
+  let host = '';
+  let setting = null;
+
+  if (actionType === 'jackery_setting') {
+    action = document.querySelector('input[name="auto-setting-val"]:checked')?.value || 'on';
+    setting = $('auto-setting-pick')?.value || 'battery_saving';
+    if (!jackerySn) {
+      alert('Pick which Jackery device to apply the setting to.');
+      return;
+    }
+  } else {
+    action = document.querySelector('input[name="auto-action"]:checked')?.value || 'off';
+    host = $('auto-kasa-pick').value;
+    if (!host) {
+      alert('Pick a saved Kasa device first.');
+      return;
+    }
   }
 
   _syncEditorConditionsFromDom();
@@ -2427,6 +2572,16 @@ document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
     } else if (c.type === 'time_of_day') {
       if (!c.value || !String(c.value).trim()) {
         alert('Please specify a valid time of day (e.g. 20:00).');
+        return;
+      }
+    } else if (c.type === 'day_of_week') {
+      if (!c.value || !String(c.value).trim()) {
+        alert('Please select a valid day of week condition.');
+        return;
+      }
+    } else if (c.type === 'day_of_month') {
+      if (!c.value || !String(c.value).trim()) {
+        alert('Please specify a valid day of month (e.g. 1 or 1, 15 or last).');
         return;
       }
     }
@@ -2448,6 +2603,8 @@ document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
     name: $('auto-name').value.trim(),
     conditions: _editorConditions,
     action,
+    action_type: actionType,
+    setting,
     kasa_host: host,
     kasa_alias: dev?.alias || host,
     jackery_device_sn:   jackerySn || null,
@@ -4386,7 +4543,15 @@ function _onAutomationFiredPush(data) {
   // Show a transient toast so even off-tab users see the firing.
   const b = $('alert-banner');
   if (b) {
-    b.textContent = `Rule fired: ${data.name} → ${(data.action || '').toUpperCase()} ${data.kasa_alias || ''}`;
+    let actionDesc = '';
+    if (data.action_type === 'jackery_setting' || data.setting) {
+      const isEnable = data.action === 'on' || data.action === 'enable' || data.action === 'true';
+      const targetDev = data.jackery_device_name || data.jackery_device_sn || 'Jackery';
+      actionDesc = `set ${data.setting || 'battery_saving'} to ${isEnable ? 'ENABLE (85%)' : 'DISABLE (100%)'} on ${targetDev}`;
+    } else {
+      actionDesc = `${(data.action || '').toUpperCase()} ${data.kasa_alias || ''}`;
+    }
+    b.textContent = `Rule fired: ${data.name} → ${actionDesc}`;
     show(b, true);
     setTimeout(() => show(b, false), 5000);
   }
@@ -4734,7 +4899,10 @@ function applyStatus(s) {
   if (s.energy) renderEnergyKpis(s.energy);
 
   // Live chart
-  if (activeTab === 'live') drawLiveChart(s);
+  if (activeTab === 'live') {
+    drawLiveChart(s);
+    drawLiveTempChart(s);
+  }
 }
 
 
@@ -5118,6 +5286,7 @@ async function fetchEnergyHistory() {
     const j = await r.json();
     energyHistoryCache = j;
     drawEnergyChart(j);
+    drawEnergyTempChart(j);
   } catch (e) { console.warn('energy history fetch failed', e); }
 }
 
@@ -5526,7 +5695,10 @@ if (_liveSel) {
   _liveSel.addEventListener('change', () => {
     liveChartHours = parseInt(_liveSel.value, 10) || 24;
     localStorage.setItem('live_chart_hours', String(liveChartHours));
-    if (lastStatus) drawLiveChart(lastStatus);
+    if (lastStatus) {
+      drawLiveChart(lastStatus);
+      drawLiveTempChart(lastStatus);
+    }
   });
 }
 
@@ -5632,6 +5804,123 @@ function drawLiveChart(s) {
             <div class="cht-row"><i style="background:${SERIES_COLORS.output}"></i> Output <b>${fmt(p.output_power_w)}</b> W</div>
             <div class="cht-row"><i style="background:${SERIES_COLORS.input}"></i> Input <b>${fmt(p.input_power_w)}</b> W</div>
             <div class="cht-row"><i style="background:${SERIES_COLORS.battery}"></i> Battery <b>${fmt(p.battery_percent)}</b> %</div>`;
+  }, () => ({ xs, padL, padR, w, h, baseY: h - padB, padT, padB }));
+}
+
+function drawLiveTempChart(s) {
+  const canvas = $('chart-live-temp');
+  if (!canvas) return;
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const padL = 44, padR = 24, padT = 14, padB = 28;
+
+  const rawHist = (s?.history) || [];
+  if (!rawHist.length) {
+    ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter';
+    ctx.fillText('Waiting for data…', padL + 8, padT + 16);
+    return;
+  }
+  const lastTs = rawHist[rawHist.length - 1].ts || Math.floor(Date.now() / 1000);
+  const cutoff = lastTs - liveChartHours * 3600;
+  let hist = rawHist.filter(p => (p.ts || 0) >= cutoff);
+  if (!hist.length) hist = rawHist;
+
+  const isF = getTempUnit() === 'F';
+  const cToDisplay = (c) => (c == null ? null : (isF ? (c * 9 / 5 + 32) : c));
+
+  const tempsC = hist.map(p => p.battery_temp_c).filter(v => v != null && Number.isFinite(v));
+  const statEl = $('live-temp-stat');
+
+  if (!tempsC.length) {
+    if (statEl) statEl.textContent = 'No temperature readings recorded yet';
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter';
+    ctx.fillText('No temperature readings recorded in this window.', padL + 8, padT + 20);
+    return;
+  }
+
+  const minC = Math.min(...tempsC);
+  const maxC = Math.max(...tempsC);
+  const avgC = tempsC.reduce((a, b) => a + b, 0) / tempsC.length;
+  const latestC = tempsC[tempsC.length - 1];
+
+  if (statEl) {
+    statEl.textContent = `Current: ${formatTemp(latestC, 1)} · Min: ${formatTemp(minC, 1)} · Max: ${formatTemp(maxC, 1)} · Avg: ${formatTemp(avgC, 1)}`;
+  }
+
+  const tempsDisp = hist.map(p => cToDisplay(p.battery_temp_c));
+  const validDisp = tempsDisp.filter(v => v != null);
+  let minDisp = Math.min(...validDisp);
+  let maxDisp = Math.max(...validDisp);
+
+  const spread = Math.max(isF ? 8 : 4, (maxDisp - minDisp) * 1.3);
+  const midDisp = (minDisp + maxDisp) / 2;
+  const minY = Math.floor(midDisp - spread / 2);
+  const maxY = Math.ceil(midDisp + spread / 2);
+
+  const xs = (i) => padL + (i / Math.max(1, hist.length - 1)) * (w - padL - padR);
+  const yTemp = (v) => (h - padB) - ((v - minY) / Math.max(1e-6, maxY - minY)) * (h - padT - padB);
+  const baseY = h - padB;
+
+  // Gridlines (4)
+  ctx.strokeStyle = 'rgba(35,42,51,.7)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 4; i++) {
+    const y = padT + ((h - padT - padB) * i) / 5;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+  }
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // Y-axis labels
+  ctx.fillStyle = '#6b7280'; ctx.font = '11px Inter';
+  ctx.textAlign = 'right';
+  const unitStr = isF ? '°F' : '°C';
+  for (let i = 0; i <= 4; i++) {
+    const v = maxY - ((maxY - minY) * i) / 4;
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.fillText(`${Math.round(v)}${unitStr}`, padL - 6, y + 3);
+  }
+  ctx.textAlign = 'start';
+
+  // X-axis time ticks
+  if (hist.length >= 2) {
+    const first = hist[0].ts || 0, last = hist[hist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    const fmtMs = (ms) => {
+      const d = new Date(ms * 1000);
+      if (spanH > 24) {
+        return d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' +
+               d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    const ticks = 5;
+    for (let i = 0; i <= ticks; i++) {
+      const ts = first + (last - first) * (i / ticks);
+      ctx.fillText(fmtMs(ts), xs((hist.length - 1) * (i / ticks)), h - 8);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  // Draw series if visible
+  if (_seriesVisible['live-temp']?.temp) {
+    drawAreaFill(ctx, tempsDisp, xs, yTemp, baseY, SERIES_COLORS.temp, .18);
+    drawSmoothLine(ctx, tempsDisp, xs, yTemp, SERIES_COLORS.temp, 2.5);
+  }
+
+  // Hover state
+  canvas._redraw = () => lastStatus && drawLiveTempChart(lastStatus);
+  _attachChartHover(canvas, hist, (i) => {
+    const p = hist[i];
+    const d = p.ts ? new Date(p.ts * 1000) : null;
+    const ts = d
+      ? (d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+      : '';
+    const tempVal = p.battery_temp_c != null ? formatTemp(p.battery_temp_c, 1) : '—';
+    return `<div class="cht-ts">${ts}</div>
+            <div class="cht-row"><i style="background:${SERIES_COLORS.temp}"></i> Battery Temp <b>${tempVal}</b></div>`;
   }, () => ({ xs, padL, padR, w, h, baseY: h - padB, padT, padB }));
 }
 
@@ -6023,6 +6312,194 @@ function drawEnergyChart(j) {
         ctx.strokeStyle = '#0f141c';
         ctx.lineWidth = 1;
         ctx.stroke();
+      }
+    }
+  }));
+}
+
+function drawEnergyTempChart(j) {
+  const canvas = $('chart-energy-temp');
+  if (!canvas) return;
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const padL = 42, padR = 16, padT = 14, padB = 28;
+
+  const hist = (j?.history) || [];
+  const statEl = $('energy-temp-stat');
+  if (!hist.length) {
+    if (statEl) statEl.textContent = '';
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter';
+    ctx.fillText('No energy data yet — keep the monitor running.', padL + 8, padT + 16);
+    return;
+  }
+
+  const isF = getTempUnit() === 'F';
+  const cToDisplay = (c) => (c == null ? null : (isF ? (c * 9 / 5 + 32) : c));
+
+  const tempsC = hist.map(p => p.battery_temp_c).filter(v => v != null && Number.isFinite(v));
+  if (!tempsC.length) {
+    if (statEl) statEl.textContent = 'No temperature readings recorded for this period';
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280'; ctx.font = '12px Inter';
+    ctx.fillText('No temperature readings recorded in this window.', padL + 8, padT + 20);
+    return;
+  }
+
+  const minC = Math.min(...tempsC);
+  const maxC = Math.max(...tempsC);
+  const avgC = tempsC.reduce((a, b) => a + b, 0) / tempsC.length;
+  if (statEl) {
+    statEl.textContent = `Min: ${formatTemp(minC, 1)} · Max: ${formatTemp(maxC, 1)} · Avg: ${formatTemp(avgC, 1)}`;
+  }
+
+  const tempsDisp = hist.map(p => cToDisplay(p.battery_temp_c));
+  const validDisp = tempsDisp.filter(v => v != null);
+  let minDisp = Math.min(...validDisp);
+  let maxDisp = Math.max(...validDisp);
+
+  const spread = Math.max(isF ? 8 : 4, (maxDisp - minDisp) * 1.3);
+  const midDisp = (minDisp + maxDisp) / 2;
+  const minY = Math.floor(midDisp - spread / 2);
+  const maxY = Math.ceil(midDisp + spread / 2);
+
+  const n = hist.length;
+  const totalW = w - padL - padR;
+  const slot = totalW / n;
+  const bucket_s = j?.bucket_s || (hist.length > 1 ? (hist[1].ts - hist[0].ts) : 60);
+  const tMin = hist[0].ts;
+  const tMax = hist[n - 1].ts + bucket_s;
+  const spanSec = tMax - tMin;
+
+  const xs = (i) => padL + slot * (i + 0.5);
+  const yTemp = (v) => (h - padB) - ((v - minY) / Math.max(1e-6, maxY - minY)) * (h - padT - padB);
+  const baseY = h - padB;
+
+  // Grid + y-axis labels
+  ctx.strokeStyle = '#1c2128'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#6b7280'; ctx.font = '11px Inter';
+  ctx.textAlign = 'right';
+  const unitStr = isF ? '°F' : '°C';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    const v = maxY - ((maxY - minY) * i) / 4;
+    ctx.fillText(`${Math.round(v)}${unitStr}`, padL - 6, y + 3);
+  }
+  ctx.textAlign = 'start';
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // Round-number ticks on the x-axis
+  const rawTicks = getRoundTicks(tMin, tMax);
+  let candidateTicks = rawTicks;
+  if (candidateTicks.length > 2) {
+    const avgDist = totalW / (candidateTicks.length - 1);
+    if (avgDist < 48) {
+      const step = Math.ceil(48 / avgDist);
+      candidateTicks = candidateTicks.filter((_, idx) => idx % step === 0);
+    }
+  }
+
+  const validTicks = [];
+  for (const tick of candidateTicks) {
+    const x = timeToX(tick.ts, hist, padL, totalW, bucket_s);
+    if (x >= padL && x <= w - padR) {
+      validTicks.push({ ...tick, x });
+    }
+  }
+
+  // Dim dotted vertical lines
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 3]);
+  for (const tick of validTicks) {
+    if (tick.x > padL + 1 && tick.x < w - padR - 1) {
+      ctx.beginPath();
+      ctx.moveTo(tick.x, padT);
+      ctx.lineTo(tick.x, h - padB);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // X-axis labels
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '11px Inter';
+  for (const tick of validTicks) {
+    if (tick.x - padL < 18) {
+      ctx.textAlign = 'left';
+      ctx.fillText(tick.label, padL, h - 8);
+    } else if ((w - padR) - tick.x < 18) {
+      ctx.textAlign = 'right';
+      ctx.fillText(tick.label, w - padR, h - 8);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillText(tick.label, tick.x, h - 8);
+    }
+  }
+  ctx.textAlign = 'start';
+
+  if (validTicks.length === 0 && hist.length >= 2) {
+    const fmtTs = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '11px Inter';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmtTs(hist[0].ts), padL, h - 8);
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtTs(hist[n - 1].ts), w - padR, h - 8);
+    ctx.textAlign = 'start';
+  }
+
+  // Draw series if visible
+  if (_seriesVisible['energy-temp']?.temp) {
+    drawAreaFill(ctx, tempsDisp, xs, yTemp, baseY, SERIES_COLORS.temp, .18);
+    drawSmoothLine(ctx, tempsDisp, xs, yTemp, SERIES_COLORS.temp, 2.5);
+  }
+
+  // Hover state
+  canvas._redraw = () => energyHistoryCache && drawEnergyTempChart(energyHistoryCache);
+  _attachChartHover(canvas, hist, (i) => {
+    const p = hist[i];
+    const dStart = new Date(p.ts * 1000);
+    const dEnd = new Date((p.ts + bucket_s) * 1000);
+    let timeStr;
+    if (bucket_s >= 86400) {
+      timeStr = dStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    } else if (spanSec > 24 * 3600) {
+      timeStr = `${dStart.toLocaleDateString([], { month: 'short', day: 'numeric' })} · ${dStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${dEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      timeStr = `${dStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${dEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    const tempVal = p.battery_temp_c != null ? formatTemp(p.battery_temp_c, 1) : '—';
+    return `<div class="cht-ts">${timeStr}</div>
+            <div class="cht-row"><i style="background:${SERIES_COLORS.temp}"></i> Battery Temp <b>${tempVal}</b></div>`;
+  }, () => ({
+    padL, padR, padT, padB, w, h, baseY: h - padB, slot,
+    getIdx: (x) => Math.max(0, Math.min(n - 1, Math.floor((x - padL) / slot))),
+    drawHover: (hoverCtx, idx, g) => {
+      const xSlot = padL + idx * slot;
+      const xCenter = padL + slot * (idx + 0.5);
+      hoverCtx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+      hoverCtx.fillRect(xSlot, padT, slot, h - padT - padB);
+
+      hoverCtx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      hoverCtx.lineWidth = 1;
+      hoverCtx.beginPath();
+      hoverCtx.moveTo(xCenter, padT);
+      hoverCtx.lineTo(xCenter, h - padB);
+      hoverCtx.stroke();
+
+      const val = tempsDisp[idx];
+      if (val != null) {
+        const yPos = yTemp(val);
+        hoverCtx.fillStyle = SERIES_COLORS.temp;
+        hoverCtx.beginPath();
+        hoverCtx.arc(xCenter, yPos, 4, 0, Math.PI * 2);
+        hoverCtx.fill();
+        hoverCtx.strokeStyle = '#0f141c';
+        hoverCtx.lineWidth = 1.5;
+        hoverCtx.stroke();
       }
     }
   }));
@@ -8064,7 +8541,13 @@ function setTempUnit(unit) {
   // Re-render anything that shows a temperature so the change is
   // immediate without waiting for the next poll/MQTT push.
   if (window._lastStatus) {
-    try { applyStatus(window._lastStatus); } catch { /* ignore */ }
+    try {
+      applyStatus(window._lastStatus);
+      drawLiveTempChart(window._lastStatus);
+    } catch { /* ignore */ }
+  }
+  if (typeof energyHistoryCache !== 'undefined' && energyHistoryCache) {
+    try { drawEnergyTempChart(energyHistoryCache); } catch { /* ignore */ }
   }
   try { renderBatteryPacks(); } catch { /* ignore */ }
 }

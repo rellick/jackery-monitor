@@ -274,3 +274,18 @@ def test_history_omits_plug_on_frac_when_no_decisions(db):
     db.record(sn, base + 60, input_w=0, output_w=300, battery_pct=50, solar_w=0)
     rows = db.history(sn, hours=24, bucket_s=3600)
     assert all("solar_charge_plug_on_frac" not in r for r in rows)
+
+
+def test_battery_temp_c_recording_and_history(db):
+    sn = "TEST-TEMP"
+    db.upsert_device(sn, "Test 1000", 5, "Explorer 1000 Plus")
+    base = (int(time.time()) - 3600) // 60 * 60
+    db.record(sn, base, input_w=100, output_w=50, battery_pct=80, battery_temp_c=25.4)
+    db.record(sn, base + 60, input_w=100, output_w=50, battery_pct=81, battery_temp_c=26.0)
+    rows = db.history(sn, hours=2, bucket_s=60)
+    assert len(rows) >= 1
+    # Check that the bucket has the recorded average temperature
+    temp_rows = [r for r in rows if r.get("battery_temp_c") is not None]
+    assert len(temp_rows) >= 1
+    assert temp_rows[0]["battery_temp_c"] == 26.0
+

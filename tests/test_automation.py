@@ -693,3 +693,154 @@ async def test_evaluate_pure_time_rule_without_battery(engine_with_fake_kasa):
     assert len(fired) == 1
     assert calls == [("1.2.3.4", False)]
 
+
+# ---------- day_of_week condition tests ----------
+def test_matches_day_of_week():
+    import calendar
+    from automation import _matches
+
+    # 2026-06-01 is Monday (weekday)
+    # 2026-06-05 is Friday (weekday)
+    # 2026-06-06 is Saturday (weekend)
+    # 2026-06-07 is Sunday (weekend)
+    monday_ts = float(calendar.timegm((2026, 6, 1, 12, 0, 0, 0, 0, 0)))
+    saturday_ts = float(calendar.timegm((2026, 6, 6, 12, 0, 0, 0, 0, 0)))
+    sunday_ts = float(calendar.timegm((2026, 6, 7, 12, 0, 0, 0, 0, 0)))
+
+    # Weekday check
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekday"}]}, None, now_ts=monday_ts, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekday"}]}, None, now_ts=saturday_ts, tz_offset=0) is False
+
+    # Weekend check
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekend"}]}, None, now_ts=saturday_ts, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekend"}]}, None, now_ts=sunday_ts, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekend"}]}, None, now_ts=monday_ts, tz_offset=0) is False
+
+    # Weekend or holiday
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekend_or_holiday"}]}, None, now_ts=saturday_ts, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "weekend_or_holiday"}]}, None, now_ts=monday_ts, tz_offset=0) is False
+
+    # Specific day
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "monday"}]}, None, now_ts=monday_ts, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "=", "value": "saturday"}]}, None, now_ts=monday_ts, tz_offset=0) is False
+    assert _matches({"conditions": [{"type": "day_of_week", "operator": "!=", "value": "saturday"}]}, None, now_ts=monday_ts, tz_offset=0) is True
+
+
+# ---------- jackery_setting action tests ----------
+def test_validate_jackery_setting_rule(isolated_data):
+    import automation
+    rule = automation._validate({
+        "name": "Weekend Battery Saver",
+        "action_type": "jackery_setting",
+        "setting": "battery_saving",
+        "action": "on",
+        "jackery_device_sn": "DEV_123",
+        "conditions": [
+            {"type": "day_of_week", "operator": "=", "value": "weekend_or_holiday"},
+        ],
+    })
+    assert rule["action_type"] == "jackery_setting"
+    assert rule["setting"] == "battery_saving"
+    assert rule["action"] == "on"
+    assert rule["jackery_device_sn"] == "DEV_123"
+    assert rule["kasa_host"] == ""
+
+
+@pytest.mark.asyncio
+async def test_evaluate_jackery_setting_automation(isolated_data):
+    import calendar
+    import automation
+
+    setting_calls: list[tuple[str, int, str | None]] = []
+
+    async def fake_setter(setting: str, val: int, *, device_sn: str | None = None):
+        setting_calls.append((setting, val, device_sn))
+        return {"ok": True}
+
+    eng = automation.AutomationEngine(device_setting_setter=fake_setter)
+
+    # Rule: On weekends, set battery_saving to ON (1)
+    eng.upsert({
+        "name": "Weekend Eco Mode",
+        "action_type": "jackery_setting",
+        "setting": "battery_saving",
+        "action": "on",
+        "jackery_device_sn": "JACKERY_1",
+        "conditions": [
+            {"type": "day_of_week", "operator": "=", "value": "weekend_or_holiday"},
+        ],
+    })
+
+    # Friday (weekday) -> False, does not fire
+    fri_ts = float(calendar.timegm((2026, 6, 5, 20, 0, 0, 0, 0, 0)))
+    fired = await eng.evaluate({}, active_sn="JACKERY_1", now_ts=fri_ts, tz_offset=0)
+    assert fired == []
+    assert setting_calls == []
+
+    # Saturday (weekend) -> True, fires once!
+    sat_ts = float(calendar.timegm((2026, 6, 6, 8, 0, 0, 0, 0, 0)))
+    fired = await eng.evaluate({}, active_sn="JACKERY_1", now_ts=sat_ts, tz_offset=0)
+    assert len(fired) == 1
+    assert setting_calls == [("battery_saving", 1, "JACKERY_1")]
+
+    # Saturday afternoon -> Still True, does NOT refire (edge-triggered)
+    sat_pm_ts = float(calendar.timegm((2026, 6, 6, 14, 0, 0, 0, 0, 0)))
+    fired = await eng.evaluate({}, active_sn="JACKERY_1", now_ts=sat_pm_ts, tz_offset=0)
+    assert fired == []
+    assert len(setting_calls) == 1
+
+
+# ---------- day_of_month condition tests ----------
+def test_day_of_month_validation(isolated_data):
+    import automation
+    # Valid single day
+    r1 = automation._validate_condition({"type": "day_of_month", "operator": "=", "value": 1})
+    assert r1["value"] == "1"
+
+    # Valid comma-separated
+    r2 = automation._validate_condition({"type": "day_of_month", "operator": "in", "value": "1, 15, 30"})
+    assert r2["value"] == "1, 15, 30"
+
+    # Valid "last"
+    r3 = automation._validate_condition({"type": "day_of_month", "operator": "=", "value": "last"})
+    assert r3["value"] == "last"
+
+    # Invalid empty or out of range
+    with pytest.raises(automation.AutomationError):
+        automation._validate_condition({"type": "day_of_month", "operator": "=", "value": ""})
+    with pytest.raises(automation.AutomationError):
+        automation._validate_condition({"type": "day_of_month", "operator": "=", "value": 32})
+    with pytest.raises(automation.AutomationError):
+        automation._validate_condition({"type": "day_of_month", "operator": "=", "value": 0})
+    with pytest.raises(automation.AutomationError):
+        automation._validate_condition({"type": "day_of_month", "operator": "=", "value": "foo"})
+
+
+def test_day_of_month_matching(isolated_data):
+    from automation import _matches
+    import calendar
+
+    # 2026-10-01 (1st of month)
+    ts_oct_01 = float(calendar.timegm((2026, 10, 1, 12, 0, 0, 0, 0, 0)))
+    # 2026-10-15 (15th of month)
+    ts_oct_15 = float(calendar.timegm((2026, 10, 15, 12, 0, 0, 0, 0, 0)))
+    # 2026-10-31 (last day of October)
+    ts_oct_31 = float(calendar.timegm((2026, 10, 31, 12, 0, 0, 0, 0, 0)))
+
+    # Exact match = 1
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "=", "value": 1}]}, None, now_ts=ts_oct_01, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "=", "value": 1}]}, None, now_ts=ts_oct_15, tz_offset=0) is False
+
+    # In list "1, 15"
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "in", "value": "1, 15"}]}, None, now_ts=ts_oct_15, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "in", "value": "1, 15"}]}, None, now_ts=ts_oct_31, tz_offset=0) is False
+
+    # Inequality <= 15
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "<=", "value": 15}]}, None, now_ts=ts_oct_01, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "<=", "value": 15}]}, None, now_ts=ts_oct_15, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "<=", "value": 15}]}, None, now_ts=ts_oct_31, tz_offset=0) is False
+
+    # "last"
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "=", "value": "last"}]}, None, now_ts=ts_oct_31, tz_offset=0) is True
+    assert _matches({"conditions": [{"type": "day_of_month", "operator": "=", "value": "last"}]}, None, now_ts=ts_oct_15, tz_offset=0) is False
+

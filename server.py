@@ -196,8 +196,15 @@ class AppState:
         # firing writes an audit row via record_automation_fire so the
         # Automation tab's "View history" view + duration calculations have
         # a real persisted log to work from.
+        async def _set_automation_device_setting(setting: str, value: Any, *, device_sn: str | None = None):
+            setter = getattr(state.client, "set_setting", None)
+            if setter:
+                return await setter(setting, value, device_sn=device_sn)
+            raise RuntimeError("Backend does not support device settings")
+
         self.automation: AutomationEngine = AutomationEngine(
             firing_recorder=self.energy.record_automation_fire,
+            device_setting_setter=_set_automation_device_setting,
         )
         # Dead-man rescue watchdog state, keyed by device SN. Tracks the
         # last FRESH main-unit SOC so the poll loop can fire the rescue
@@ -470,6 +477,8 @@ async def poll_loop() -> None:
                     # method vs. the configured car_load_w.
                     diverted_w = _solar_charge_current_diverted_w(
                         sn, current_output_w=float(t.get("output_power_w") or 0))
+                    raw_temp = t.get("battery_temp_c")
+                    temp_c = float(raw_temp) if raw_temp is not None else None
                     state.energy.record(
                         sn, ts,
                         float(t.get("input_power_w") or 0),
@@ -478,6 +487,7 @@ async def poll_loop() -> None:
                         solar_w=float(t.get("solar_input_w") or 0),
                         ac_input_w=float(t.get("ac_input_w") or 0),
                         solar_charge_diverted_w=diverted_w,
+                        battery_temp_c=temp_c,
                     )
 
                 # Hydrate the live chart from the energy DB on the first
@@ -514,12 +524,15 @@ async def poll_loop() -> None:
                 # chart's x-axis spacing is stable (the bridge poll cadence
                 # is independent and faster).
                 if ts - state.last_history_ts >= LIVE_CHART_INTERVAL_S:
-                    state.history.append({
+                    pt = {
                         "ts": ts,
                         "battery_percent": status_dict["battery_percent"],
                         "input_power_w": status_dict["input_power_w"],
                         "output_power_w": status_dict["output_power_w"],
-                    })
+                    }
+                    if status_dict.get("battery_temp_c") is not None:
+                        pt["battery_temp_c"] = status_dict["battery_temp_c"]
+                    state.history.append(pt)
                     state.last_history_ts = ts
                 await broadcast_status("telemetry")
 
@@ -593,7 +606,7 @@ async def poll_loop() -> None:
                                 await _kasa_update_probe_and_notify(
                                     host,
                                     success=True,
-                                    is_on=(rule.get("action") == "on"),
+                                    is_on=(rule.get("action") in ("on", "true", "enable", "1", 1, True)),
                                 )
                             except Exception as ke:
                                 log.debug("kasa update probe notify failed for %s: %s", host, ke)
@@ -603,6 +616,8 @@ async def poll_loop() -> None:
                                 "id": rule.get("id"),
                                 "name": rule.get("name"),
                                 "action": rule.get("action"),
+                                "action_type": rule.get("action_type") or ("jackery_setting" if rule.get("setting") else "kasa"),
+                                "setting": rule.get("setting"),
                                 "kasa_alias": rule.get("kasa_alias"),
                                 "kasa_host": rule.get("kasa_host"),
                                 "jackery_device_sn": rule.get("jackery_device_sn"),
@@ -967,12 +982,15 @@ def _energy_db_row_to_chart_point(p: dict) -> dict:
     """Rename the energy_db.history columns into the live-chart shape
     the frontend expects. Used by both the startup hydrate path and
     the per-view history fetch."""
-    return {
+    pt = {
         "ts": p["ts"],
         "battery_percent": p["battery_pct"] or 0,
         "input_power_w": p["input_w"] or 0,
         "output_power_w": p["output_w"] or 0,
     }
+    if p.get("battery_temp_c") is not None:
+        pt["battery_temp_c"] = p["battery_temp_c"]
+    return pt
 
 
 _VIEW_HISTORY_TTL_S = 30
