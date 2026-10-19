@@ -28,6 +28,7 @@ import re
 import time
 from collections import deque
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -47,13 +48,28 @@ import cost as cost_module
 import energy_db
 import forecaster
 import inverter_watchdog
+import daikin_client
+import daikin_creds
+import hilo_client
+import hilo_creds
 import kasa_client
 import kasa_creds
 import location as device_location
+import locations
+import notifications
 import rescue
 import settings as user_settings
+import sinope_client
+import sinope_creds
 import smart_charge
 import solar_charge
+import midea_client
+import midea_creds
+import midea_schedule
+import thinq_client
+import thinq_creds
+import tesla_client
+import tesla_creds
 import weather_client
 from automation import AutomationEngine, AutomationError
 from device_client import (
@@ -216,6 +232,25 @@ class AppState:
         # tested. Rule editor picks from this list instead of asking for an
         # IP each time.
         self.kasa: KasaRegistry = KasaRegistry()
+        # Sinopé / Neviweb Wi-Fi device client
+        self.sinope: sinope_client.SinopeClient = sinope_client.SinopeClient()
+        self.sinope_poller_task: asyncio.Task | None = None
+        # Daikin One Open API thermostat client
+        self.daikin: daikin_client.DaikinClient = daikin_client.DaikinClient()
+        self.daikin_poller_task: asyncio.Task | None = None
+        # Hilo / Hydro-Québec smart meter & gateway client
+        self.hilo: hilo_client.HiloClient = hilo_client.HiloClient()
+        self.hilo_poller_task: asyncio.Task | None = None
+        # LG ThinQ Connect Open API smart appliance client
+        self.thinq: thinq_client.ThinQClient = thinq_client.ThinQClient()
+        self.thinq_poller_task: asyncio.Task | None = None
+        # Midea / Danby smart dehumidifiers client
+        self.midea: midea_client.MideaClient = midea_client.MideaClient()
+        self.midea_poller_task: asyncio.Task | None = None
+        self.midea_schedule_task: asyncio.Task | None = None
+        # Tesla EV & Wall Connector client
+        self.tesla: tesla_client.TeslaClient = tesla_client.TeslaClient()
+        self.tesla_poller_task: asyncio.Task | None = None
         # ---------- in-process caches ----------
         # All four caches below are read/written exclusively from the
         # FastAPI/asyncio event loop on a single Python process. There's
@@ -399,8 +434,21 @@ async def poll_loop() -> None:
                             "type": "alert",
                             "data": {"level": "warning", "message": msg},
                         })
+                        asyncio.create_task(notifications.dispatch_alert(
+                            alert_key="cloud_stall",
+                            alert_type="cloud_stall",
+                            title="⚠️ Jackery Cloud Bridge Stalled",
+                            details={
+                                "Status": "Session Contested" if persistent_contention else "Bridge Stalled",
+                                "Cloud Age": f"{int((cloud_age or 0) // 60)} min" if cloud_age else "Unknown",
+                                "Bridge State": str(cloud_state or "unknown"),
+                            },
+                            message=msg,
+                            level="warning",
+                        ))
                     elif not should_alert and state.cloud_stalled_alerted:
                         state.cloud_stalled_alerted = False
+                        notifications.clear_alert_state("cloud_stall")
                         log.info(
                             "cloud-stall recovered: age=%.0fs state=%s",
                             cloud_age or 0, cloud_state,
@@ -460,6 +508,11 @@ async def poll_loop() -> None:
                     )
                 for sn, t, name, model_code, frame_ts in samples_to_write:
                     state.energy.upsert_device(sn, name, model_code, None)
+                    # When a battery disconnects from Wi-Fi, the cloud serves frozen
+                    # last-known telemetry. Skip energy accrual and watchdog ticks
+                    # so we don't accumulate fake Wh while the unit is offline.
+                    if t.get("device_online") is False:
+                        continue
                     # Default AC recovery to the Explorer 5000 Plus only;
                     # the Device tab can override this per device.
                     try:
@@ -468,6 +521,7 @@ async def poll_loop() -> None:
                     except Exception as e:
                         log.debug("inverter_watchdog tick failed for %s: %s",
                                    sn, e)
+
                     # If the solar-charge controller has the plug ON for
                     # this device, estimate the diverted_w as the JUMP
                     # in output_w above the pre-toggle house-load
@@ -555,8 +609,23 @@ async def poll_loop() -> None:
                         "data": {"level": "warning",
                                  "message": f"Battery low: {bp_system:.0f}%"},
                     })
+                    dev_name = getattr(state.device, "model_name", None) or active_sn or "Jackery"
+                    asyncio.create_task(notifications.dispatch_alert(
+                        alert_key=f"low_battery_{active_sn or 'main'}",
+                        alert_type="low_battery",
+                        title=f"🔋 Low Battery: {dev_name} ({bp_system:.0f}%)",
+                        details={
+                            "Device": str(dev_name),
+                            "Battery Level": f"{bp_system:.0f}%",
+                            "Low Threshold": f"{threshold:.0f}%",
+                            "Serial Number": str(active_sn or "N/A"),
+                        },
+                        message=f"{dev_name} battery charge has dropped to {bp_system:.0f}%, which is at or below the configured low battery threshold of {threshold:.0f}%.",
+                        level="critical",
+                    ))
                 elif bp_system > threshold + 5:
                     state.low_battery_alerted = False
+                    notifications.clear_alert_state(f"low_battery_{active_sn or 'main'}")
 
                 # Run automation rules. The bridge polls every Jackery device
                 # so rules can target any of them, not just the active one;
@@ -581,24 +650,33 @@ async def poll_loop() -> None:
                     if d.get("device_sn") is not None
                 }
                 soc_by_sn: dict[str, float] = {}
+                online_by_sn: dict[str, bool] = {}
                 for sn, entry in devs_telemetry.items():
                     t = (entry or {}).get("telemetry") or {}
+                    online_by_sn[sn] = (t.get("device_online") is not False)
+                    # Do not fire battery SOC rules against offline devices with stale data
+                    if t.get("device_online") is False:
+                        continue
                     bp_dev = t.get("battery_percent")
                     if bp_dev is not None:
                         soc_by_sn[sn] = _system_soc_pct(
                             float(bp_dev), sn, model_code_by_sn.get(str(sn)),
                         )
-                # Always include the active device too (for legacy rules
-                # without an explicit jackery_device_sn). active_sn /
-                # active_model_code already computed in the low-battery
-                # alert block above; reuse.
-                if active_sn and bp is not None and active_sn not in soc_by_sn:
-                    soc_by_sn[active_sn] = _system_soc_pct(
-                        float(bp), active_sn, active_model_code,
-                    )
+                # Always include the active device too
+                if active_sn:
+                    online_by_sn[active_sn] = (status_dict.get("device_online") is not False)
+                    if (bp is not None and active_sn not in soc_by_sn
+                            and status_dict.get("device_online") is not False):
+                        soc_by_sn[active_sn] = _system_soc_pct(
+                            float(bp), active_sn, active_model_code,
+                        )
+
                 try:
                     tz_off = int(device_location.get_tz_offset() or 0)
-                    fired = await state.automation.evaluate(soc_by_sn, active_sn=active_sn, tz_offset=tz_off)
+                    fired = await state.automation.evaluate(
+                        soc_by_sn, active_sn=active_sn, tz_offset=tz_off, online_by_sn=online_by_sn
+                    )
+
                     for rule in fired:
                         host = rule.get("kasa_host")
                         if host:
@@ -860,7 +938,12 @@ def _decorate_totals_with_savings(totals: dict, device_sn: str) -> dict:
     iterated through Python). Idempotent — safe to call from any caller
     that already produced the kWh totals."""
     try:
-        plan = cost_module.get_plan()
+        loc_cfg = locations.location_for_jackery(device_sn)
+        if not loc_cfg and (device_sn.startswith("sinope_") or device_sn.startswith("daikin_") or device_sn.startswith("hilo_") or device_sn.startswith("thinq_") or device_sn.startswith("midea_")):
+            dev_row = next((d for d in state.energy.list_devices() if d.get("device_sn") == device_sn), None)
+            loc_id = dev_row.get("location_id") if dev_row else None
+            loc_cfg = locations.get_location(loc_id) if loc_id else None
+        plan = locations.plan_for_location(loc_cfg.get("id") if loc_cfg else None)
         loc = device_location.get() or {}
         tz_offset = int(loc.get("utc_offset_seconds") or 0)
         from energy_db import _start_of_day
@@ -1110,6 +1193,11 @@ def serialize_status(view_device_id: str | None = None) -> dict[str, Any]:
     if cloud_out is not None:
         cloud_out["selected_device_id"] = view_id
 
+    if device_info and telemetry:
+        device_info["online"] = telemetry.get("device_online", True)
+        device_info["last_update_ts"] = telemetry.get("device_last_update_ts")
+        device_info["offline_ts"] = telemetry.get("device_offline_ts")
+
     # Enabled devices expose their watchdog state; disabled devices send
     # null so the UI clears any stale AC-button decoration.
     watchdog_state = None
@@ -1119,9 +1207,11 @@ def serialize_status(view_device_id: str | None = None) -> dict[str, Any]:
     return {
         "connection_status": state.connection_status,
         "connection_error": state.connection_error,
+        "device_online": telemetry.get("device_online", True) if telemetry else True,
         "device": device_info,
-        "last_update_ts": state.last_update_ts,
+        "last_update_ts": (telemetry.get("device_last_update_ts") if telemetry and telemetry.get("device_last_update_ts") else state.last_update_ts),
         "telemetry": telemetry,
+
         # Piggy-back packs on the WS broadcast so per-pack rows update at
         # the same cadence as the SOC card. Empty list for devices without
         # packs (e.g. HomePower 3000) — UI hides the card on empty.
@@ -1134,7 +1224,97 @@ def serialize_status(view_device_id: str | None = None) -> dict[str, Any]:
         "cloud": cloud_out,
         "energy": energy,
         "inverter_watchdog": watchdog_state,
+        "sinope_devices": _enrich_sinope_devices(state.sinope.get_cached_devices()),
+        "daikin_devices": _enrich_daikin_fan_runtime(state.daikin.get_cached_devices()),
+        "hilo_meters": _enrich_hilo_meters(state.hilo.get_cached_meters()),
+        "hilo_devices": state.hilo.get_cached_devices(),
+        "hilo_challenges": state.hilo.get_cached_challenges(),
+        "thinq_devices": state.thinq.get_cached_devices(),
+        "midea_devices": state.midea.get_cached_devices(),
+        "tesla_devices": state.tesla.get_cached_devices(),
+        "kasa_devices": [_enrich_kasa_for_ui(d) for d in state.kasa.list_devices()] if getattr(state, "kasa", None) else [],
+        "locations": locations.list_locations(),
     }
+
+
+def _enrich_hilo_meters(meters: list[dict]) -> list[dict]:
+    if not meters or not getattr(state, "energy", None):
+        return meters
+    for m in meters:
+        sn = m.get("device_sn")
+        if sn:
+            try:
+                t = state.energy.totals(sn)
+                today_wh = t.get("today", {}).get("output_wh", 0.0)
+                m["today_kwh"] = round(today_wh / 1000.0, 2)
+            except Exception:
+                pass
+    return meters
+
+
+def _enrich_kasa_for_ui(d: dict) -> dict:
+    """Surface the registry's cached probe state on the wire shape the
+    UI expects: `online`/`is_on`/`power_w`/`type`/`error`/`status` derived from the
+    last poller outcome."""
+    kasa_reg = getattr(state, "kasa", None)
+    online = kasa_reg.is_online(d) if kasa_reg else False
+    status = kasa_reg.status_of(d) if kasa_reg else "unknown"
+    sn = kasa_reg.get_device_sn(d) if kasa_reg else f"kasa_{d.get('host', '').replace('.', '_')}"
+    today_kwh = None
+    today_runtime_min = None
+    if getattr(state, "energy", None) and sn:
+        try:
+            t = state.energy.totals(sn)
+            today_wh = t.get("today", {}).get("output_wh", 0.0)
+            today_kwh = round(today_wh / 1000.0, 3)
+            if hasattr(state.energy, "active_runtime_min"):
+                today_runtime_min = state.energy.active_runtime_min(sn, hours=24)
+        except Exception:
+            pass
+    return {
+        **d,
+        "device_sn": sn,
+        "today_kwh": today_kwh,
+        "today_runtime_min": today_runtime_min,
+        "is_on": d.get("last_known_is_on"),
+        "power_w": d.get("power_w"),
+        "type": d.get("type") or "Plug",
+        "online": online,
+        "status": status,
+        "error": d.get("last_error"),
+        "last_seen_ts": d.get("last_seen_ts"),
+        "location_id": d.get("location_id") or "maison",
+    }
+
+
+def _enrich_sinope_devices(devs: list[dict]) -> list[dict]:
+    if not devs or not getattr(state, "energy", None):
+        return devs
+    for d in devs:
+        sn = d.get("device_sn")
+        if sn:
+            try:
+                t = state.energy.totals(sn)
+                today_wh = t.get("today", {}).get("output_wh", 0.0)
+                d["today_kwh"] = round(today_wh / 1000.0, 2)
+            except Exception:
+                pass
+    return devs
+
+
+def _enrich_daikin_fan_runtime(devs: list[dict]) -> list[dict]:
+    if not devs or not getattr(state, "energy", None):
+        return devs
+    for d in devs:
+        sn = d.get("device_sn")
+        if sn:
+            try:
+                rt = state.energy.fan_runtime_summary(sn, hours=1)
+                d["fan_circulate_runtime_1h_min"] = rt["circulating_min"]
+                d["fan_total_runtime_1h_min"] = rt["total_fan_min"]
+            except Exception:
+                pass
+    return devs
 
 
 # ---------- FastAPI ----------
@@ -2750,8 +2930,79 @@ async def solar_charge_loop():
 # Per-device probe cadence after a failure: 5 min, 10, 20, 30, 30, ...
 # Capped so we don't drift to every-few-hours and miss a recovery for
 # an hour after the plug comes back. After a success, resets to 5 min.
-KASA_RECONCILER_BASE_S = 5 * 60
-KASA_RECONCILER_MAX_BACKOFF_S = 30 * 60
+KASA_POLLER_INTERVAL_S = 60
+KASA_DISCOVER_EVERY_N = 5  # Every 5 minutes (5 * 60s)
+KASA_RECONCILER_BASE_S = 60
+KASA_RECONCILER_MAX_BACKOFF_S = 10 * 60
+
+
+def _kasa_device_sn(d: dict | str) -> str:
+    kasa_reg = getattr(state, "kasa", None)
+    if kasa_reg and hasattr(kasa_reg, "get_device_sn"):
+        return kasa_reg.get_device_sn(d)
+    if isinstance(d, dict):
+        mac = d.get("mac")
+        if mac:
+            return f"kasa_{mac.lower().replace(':', '')}"
+        host = d.get("host") or "unknown"
+        return f"kasa_{host.replace('.', '_')}"
+    return f"kasa_{str(d).replace('.', '_')}"
+
+
+def _record_kasa_energy(dev_or_dict: dict, info: dict) -> None:
+    """Record load sample and upsert device metadata in SQLite for NILM and telemetry."""
+    if not getattr(state, "energy", None):
+        return
+    host = dev_or_dict.get("host") or info.get("host")
+    if not host:
+        return
+    mac = dev_or_dict.get("mac") or info.get("mac")
+    sn = _kasa_device_sn(dev_or_dict)
+
+    t_str = str(info.get("type") or dev_or_dict.get("type") or "").lower()
+    m_str = str(info.get("model") or dev_or_dict.get("model") or "").upper()
+    is_switch = "switch" in t_str or m_str.startswith("HS2") or "wall" in t_str
+    dev_type = "smart_switch" if is_switch else "smart_plug"
+
+    now = time.time()
+    alias = info.get("alias") or dev_or_dict.get("alias") or host
+    model = info.get("model") or dev_or_dict.get("model")
+    is_on = bool(info.get("is_on") if info.get("is_on") is not None else dev_or_dict.get("last_known_is_on"))
+    pwr = float(info.get("power_w") if info.get("power_w") is not None else (dev_or_dict.get("power_w") or 0.0))
+    loc_id = dev_or_dict.get("location_id") or "maison"
+
+    try:
+        state.energy.upsert_device(
+            device_sn=sn,
+            name=alias,
+            model_name=model,
+            brand="kasa",
+            device_type=dev_type,
+            location_id=loc_id,
+            metadata_json=json.dumps({
+                "host": host,
+                "mac": mac,
+                "model": model,
+                "type": info.get("type") or dev_or_dict.get("type"),
+            }),
+        )
+        state.energy.record_load(
+            device_sn=sn,
+            ts=now,
+            power_w=pwr,
+            equipment_status=1 if is_on else 0,
+            state_json=json.dumps({
+                "host": host,
+                "mac": mac,
+                "alias": alias,
+                "model": model,
+                "type": info.get("type") or dev_or_dict.get("type"),
+                "is_on": is_on,
+                "power_w": pwr,
+            }),
+        )
+    except Exception as e:
+        log.warning("failed to record kasa energy sample for %s: %s", sn, e)
 
 
 def _kasa_ui_signature(d: dict | None) -> tuple | None:
@@ -2764,6 +3015,7 @@ def _kasa_ui_signature(d: dict | None) -> tuple | None:
     return (
         state.kasa.is_online(d),
         d.get("last_known_is_on"),
+        d.get("power_w"),
         d.get("last_error"),
     )
 
@@ -2783,24 +3035,39 @@ async def _kasa_update_probe_and_notify(host: str, **kwargs) -> None:
 
 
 async def kasa_reconciler_loop():
-    """Periodically probe every saved Kasa plug and persist the
-    outcome (last_seen, last_error, consecutive_failures) on the
-    registry. Lets transient failures self-heal and surfaces
-    persistent ones to the UI without making the user click around.
+    """Periodically probe every saved Kasa device (every 60s) and record
+    continuous 1-minute load samples into SQLite. Periodically run LAN discovery
+    (every 5 min and on startup) to auto-enroll newly connected plugs and switches."""
+    await asyncio.sleep(3)
 
-    Per-device exponential backoff so an offline plug doesn't get
-    hammered every 5 min — but capped so a recovered plug isn't
-    stuck offline forever (max wait between probes is 30 min)."""
+    # Startup discovery to enroll all devices immediately on boot
+    try:
+        log.info("kasa poller: running initial LAN discovery...")
+        await api_kasa_poll()
+    except Exception as e:
+        log.warning("kasa startup discovery failed: %s", e)
+
+    tick = 0
     while True:
         try:
+            await asyncio.sleep(KASA_POLLER_INTERVAL_S)
+            tick += 1
+
+            # Periodically run discovery to pick up newly added devices
+            if tick >= KASA_DISCOVER_EVERY_N:
+                tick = 0
+                try:
+                    await api_kasa_poll()
+                    continue
+                except Exception as e:
+                    log.warning("kasa periodic discovery failed: %s", e)
+
             now = time.time()
             for d in state.kasa.list_devices():
                 fails = d.get("consecutive_failures") or 0
                 last_failed = d.get("last_failed_ts") or 0
-                # Exponential: 5min x 2^fails, capped. fails capped at
-                # 5 to avoid overflow at extreme values.
                 wait_s = min(
-                    KASA_RECONCILER_BASE_S * (2 ** min(fails, 5)),
+                    KASA_POLLER_INTERVAL_S * (2 ** min(fails, 5)),
                     KASA_RECONCILER_MAX_BACKOFF_S,
                 )
                 if fails > 0 and (now - last_failed) < wait_s:
@@ -2815,26 +3082,26 @@ async def kasa_reconciler_loop():
                         is_on=info.get("is_on"),
                         model=info.get("model"),
                         alias=info.get("alias"),
+                        power_w=info.get("power_w"),
+                        type_=info.get("type"),
+                        mac=info.get("mac"),
                     )
+                    saved_d = state.kasa.get(host) or d
+                    _record_kasa_energy(saved_d, info)
                 except kasa_client.KasaConfigError as e:
-                    # Bad creds or missing dep — actionable, not a flake.
-                    # Surface at warning so it doesn't get lost in the
-                    # info-level reconciler chatter.
                     await _kasa_update_probe_and_notify(
                         host, success=False, error=str(e),
                     )
-                    log.warning("Kasa reconciler: %s misconfigured (%s)", host, e)
+                    log.warning("Kasa poller: %s misconfigured (%s)", host, e)
                 except Exception as e:
-                    # Transient (network blip, device busy). Per-device
-                    # backoff handles repeats; log at info to keep the
-                    # routine flake noise out of the warning channel.
                     await _kasa_update_probe_and_notify(
                         host, success=False, error=str(e),
                     )
-                    log.info("Kasa reconciler: %s offline (%s)", host, e)
+                    log.info("Kasa poller: %s offline (%s)", host, e)
+        except asyncio.CancelledError:
+            break
         except Exception as e:
-            log.warning("kasa reconciler loop iteration failed: %s", e)
-        await asyncio.sleep(KASA_RECONCILER_BASE_S)
+            log.warning("kasa poller loop iteration failed: %s", e)
 
 
 def _db_pack_to_cloud_shape(row: dict) -> dict:
@@ -2880,6 +3147,484 @@ def _hydrate_battery_packs_from_db() -> None:
         log.debug("battery pack hydration skipped: %s", e)
 
 
+_last_sinope_wh_sync: dict[str, float] = {}
+_water_heaters_initialized: set[str] = set()
+
+
+async def sync_water_heater_consumption(device: dict[str, Any], initial: bool = False) -> None:
+    """Synchronize metered hourly (and optionally daily) consumption from Neviweb for a water heater."""
+    did = device.get("id")
+    sn = device.get("device_sn")
+    if not did or not sn:
+        return
+    try:
+        if initial:
+            # Check for legacy inflated samples (>50 Wh per minute bucket)
+            db = state.energy
+            with db._conn() as c:
+                row = c.execute(
+                    "SELECT COUNT(*) FROM samples WHERE device_sn = ? AND output_wh > 50.0",
+                    (sn,),
+                ).fetchone()
+                bad_count = row[0] if row else 0
+            if bad_count > 10:
+                log.info("Purging %d legacy inflated samples for %s", bad_count, sn)
+                state.energy.delete_device_samples(sn)
+
+            # Backfill past 30 days of daily consumption to establish baseline history
+            daily_hist = await state.sinope.fetch_device_consumption(did, period="daily")
+            for row in daily_hist:
+                dt_str = row.get("date")
+                wh = float(row.get("period") or 0.0)
+                if dt_str and wh >= 0:
+                    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                    state.energy.record_metered_daily_consumption(
+                        device_sn=sn,
+                        day_start_ts=int(dt.timestamp()),
+                        wh=wh,
+                    )
+            log.info("Backfilled %d daily consumption records for %s", len(daily_hist), sn)
+
+        # Sync recent hourly consumption (typically last ~44-48 hours)
+        hourly_hist = await state.sinope.fetch_device_consumption(did, period="hourly")
+        water_t = device.get("water_temperature_c")
+        for row in hourly_hist:
+            dt_str = row.get("date")
+            wh = float(row.get("period") or 0.0)
+            if dt_str and wh >= 0:
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                state.energy.record_metered_hourly_consumption(
+                    device_sn=sn,
+                    period_start_ts=int(dt.timestamp()),
+                    wh=wh,
+                    water_temp_c=water_t,
+                )
+        log.info("Synchronized %d metered hourly intervals for %s", len(hourly_hist), sn)
+    except Exception as e:
+        log.warning("Failed to sync water heater consumption for %s: %s", sn, e)
+
+
+async def sinope_poller_loop():
+    """Periodically poll Sinopé Wi-Fi devices via Neviweb (every 180s) and record samples."""
+    await asyncio.sleep(5)
+    while True:
+        try:
+            if sinope_creds.has_credentials():
+                devs = await state.sinope.poll_all_devices()
+                if devs:
+                    now = time.time()
+                    for d in devs:
+                        temp_c = None
+                        state.energy.upsert_device(
+                            device_sn=d["device_sn"],
+                            name=d["name"],
+                            model_name=d.get("model"),
+                            brand="sinope",
+                            device_type=d.get("device_type", "load"),
+                            location_id=d.get("location_id"),
+                        )
+                        # Water heaters (RM3500WF) do not stream real-time active power.
+                        # Record water temp with 0.0W load to prevent phantom accumulation.
+                        if d.get("is_water_heater"):
+                            water_t = d.get("water_temperature_c")
+                            state.energy.record_load(
+                                device_sn=d["device_sn"],
+                                ts=now,
+                                power_w=0.0,
+                                temp_c=water_t,
+                            )
+                            is_init = d["id"] not in _water_heaters_initialized
+                            last_sync = _last_sinope_wh_sync.get(d["id"], 0)
+                            if is_init or (now - last_sync >= 900):
+                                _water_heaters_initialized.add(d["id"])
+                                _last_sinope_wh_sync[d["id"]] = now
+                                asyncio.create_task(sync_water_heater_consumption(d, initial=is_init))
+                        elif d.get("device_type") == "thermostat":
+                            power_w = d.get("power_w") or 0.0
+                            temp_c = d.get("room_temp_c")
+                            heat_pct = d.get("heat_level_pct")
+                            setpoint = d.get("setpoint_c")
+                            load_w = d.get("load_watt")
+                            sinope_st = json.dumps({
+                                "duty_pct": heat_pct,
+                                "setpoint_c": setpoint,
+                                "load_watt": load_w,
+                                "room_temp_c": temp_c,
+                            })
+                            state.energy.record_thermostat(
+                                device_sn=d["device_sn"],
+                                ts=now,
+                                power_w=power_w,
+                                temp_c=temp_c,
+                                outdoor_temp_c=setpoint,
+                                equipment_status=heat_pct,
+                                state_json=sinope_st,
+                            )
+                        else:
+                            power_w = d.get("power_w") or 0.0
+                            state.energy.record_load(
+                                device_sn=d["device_sn"],
+                                ts=now,
+                                power_w=power_w,
+                            )
+
+                        # Sinopé Alert Triggers
+                        loc_title = d.get("location_name") or d.get("location_id") or "Home"
+                        dev_title = d.get("name") or d["device_sn"]
+
+                        # 1. Water leak sensor
+                        if d.get("device_type") == "leak_sensor":
+                            leak_st = str(d.get("leak_status") or "").lower()
+                            if leak_st and leak_st not in ("dry", "ok", "normal", "idle", "none", "0", "false"):
+                                asyncio.create_task(notifications.dispatch_alert(
+                                    alert_key=f"leak_{d['device_sn']}",
+                                    alert_type="water_leak",
+                                    title=f"🚨 WATER LEAK DETECTED: {dev_title} ({loc_title})",
+                                    details={
+                                        "Device": dev_title,
+                                        "Room": d.get("room_name") or "Unknown",
+                                        "Location": loc_title,
+                                        "Leak Status": leak_st.upper(),
+                                        "Model": d.get("model") or "Sinopé Leak Sensor",
+                                    },
+                                    message=f"Water leak sensor '{dev_title}' in {loc_title} ({d.get('room_name')}) reported a leak event ({leak_st})! Immediate inspection recommended.",
+                                    level="critical",
+                                ))
+                            elif not leak_st or leak_st in ("dry", "ok", "normal", "idle", "none", "0", "false"):
+                                notifications.clear_alert_state(f"leak_{d['device_sn']}")
+
+                        # 2. Freeze warning on thermostats
+                        if temp_c is not None:
+                            notif_cfg = notifications.load_config()
+                            freeze_limit = float(notif_cfg.get("freeze_threshold_c", 5.0))
+                            if temp_c <= freeze_limit:
+                                asyncio.create_task(notifications.dispatch_alert(
+                                    alert_key=f"freeze_{d['device_sn']}",
+                                    alert_type="freeze",
+                                    title=f"❄️ Freeze Warning: {dev_title} ({temp_c:.1f}°C)",
+                                    details={
+                                        "Device": dev_title,
+                                        "Room": d.get("room_name") or "Unknown",
+                                        "Location": loc_title,
+                                        "Temperature": f"{temp_c:.1f}°C",
+                                        "Freeze Threshold": f"{freeze_limit:.1f}°C",
+                                    },
+                                    message=f"Room temperature at {loc_title} ({dev_title}) dropped to {temp_c:.1f}°C (threshold: {freeze_limit:.1f}°C). Risk of freezing pipes.",
+                                    level="warning",
+                                ))
+                            elif temp_c >= freeze_limit + 1.0:
+                                notifications.clear_alert_state(f"freeze_{d['device_sn']}")
+                    await broadcast_status("telemetry")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("sinope_poller_loop failed: %s", e)
+        await asyncio.sleep(180)
+
+
+async def daikin_poller_loop():
+    """Periodically poll Daikin Wi-Fi thermostats via Open API (every 180s) and record samples."""
+    await asyncio.sleep(8)
+    while True:
+        try:
+            if daikin_creds.has_credentials():
+                devs = await state.daikin.poll_all_devices()
+                if devs:
+                    now = time.time()
+                    for d in devs:
+                        state.energy.upsert_device(
+                            device_sn=d["device_sn"],
+                            name=d["name"],
+                            model_name=d.get("model"),
+                            brand="daikin",
+                            device_type="thermostat",
+                            location_id=d.get("location_id"),
+                        )
+                        power_w = d.get("power_w") or 0.0
+                        temp_indoor = d.get("temp_indoor_c")
+                        temp_outdoor = d.get("temp_outdoor_c")
+                        eq_status = d.get("equipment_status")
+                        state.energy.record_thermostat(
+                            device_sn=d["device_sn"],
+                            ts=now,
+                            power_w=power_w,
+                            temp_c=temp_indoor,
+                            outdoor_temp_c=temp_outdoor,
+                            equipment_status=eq_status,
+                        )
+
+                        # Freeze warning alert on thermostats
+                        if temp_indoor is not None:
+                            notif_cfg = notifications.load_config()
+                            freeze_limit = float(notif_cfg.get("freeze_threshold_c", 5.0))
+                            loc_title = d.get("location_name") or d.get("location_id") or "Home"
+                            dev_title = d.get("name") or d["device_sn"]
+                            if temp_indoor <= freeze_limit:
+                                asyncio.create_task(notifications.dispatch_alert(
+                                    alert_key=f"freeze_{d['device_sn']}",
+                                    alert_type="freeze",
+                                    title=f"❄️ Freeze Warning: {dev_title} ({temp_indoor:.1f}°C)",
+                                    details={
+                                        "Device": dev_title,
+                                        "Brand": "Daikin",
+                                        "Location": loc_title,
+                                        "Temperature": f"{temp_indoor:.1f}°C",
+                                        "Freeze Threshold": f"{freeze_limit:.1f}°C",
+                                    },
+                                    message=f"Daikin One thermostat '{dev_title}' at {loc_title} reported room temperature dropped to {temp_indoor:.1f}°C (threshold: {freeze_limit:.1f}°C). Risk of freezing pipes.",
+                                    level="warning",
+                                ))
+                            elif temp_indoor >= freeze_limit + 1.0:
+                                notifications.clear_alert_state(f"freeze_{d['device_sn']}")
+                    await broadcast_status("telemetry")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("daikin_poller_loop failed: %s", e)
+        await asyncio.sleep(180)
+
+
+async def hilo_poller_loop():
+    """Periodically poll Hydro-Québec smart meters & devices via Hilo (every 60s) and record samples."""
+    await asyncio.sleep(6)
+    while True:
+        try:
+            if hilo_creds.has_credentials():
+                res = await state.hilo.poll_all_locations()
+                meters = res.get("meters", [])
+                devices = res.get("devices", [])
+                if meters or devices:
+                    now = time.time()
+                    for m in meters:
+                        state.energy.upsert_device(
+                            device_sn=m["device_sn"],
+                            name=m.get("name"),
+                            model_name="Landis+Gyr Smart Meter",
+                            brand="hilo",
+                            device_type="meter",
+                            location_id=m.get("location_id"),
+                        )
+                        power_w = m.get("power_w", 0.0)
+                        state.energy.record_load(
+                            device_sn=m["device_sn"],
+                            ts=now,
+                            power_w=power_w,
+                        )
+                    for d in devices:
+                        state.energy.upsert_device(
+                            device_sn=d["device_sn"],
+                            name=d.get("name"),
+                            model_name=str(d.get("device_type", "device")).capitalize(),
+                            brand="hilo",
+                            device_type=d.get("device_type", "load"),
+                            location_id=d.get("location_id"),
+                        )
+                        if "power_w" in d:
+                            state.energy.record_load(
+                                device_sn=d["device_sn"],
+                                ts=now,
+                                power_w=d.get("power_w", 0.0),
+                                temp_c=d.get("temp_c"),
+                            )
+                    await broadcast_status("telemetry")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("hilo_poller_loop failed: %s", e)
+        await asyncio.sleep(60)
+
+
+async def thinq_poller_loop():
+    """Centralized polling coordinator for LG ThinQ appliances with per-device scheduling."""
+    await asyncio.sleep(10)
+    while True:
+        sleep_s = 20  # Coordinator ticks every 20s to check which individual appliances are due
+        try:
+            if thinq_creds.has_credentials():
+                now = time.time()
+                rate_limited_until = max(state.thinq._rate_limited_until.values(), default=0.0)
+                if rate_limited_until > now:
+                    sleep_s = max(60, int(rate_limited_until - now))
+                    log.info("ThinQ poller paused during rate limit cooldown (%ds remaining)", sleep_s)
+                else:
+                    updated_devs = await state.thinq.poll_all_locations()
+                    if updated_devs:
+                        for d in updated_devs:
+                            state.energy.upsert_device(
+                                device_sn=d["device_sn"],
+                                name=d.get("name"),
+                                model_name=d.get("model_name") or d.get("model") or d.get("device_type"),
+                                brand="thinq",
+                                device_type=d.get("category", "appliance"),
+                                location_id=d.get("location_id"),
+                            )
+                            state.energy.record_thinq_appliance(
+                                device_sn=d["device_sn"],
+                                ts=now,
+                                norm_dev=d,
+                            )
+                        await broadcast_status("telemetry")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("thinq_poller_loop failed: %s", e)
+        await asyncio.sleep(sleep_s)
+
+
+async def midea_poller_loop():
+    """Periodically poll Danby / Midea smart dehumidifiers via local LAN / MSmartHome."""
+    await asyncio.sleep(12)
+    while True:
+        sleep_s = 60
+        try:
+            if midea_creds.has_credentials():
+                devs = await state.midea.poll_all_locations()
+                if devs:
+                    now = time.time()
+                    for d in devs:
+                        state.energy.upsert_device(
+                            device_sn=d["device_sn"],
+                            name=d.get("name"),
+                            model_name=d.get("model"),
+                            brand="danby",
+                            device_type="dehumidifier",
+                            location_id=d.get("location_id"),
+                        )
+                        state.energy.record_dehumidifier(
+                            device_sn=d["device_sn"],
+                            ts=now,
+                            current_humidity=float(d.get("current_humidity", 0) or 0),
+                            target_humidity=float(d.get("target_humidity", 50) or 50),
+                            operational_status=str(d.get("operational_status", "off")),
+                            temp_c=float(d.get("current_temperature")) if d.get("current_temperature") else None,
+                            fan_speed=int(d.get("fan_speed", 40) or 40),
+                        )
+                        if d.get("tank_full"):
+                            loc_id = d.get("location_id", "maison")
+                            loc_cfg = locations.get_location(loc_id) or {}
+                            loc_name = loc_cfg.get("name", loc_id.capitalize())
+                            await notifications.dispatch_alert(
+                                alert_key=f"midea_tank_full_{d['device_id']}",
+                                alert_type="tank_full",
+                                title=f"Bac plein: {d.get('name')}",
+                                details={
+                                    "Appareil": d.get("name"),
+                                    "Emplacement": loc_name,
+                                    "Humidité actuelle": f"{d.get('current_humidity')}%",
+                                    "Statut": "Bac d'eau plein ⚠️ (Compresseur arrêté)",
+                                },
+                                message=f"Le réservoir du déshumidificateur '{d.get('name')}' est plein. Veuillez vider le bac pour relancer l'appareil.",
+                                level="warning",
+                            )
+                    await broadcast_status("telemetry")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("midea_poller_loop failed: %s", e)
+        await asyncio.sleep(sleep_s)
+
+
+async def midea_schedule_loop():
+    """Periodically check and trigger scheduled actions for Danby / Midea dehumidifiers."""
+    await asyncio.sleep(15)
+    while True:
+        try:
+            executed = await midea_schedule.check_and_execute_schedules(state.midea)
+            if executed:
+                await broadcast_status("telemetry")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("midea_schedule_loop error: %s", e)
+        await asyncio.sleep(30)
+
+
+async def tesla_poller_loop():
+    """Periodically poll Tesla Wall Connectors (fast local LAN) and official Tesla API."""
+    await asyncio.sleep(2)
+    cloud_tick = 0
+
+    # Initial poll on startup to discover all devices immediately
+    try:
+        init_devs = await state.tesla.poll_all(force=True)
+        now = time.time()
+        for d in init_devs:
+            state.energy.upsert_device(
+                device_sn=d["device_sn"],
+                name=d.get("name"),
+                model_name=d.get("model") or d.get("device_type"),
+                brand="tesla",
+                device_type=d.get("device_type", "ev"),
+                location_id=d.get("location_id"),
+            )
+            state.energy.record_tesla_device(d["device_sn"], now, d)
+        await broadcast_status("telemetry")
+    except Exception as e:
+        log.warning("tesla_poller_loop initial poll error: %s", e)
+
+    while True:
+        try:
+            await asyncio.sleep(15)
+            now = time.time()
+            creds = tesla_creds.load()
+            maison_ip = creds.get("maison_twc_ip") or tesla_creds.DEFAULT_MAISON_TWC_IP
+            chalet_ip = creds.get("chalet_twc_ip")
+            has_tesla_auth = tesla_creds.has_tesla_vehicle_auth()
+
+            cloud_tick += 1
+            # Dynamic interval: every 30s if actively charging, 60s if idle/asleep
+            cached_devs = state.tesla.get_cached_devices()
+            is_any_charging = any(
+                (d.get("is_charging") or d.get("power_w", 0) > 100)
+                for d in cached_devs
+            )
+            cloud_interval_ticks = 2 if is_any_charging else 4  # 30s vs 60s
+
+            devs: list[dict[str, Any]] = []
+
+            if has_tesla_auth and cloud_tick >= cloud_interval_ticks:
+                # Full poll: local Wall Connectors + official Tesla API (vehicles & cloud Wall Connectors)
+                devs = await state.tesla.poll_all()
+                cloud_tick = 0
+            else:
+                # Fast local LAN poll for local Wall Connectors
+                if maison_ip:
+                    try:
+                        twc = await state.tesla.poll_wall_connector(maison_ip, "maison")
+                        if twc:
+                            devs.append(twc)
+                    except Exception as e:
+                        log.warning("tesla_poller_loop Maison TWC error: %s", e)
+                if chalet_ip:
+                    try:
+                        twc_c = await state.tesla.poll_wall_connector(chalet_ip, "chalet")
+                        if twc_c:
+                            devs.append(twc_c)
+                    except Exception as e:
+                        log.warning("tesla_poller_loop Chalet TWC error: %s", e)
+
+            # Persist and broadcast
+            if devs:
+                for d in devs:
+                    state.energy.upsert_device(
+                        device_sn=d["device_sn"],
+                        name=d.get("name"),
+                        model_name=d.get("model") or d.get("device_type"),
+                        brand="tesla",
+                        device_type=d.get("device_type", "ev"),
+                        location_id=d.get("location_id"),
+                    )
+                    state.energy.record_tesla_device(d["device_sn"], now, d)
+                await broadcast_status("telemetry")
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("tesla_poller_loop error: %s", e)
+
+        await asyncio.sleep(15)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Starting Jackery monitor on backend=%s", state.backend)
@@ -2891,6 +3636,15 @@ async def lifespan(app: FastAPI):
     state.poll_task = asyncio.create_task(poll_loop())
     state.smart_charge_task = asyncio.create_task(smart_charge_loop())
     state.solar_charge_task = asyncio.create_task(solar_charge_loop())
+    state.sinope_poller_task = asyncio.create_task(sinope_poller_loop())
+    state.daikin.set_broadcast_callback(lambda: broadcast_status("telemetry"))
+    asyncio.create_task(state.daikin.init_air_clean())
+    state.daikin_poller_task = asyncio.create_task(daikin_poller_loop())
+    state.hilo_poller_task = asyncio.create_task(hilo_poller_loop())
+    state.thinq_poller_task = asyncio.create_task(thinq_poller_loop())
+    state.midea_poller_task = asyncio.create_task(midea_poller_loop())
+    state.midea_schedule_task = asyncio.create_task(midea_schedule_loop())
+    state.tesla_poller_task = asyncio.create_task(tesla_poller_loop())
     # Daily AI-insights auto-run is intentionally NOT started here.
     # The /api/algorithm/review_now endpoint still works for on-demand
     # reviews; this commit just removes the background daily trigger.
@@ -2915,6 +3669,18 @@ async def lifespan(app: FastAPI):
         state.smart_charge_task.cancel()
     if getattr(state, "solar_charge_task", None):
         state.solar_charge_task.cancel()
+    if getattr(state, "sinope_poller_task", None):
+        state.sinope_poller_task.cancel()
+    if getattr(state, "daikin_poller_task", None):
+        state.daikin_poller_task.cancel()
+    if getattr(state, "hilo_poller_task", None):
+        state.hilo_poller_task.cancel()
+    if getattr(state, "thinq_poller_task", None):
+        state.thinq_poller_task.cancel()
+    if getattr(state, "midea_poller_task", None):
+        state.midea_poller_task.cancel()
+    if getattr(state, "midea_schedule_task", None):
+        state.midea_schedule_task.cancel()
     if getattr(state, "kasa_reconciler_task", None):
         state.kasa_reconciler_task.cancel()
     if getattr(state, "forecast_recorder_task", None):
@@ -4717,6 +5483,7 @@ def api_kasa_creds_save(body: dict):
         raise HTTPException(400, "email and password are required")
     if not kasa_creds.save(email, password):
         raise HTTPException(500, "failed to save credentials")
+    asyncio.create_task(api_kasa_poll())
     return {"ok": True, "email": email}
 
 
@@ -4724,6 +5491,1095 @@ def api_kasa_creds_save(body: dict):
 def api_kasa_creds_clear():
     kasa_creds.clear()
     return {"ok": True}
+
+
+# ---------- Sinopé & Locations endpoints ----------
+
+@app.get("/api/locations")
+def api_locations_list():
+    return {"locations": locations.list_locations()}
+
+
+@app.post("/api/locations")
+async def api_locations_save(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    locs = body.get("locations") if isinstance(body, dict) else body
+    if not isinstance(locs, list):
+        raise HTTPException(400, "locations must be a list")
+    ok = locations.save_locations(locs)
+    return {"ok": ok, "locations": locations.list_locations()}
+
+
+@app.post("/api/locations/assign_jackery")
+async def api_locations_assign_jackery(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    sn = (body.get("device_sn") or "").strip()
+    loc_id = (body.get("location_id") or "").strip()
+    if not sn or not loc_id:
+        raise HTTPException(400, "device_sn and location_id required")
+    ok = locations.assign_jackery_to_location(sn, loc_id)
+    return {"ok": ok, "locations": locations.list_locations()}
+
+
+@app.get("/api/sinope/credentials")
+def api_sinope_creds_get():
+    saved = sinope_creds.has_credentials()
+    creds = sinope_creds.load() if saved else None
+    return {"saved": saved, "email": creds.get("email") if creds else None}
+
+
+@app.post("/api/sinope/credentials")
+async def api_sinope_creds_save(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    email = ((body or {}).get("email") or "").strip()
+    password = ((body or {}).get("password") or "")
+    if not email or not password:
+        raise HTTPException(400, "email and password required")
+    test_res = await state.sinope.test_credentials(email, password)
+    if not test_res.get("ok"):
+        raise HTTPException(400, test_res.get("error") or "Authentication failed")
+    ok = sinope_creds.save(email, password)
+    if not ok:
+        raise HTTPException(500, "Failed to save credentials")
+    asyncio.create_task(state.sinope.poll_all_devices(force=True))
+    return {"ok": True, "email": email, "locations": test_res.get("locations", [])}
+
+
+@app.delete("/api/sinope/credentials")
+async def api_sinope_creds_delete():
+    await state.sinope.logout()
+    sinope_creds.clear()
+    state.sinope._cached_telemetry.clear()
+    return {"ok": True}
+
+
+@app.get("/api/sinope/devices")
+def api_sinope_devices(location_id: str | None = None):
+    return {"devices": _enrich_sinope_devices(state.sinope.get_cached_devices(location_id))}
+
+
+@app.post("/api/sinope/poll")
+async def api_sinope_poll():
+    devs = await state.sinope.poll_all_devices(force=True)
+    if devs:
+        now = time.time()
+        for d in devs:
+            state.energy.upsert_device(
+                device_sn=d["device_sn"],
+                name=d["name"],
+                model_name=d.get("model"),
+                brand="sinope",
+                device_type=d.get("device_type", "load"),
+                location_id=d.get("location_id"),
+            )
+            if d.get("is_water_heater"):
+                water_t = d.get("water_temperature_c")
+                state.energy.record_load(
+                    device_sn=d["device_sn"],
+                    ts=now,
+                    power_w=0.0,
+                    temp_c=water_t,
+                )
+                asyncio.create_task(sync_water_heater_consumption(d))
+            elif d.get("device_type") == "thermostat":
+                power_w = d.get("power_w") or 0.0
+                temp_c = d.get("room_temp_c")
+                heat_pct = d.get("heat_level_pct")
+                setpoint = d.get("setpoint_c")
+                load_w = d.get("load_watt")
+                sinope_st = json.dumps({
+                    "duty_pct": heat_pct,
+                    "setpoint_c": setpoint,
+                    "load_watt": load_w,
+                    "room_temp_c": temp_c,
+                })
+                state.energy.record_thermostat(
+                    device_sn=d["device_sn"],
+                    ts=now,
+                    power_w=power_w,
+                    temp_c=temp_c,
+                    outdoor_temp_c=setpoint,
+                    equipment_status=heat_pct,
+                    state_json=sinope_st,
+                )
+            else:
+                power_w = d.get("power_w") or 0.0
+                state.energy.record_load(
+                    device_sn=d["device_sn"],
+                    ts=now,
+                    power_w=power_w,
+                )
+        await broadcast_status("telemetry")
+    return {"devices": _enrich_sinope_devices(devs)}
+
+
+@app.post("/api/sinope/sync-consumption")
+async def api_sinope_sync_consumption(device_sn: str | None = None):
+    devs = state.sinope.get_cached_devices()
+    synced = []
+    for d in devs:
+        if d.get("is_water_heater"):
+            if device_sn and d.get("device_sn") != device_sn:
+                continue
+            await sync_water_heater_consumption(d, initial=True)
+            synced.append(d["device_sn"])
+    return {"ok": True, "synced": synced}
+
+
+@app.get("/api/sinope/history/location")
+def api_sinope_location_history(location_id: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.location_load_history(
+        location_id=location_id, hours=hours, bucket_s=bucket_s, brand="sinope"
+    )
+    return {
+        "location_id": location_id,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": rows,
+    }
+
+
+@app.get("/api/sinope/history/device")
+def api_sinope_device_history(device_sn: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": [
+            {
+                "ts": r["ts"],
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+                "temp_c": r.get("battery_temp_c"),
+                "outdoor_temp_c": r.get("outdoor_temp_c"),
+                "equipment_status": r.get("equipment_status"),
+                "state_json": r.get("state_json"),
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------- Daikin One Routes ----------
+@app.get("/api/daikin/credentials")
+def api_daikin_creds_get():
+    saved = daikin_creds.has_credentials()
+    creds = daikin_creds.load() if saved else None
+    return {
+        "saved": saved,
+        "email": creds.get("email") if creds else None,
+        "has_api_key": bool(creds and creds.get("api_key")),
+    }
+
+
+@app.post("/api/daikin/credentials")
+async def api_daikin_creds_save(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    email = ((body or {}).get("email") or "").strip()
+    integrator_token = ((body or {}).get("integrator_token") or "").strip()
+    api_key = ((body or {}).get("api_key") or "").strip()
+    if not email or not integrator_token or not api_key:
+        raise HTTPException(400, "email, integrator_token, and api_key required")
+    test_res = await state.daikin.test_credentials(email, integrator_token, api_key)
+    if not test_res.get("ok"):
+        raise HTTPException(400, test_res.get("error") or "Authentication failed")
+    ok = daikin_creds.save(email, integrator_token, api_key)
+    if not ok:
+        raise HTTPException(500, "Failed to save credentials")
+    asyncio.create_task(state.daikin.poll_all_devices(force=True))
+    return {
+        "ok": True,
+        "email": email,
+        "locations": test_res.get("locations", []),
+        "device_count": test_res.get("device_count", 0),
+    }
+
+
+@app.delete("/api/daikin/credentials")
+async def api_daikin_creds_delete():
+    daikin_creds.clear()
+    state.daikin._cached_devices.clear()
+    state.daikin._access_token = None
+    state.daikin._token_expires_at = 0.0
+    return {"ok": True}
+
+
+@app.get("/api/daikin/devices")
+def api_daikin_devices(location_id: str | None = None):
+    return {"devices": _enrich_daikin_fan_runtime(state.daikin.get_cached_devices(location_id))}
+
+
+@app.post("/api/daikin/poll")
+async def api_daikin_poll():
+    devs = await state.daikin.poll_all_devices(force=True)
+    if devs:
+        now = time.time()
+        for d in devs:
+            state.energy.upsert_device(
+                device_sn=d["device_sn"],
+                name=d["name"],
+                model_name=d.get("model"),
+                brand="daikin",
+                device_type="thermostat",
+                location_id=d.get("location_id"),
+            )
+            power_w = d.get("power_w") or 0.0
+            state.energy.record_thermostat(
+                device_sn=d["device_sn"],
+                ts=now,
+                power_w=power_w,
+                temp_c=d.get("temp_indoor_c"),
+                outdoor_temp_c=d.get("temp_outdoor_c"),
+                equipment_status=d.get("equipment_status"),
+            )
+        await broadcast_status("telemetry")
+    return {"devices": _enrich_daikin_fan_runtime(devs)}
+
+
+@app.put("/api/daikin/device/{device_id}/msp")
+async def api_daikin_set_msp(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "expected JSON object")
+    mode = body.get("mode")
+    heat_sp = body.get("heat_setpoint")
+    cool_sp = body.get("cool_setpoint")
+    if mode is None or heat_sp is None or cool_sp is None:
+        raise HTTPException(400, "mode, heat_setpoint, and cool_setpoint required")
+    try:
+        res = await state.daikin.set_msp(
+            device_id=device_id,
+            mode=int(mode),
+            heat_setpoint=float(heat_sp),
+            cool_setpoint=float(cool_sp),
+        )
+        await broadcast_status("telemetry")
+        return res
+    except Exception as e:
+        log.warning("Failed to update Daikin setpoint: %s", e)
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/daikin/device/{device_id}/schedule")
+async def api_daikin_set_schedule(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict) or "schedule_enabled" not in body:
+        raise HTTPException(400, "schedule_enabled (bool) required")
+    sched_en = bool(body["schedule_enabled"])
+    try:
+        res = await state.daikin.set_schedule(device_id, sched_en)
+        await broadcast_status("telemetry")
+        return res
+    except Exception as e:
+        log.warning("Failed to update Daikin schedule: %s", e)
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/daikin/device/{device_id}/fan")
+async def api_daikin_set_fan(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "expected JSON object")
+    circulate = body.get("fan_circulate", 0)
+    speed = body.get("fan_circulate_speed", 0)
+    try:
+        state.daikin.cancel_air_clean(device_id)
+        res = await state.daikin.set_fan(
+            device_id=device_id,
+            fan_circulate=int(circulate),
+            fan_circulate_speed=int(speed),
+        )
+        await broadcast_status("telemetry")
+        return res
+    except Exception as e:
+        log.warning("Failed to update Daikin fan: %s", e)
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/daikin/device/{device_id}/air-clean")
+async def api_daikin_start_air_clean(device_id: str, req: Request):
+    duration_s = daikin_client.DEFAULT_AIRCLEAN_DURATION_S
+    if req.headers.get("content-length") and int(req.headers.get("content-length")) > 0:
+        try:
+            body = await req.json()
+            if isinstance(body, dict) and "duration_s" in body:
+                duration_s = max(60, min(86400, int(body["duration_s"])))
+        except Exception:
+            pass
+    try:
+        res = await state.daikin.start_air_clean(device_id=device_id, duration_s=duration_s)
+        await broadcast_status("telemetry")
+        return {"ok": True, "air_clean": res}
+    except Exception as e:
+        log.warning("Failed to start Daikin air clean for %s: %s", device_id, e)
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/daikin/device/{device_id}/air-clean")
+async def api_daikin_stop_air_clean(device_id: str):
+    try:
+        res = await state.daikin.stop_air_clean(device_id=device_id, revert_fan=True)
+        await broadcast_status("telemetry")
+        return {"ok": True, "air_clean": res}
+    except Exception as e:
+        log.warning("Failed to stop Daikin air clean for %s: %s", device_id, e)
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/daikin/history/device")
+def api_daikin_device_history(device_sn: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": [
+            {
+                "ts": r["ts"],
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+                "temp_c": r.get("battery_temp_c"),
+                "outdoor_temp_c": r.get("outdoor_temp_c"),
+                "equipment_status": r.get("equipment_status"),
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------- Hilo / Hydro-Québec Smart Meter Routes ----------
+@app.get("/api/hilo/credentials")
+def api_hilo_creds_get():
+    all_creds = hilo_creds.load_all()
+    configured = list(all_creds.keys())
+    locations_status = {}
+    for loc in locations.list_locations():
+        loc_id = loc.get("id")
+        if loc_id:
+            c = all_creds.get(loc_id.lower())
+            locations_status[loc_id] = {
+                "saved": bool(c),
+                "email": c.get("email") if c else None,
+            }
+    return {
+        "saved": len(all_creds) > 0,
+        "configured": configured,
+        "locations": locations_status,
+    }
+
+
+@app.post("/api/hilo/credentials")
+async def api_hilo_creds_save(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    location_id = ((body or {}).get("location_id") or "maison").strip().lower()
+    email = ((body or {}).get("email") or "").strip()
+    password = ((body or {}).get("password") or "").strip()
+    if not email or not password:
+        raise HTTPException(400, "email and password required")
+
+    test_res = await state.hilo.test_credentials(location_id, email, password)
+    if not test_res.get("ok"):
+        raise HTTPException(400, test_res.get("error") or "Authentication failed")
+
+    ok = hilo_creds.save(location_id, email, password)
+    if not ok:
+        raise HTTPException(500, "Failed to save credentials")
+
+    asyncio.create_task(state.hilo.poll_location(location_id, force=True))
+    return {
+        "ok": True,
+        "location_id": location_id,
+        "email": email,
+        "locations": test_res.get("locations", []),
+        "meter_count": test_res.get("meter_count", 0),
+    }
+
+
+@app.delete("/api/hilo/credentials")
+async def api_hilo_creds_delete(location_id: str | None = None):
+    hilo_creds.clear(location_id)
+    state.hilo._clear_session(location_id)
+    if location_id:
+        norm_id = location_id.strip().lower()
+        state.hilo._cached_meters.pop(norm_id, None)
+        state.hilo._cached_devices.pop(norm_id, None)
+        state.hilo._cached_challenges.pop(norm_id, None)
+    else:
+        state.hilo._cached_meters.clear()
+        state.hilo._cached_devices.clear()
+        state.hilo._cached_challenges.clear()
+    return {"ok": True}
+
+
+@app.get("/api/hilo/devices")
+def api_hilo_devices(location_id: str | None = None):
+    return {
+        "meters": _enrich_hilo_meters(state.hilo.get_cached_meters(location_id)),
+        "devices": state.hilo.get_cached_devices(location_id),
+        "challenges": state.hilo.get_cached_challenges(location_id),
+    }
+
+
+@app.post("/api/hilo/poll")
+async def api_hilo_poll(location_id: str | None = None):
+    if location_id:
+        res = await state.hilo.poll_location(location_id, force=True)
+        meters = res.get("meters", [])
+        devices = res.get("devices", [])
+        challenges = res.get("challenges", [])
+    else:
+        res = await state.hilo.poll_all_locations(force=True)
+        meters = res.get("meters", [])
+        devices = res.get("devices", [])
+        challenges = res.get("challenges", [])
+
+    if meters or devices:
+        now = time.time()
+        for m in meters:
+            state.energy.upsert_device(
+                device_sn=m["device_sn"],
+                name=m.get("name"),
+                model_name="Landis+Gyr Smart Meter",
+                brand="hilo",
+                device_type="meter",
+                location_id=m.get("location_id"),
+            )
+            state.energy.record_load(
+                device_sn=m["device_sn"],
+                ts=now,
+                power_w=m.get("power_w", 0.0),
+            )
+        for d in devices:
+            state.energy.upsert_device(
+                device_sn=d["device_sn"],
+                name=d.get("name"),
+                model_name=str(d.get("device_type", "device")).capitalize(),
+                brand="hilo",
+                device_type=d.get("device_type", "load"),
+                location_id=d.get("location_id"),
+            )
+            if "power_w" in d:
+                state.energy.record_load(
+                    device_sn=d["device_sn"],
+                    ts=now,
+                    power_w=d.get("power_w", 0.0),
+                    temp_c=d.get("temp_c"),
+                )
+        await broadcast_status("telemetry")
+    return {
+        "meters": _enrich_hilo_meters(meters),
+        "devices": devices,
+        "challenges": challenges,
+    }
+
+
+@app.get("/api/hilo/history/meter")
+def api_hilo_meter_history(device_sn: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": [
+            {
+                "ts": r["ts"],
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------- LG ThinQ Smart Appliances Routes ----------
+@app.get("/api/thinq/credentials")
+def api_thinq_creds_get():
+    all_creds = thinq_creds.load_all()
+    configured = list(all_creds.keys())
+    locations_status = {}
+    for loc in locations.list_locations():
+        loc_id = loc.get("id")
+        if loc_id:
+            c = all_creds.get(loc_id.lower())
+            masked = f"...{c['pat'][-6:]}" if (c and c.get("pat")) else None
+            locations_status[loc_id] = {
+                "saved": bool(c),
+                "country": c.get("country", "CA") if c else "CA",
+                "masked_token": masked,
+            }
+    return {
+        "saved": len(all_creds) > 0,
+        "configured": configured,
+        "locations": locations_status,
+    }
+
+
+@app.post("/api/thinq/credentials")
+async def api_thinq_creds_save(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    location_id = ((body or {}).get("location_id") or "maison").strip().lower()
+    raw_token = ((body or {}).get("token") or (body or {}).get("pat") or "").strip()
+    token = re.sub(r'^(?:PAT_TOKEN|token|pat)\s*=\s*', '', raw_token, flags=re.I).strip().strip('"\'')
+    country = ((body or {}).get("country") or "CA").strip().upper()
+    if not token:
+        raise HTTPException(400, "Personal Access Token (PAT) required")
+
+    test_res = await state.thinq.test_credentials(token, country)
+    if not test_res.get("ok"):
+        raise HTTPException(400, test_res.get("error") or "Authentication failed")
+
+    ok = thinq_creds.save(location_id, token, country)
+    if not ok:
+        raise HTTPException(500, "Failed to save credentials")
+
+    asyncio.create_task(state.thinq.poll_location(location_id, force=True))
+    return {
+        "ok": True,
+        "location_id": location_id,
+        "country": country,
+        "device_count": test_res.get("device_count", 0),
+    }
+
+
+@app.delete("/api/thinq/credentials")
+async def api_thinq_creds_delete(location_id: str | None = None):
+    thinq_creds.clear(location_id)
+    if location_id:
+        norm_id = location_id.strip().lower()
+        state.thinq._cached_devices.pop(norm_id, None)
+    else:
+        state.thinq._cached_devices.clear()
+    return {"ok": True}
+
+
+@app.get("/api/thinq/devices")
+def api_thinq_devices(location_id: str | None = None):
+    return {
+        "devices": state.thinq.get_cached_devices(location_id),
+    }
+
+
+@app.post("/api/thinq/poll")
+async def api_thinq_poll(location_id: str | None = None):
+    if location_id:
+        devs = await state.thinq.poll_location(location_id, force=True)
+    else:
+        devs = await state.thinq.poll_all_locations(force=True)
+
+    if devs:
+        now = time.time()
+        for d in devs:
+            state.energy.upsert_device(
+                device_sn=d["device_sn"],
+                name=d.get("name"),
+                model_name=d.get("model_name") or d.get("model") or d.get("device_type"),
+                brand="thinq",
+                device_type=d.get("category", "appliance"),
+                location_id=d.get("location_id"),
+            )
+            state.energy.record_thinq_appliance(
+                device_sn=d["device_sn"],
+                ts=now,
+                norm_dev=d,
+            )
+        await broadcast_status("telemetry")
+    return {"devices": devs}
+
+
+@app.get("/api/thinq/history/device")
+def api_thinq_device_history(device_sn: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": [
+            {
+                "ts": r["ts"],
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+                "equipment_status": r.get("equipment_status"),
+                "temp_c": r.get("battery_temp_c"),
+                "outdoor_temp_c": r.get("outdoor_temp_c"),
+                "state_json": r.get("state_json"),
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/thinq/device/{device_id}/control")
+async def api_thinq_control(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    location_id = ((body or {}).get("location_id") or "maison").strip().lower()
+    payload = (body or {}).get("payload")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "payload dict required")
+    try:
+        res = await state.thinq.control_device(location_id, device_id, payload)
+        asyncio.create_task(state.thinq.poll_location(location_id, force=True))
+        return res
+    except thinq_client.ThinQConfigError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"ThinQ control failed: {e}")
+
+
+# ---------- Midea / Danby Smart Dehumidifiers ----------
+@app.get("/api/midea/credentials")
+def api_midea_creds_get():
+    all_creds = midea_creds.load_all()
+    configured = {}
+    for loc_id, c in all_creds.items():
+        configured[loc_id] = {
+            "configured": bool(c.get("email") and c.get("password")),
+            "email": c.get("email") or "",
+            "app_name": c.get("app_name") or "MSmartHome",
+        }
+    return {
+        "has_credentials": midea_creds.has_credentials(),
+        "configured_locations": midea_creds.configured_locations(),
+        "locations": configured,
+    }
+
+
+@app.post("/api/midea/credentials")
+async def api_midea_creds_post(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    location_id = str((body or {}).get("location_id") or "maison").strip().lower()
+    email = str((body or {}).get("email") or "").strip()
+    password = str((body or {}).get("password") or "")
+    app_name = str((body or {}).get("app_name") or "MSmartHome").strip()
+
+    if not email:
+        raise HTTPException(400, "email is required")
+
+    # If password is bullet placeholder or empty, reuse existing valid saved password
+    if not password or password == "••••••••":
+        existing = midea_creds.load(location_id)
+        if existing and existing.get("password") and existing["password"] != "••••••••":
+            password = existing["password"]
+        else:
+            raise HTTPException(400, "password is required")
+
+    # Test authenticating with Midea Cloud before saving
+    try:
+        test_res = await state.midea.test_credentials(email, password, app_name)
+    except Exception as e:
+        log.warning("Midea credentials verification failed for %s: %s", location_id, e)
+        raise HTTPException(400, f"Authentication failed: {e}")
+
+    saved_app_name = test_res.get("app_name") or app_name
+    ok = midea_creds.save(location_id, email, password, saved_app_name)
+    if not ok:
+        raise HTTPException(500, "failed to save credentials")
+
+    # Invalidate old cloud instance & trigger poll immediately in background
+    state.midea._cloud_instances.pop(location_id, None)
+    asyncio.create_task(state.midea.poll_all_locations())
+    return {
+        "ok": True,
+        "location_id": location_id,
+        "app_name": saved_app_name,
+        "device_count": test_res.get("device_count", 0),
+    }
+
+
+@app.delete("/api/midea/credentials")
+async def api_midea_creds_delete(location_id: str | None = None):
+    midea_creds.clear(location_id)
+    if location_id:
+        norm_id = location_id.strip().lower()
+        state.midea._cloud_instances.pop(norm_id, None)
+    else:
+        state.midea._cloud_instances.clear()
+        state.midea._cached_devices.clear()
+    return {"ok": True}
+
+
+@app.get("/api/midea/devices")
+def api_midea_devices():
+    return {
+        "devices": state.midea.get_cached_devices(),
+    }
+
+
+@app.post("/api/midea/poll")
+async def api_midea_poll():
+    devs = await state.midea.poll_all_locations()
+    if devs:
+        for d in devs:
+            state.energy.upsert_device(
+                device_sn=d["device_sn"],
+                name=d.get("name"),
+                model_name=d.get("model"),
+                brand="danby",
+                device_type="dehumidifier",
+                location_id=d.get("location_id"),
+            )
+        await broadcast_status("telemetry")
+    return {"devices": devs}
+
+
+@app.post("/api/midea/device/{device_id}/control")
+async def api_midea_control(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+
+    kwargs = {}
+    if "power" in body:
+        kwargs["running"] = bool(body["power"])
+    if "target_humidity" in body:
+        kwargs["target_humidity"] = max(30, min(80, int(body["target_humidity"])))
+    if "fan_speed" in body:
+        kwargs["fan_speed"] = int(body["fan_speed"]) if str(body["fan_speed"]).isdigit() else body["fan_speed"]
+    if "mode" in body:
+        kwargs["mode"] = int(body["mode"]) if str(body["mode"]).isdigit() else body["mode"]
+
+    if not kwargs:
+        raise HTTPException(400, "at least one valid control parameter (power, target_humidity, fan_speed, mode) required")
+
+    try:
+        res = await state.midea.control_device(device_id, **kwargs)
+        if isinstance(res, dict) and "power" in res:
+            try:
+                state.energy.record_dehumidifier(
+                    device_sn=res.get("device_sn") or f"midea_{device_id}",
+                    ts=time.time(),
+                    current_humidity=float(res.get("current_humidity", 0) or 0),
+                    target_humidity=float(res.get("target_humidity", 50) or 50),
+                    operational_status=str(res.get("operational_status", "off")),
+                    temp_c=float(res.get("current_temperature")) if res.get("current_temperature") else None,
+                    fan_speed=int(res.get("fan_speed", 40) or 40),
+                )
+            except Exception as e:
+                log.warning("failed to record dehumidifier sample on control: %s", e)
+        await broadcast_status("telemetry")
+        return res
+    except midea_client.MideaConfigError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Midea control failed: {e}")
+
+
+@app.post("/api/midea/device/{device_id}/location")
+async def api_midea_set_location(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    location_id = str((body or {}).get("location_id") or "maison").strip().lower()
+    state.midea.set_device_location(device_id, location_id)
+    await broadcast_status("telemetry")
+    return {"ok": True, "device_id": device_id, "location_id": location_id}
+
+
+@app.get("/api/midea/history/device")
+def api_midea_device_history(device_sn: str, hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    summary = state.energy.dehumidifier_runtime_summary(device_sn, hours=hours)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "summary": summary,
+        "history": [
+            {
+                "ts": r["ts"],
+                "current_humidity": r.get("battery_pct"),
+                "target_humidity": r.get("battery_temp_c"),
+                "temp_c": r.get("outdoor_temp_c"),
+                "equipment_status": r.get("equipment_status"),
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.get("/api/midea/schedules")
+def api_midea_get_all_schedules():
+    return midea_schedule.load_all()
+
+
+@app.get("/api/midea/device/{device_id}/schedule")
+def api_midea_get_schedule(device_id: str):
+    clean_id = str(device_id).strip().removeprefix("midea_")
+    return midea_schedule.get_schedule(clean_id)
+
+
+@app.put("/api/midea/device/{device_id}/schedule")
+async def api_midea_set_schedule(device_id: str, req: Request):
+    clean_id = str(device_id).strip().removeprefix("midea_")
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "schedule dict required")
+    try:
+        saved = midea_schedule.set_schedule(clean_id, body)
+        await broadcast_status("telemetry")
+        return saved
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"failed to save schedule: {e}")
+
+
+# ---------- Tesla EV & Wall Connectors ----------
+@app.get("/api/tesla/credentials")
+def api_tesla_creds_get():
+    creds = tesla_creds.load()
+    ref_tok = creds.get("refresh_token") or ""
+    acc_tok = creds.get("access_token") or ""
+    masked_ref = f"...{ref_tok[-6:]}" if len(ref_tok) >= 6 else ("configured" if ref_tok else None)
+    masked_acc = f"...{acc_tok[-6:]}" if len(acc_tok) >= 6 else ("configured" if acc_tok else None)
+    return {
+        "saved": bool(ref_tok or acc_tok or creds.get("maison_twc_ip")),
+        "has_tesla_auth": bool(ref_tok or acc_tok),
+        "has_access_token": bool(acc_tok),
+        "masked_access_token": masked_acc,
+        "has_refresh_token": bool(ref_tok),
+        "masked_refresh_token": masked_ref,
+        "client_id": creds.get("client_id") or "ownerapi",
+        "has_client_secret": bool(creds.get("client_secret")),
+        "region": creds.get("region", "na"),
+        "maison_twc_ip": creds.get("maison_twc_ip", tesla_creds.DEFAULT_MAISON_TWC_IP),
+        "chalet_twc_ip": creds.get("chalet_twc_ip", ""),
+        "chalet_lat": creds.get("chalet_lat"),
+        "chalet_lon": creds.get("chalet_lon"),
+        "geofences": creds.get("geofences", {}),
+    }
+
+
+@app.post("/api/tesla/credentials")
+async def api_tesla_creds_post(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    body = body or {}
+    refresh_token = body.get("refresh_token")
+    access_token = body.get("access_token")
+    client_id = body.get("client_id")
+    client_secret = body.get("client_secret")
+    region = body.get("region")
+    maison_twc_ip = body.get("maison_twc_ip")
+    chalet_twc_ip = body.get("chalet_twc_ip")
+    chalet_lat = body.get("chalet_lat")
+    chalet_lon = body.get("chalet_lon")
+    geofences = body.get("geofences") or {}
+
+    if chalet_lat and chalet_lon:
+        try:
+            geofences["chalet"] = {"lat": float(chalet_lat), "lon": float(chalet_lon), "radius_m": 350.0}
+        except (ValueError, TypeError):
+            pass
+
+    test_res = await state.tesla.test_credentials(
+        refresh_token=refresh_token,
+        access_token=access_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        maison_twc_ip=maison_twc_ip,
+    )
+
+    saved = tesla_creds.save(
+        refresh_token=refresh_token,
+        access_token=access_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        region=region,
+        maison_twc_ip=maison_twc_ip,
+        chalet_twc_ip=chalet_twc_ip,
+        chalet_lat=chalet_lat,
+        chalet_lon=chalet_lon,
+        geofences=geofences,
+    )
+    if not saved:
+        raise HTTPException(500, "failed to save tesla credentials")
+
+    asyncio.create_task(state.tesla.poll_all(force=True))
+    return {"ok": True, "test": test_res}
+
+
+@app.delete("/api/tesla/credentials")
+def api_tesla_creds_delete():
+    tesla_creds.clear()
+    return {"ok": True}
+
+
+@app.get("/api/tesla/devices")
+async def api_tesla_devices(location_id: str | None = None):
+    devs = state.tesla.get_cached_devices(location_id)
+    if (not devs or len(devs) <= 1) and tesla_creds.has_tesla_vehicle_auth():
+        try:
+            devs = await state.tesla.poll_all()
+            if location_id:
+                norm_id = location_id.strip().lower()
+                devs = [d for d in devs if d.get("location_id") == norm_id]
+        except Exception as e:
+            log.warning("api_tesla_devices poll_all fallback error: %s", e)
+    return {"devices": devs, "count": len(devs)}
+
+
+@app.post("/api/tesla/poll")
+async def api_tesla_poll():
+    devs = await state.tesla.poll_all(force=True)
+    now = time.time()
+    for d in devs:
+        state.energy.upsert_device(
+            device_sn=d["device_sn"],
+            name=d.get("name"),
+            model_name=d.get("model") or d.get("device_type"),
+            brand="tesla",
+            device_type=d.get("device_type", "ev"),
+            location_id=d.get("location_id"),
+        )
+        state.energy.record_tesla_device(d["device_sn"], now, d)
+    await broadcast_status("telemetry")
+    return {"devices": devs, "count": len(devs)}
+
+
+@app.post("/api/tesla/vehicle/{vin}/wake")
+async def api_tesla_vehicle_wake(vin: str):
+    try:
+        res = await state.tesla.wake_vehicle(vin)
+    except Exception as e:
+        log.warning("api_tesla_vehicle_wake error for %s: %s", vin[-6:], e)
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if not res:
+        raise HTTPException(status_code=504, detail="Vehicle did not respond to wake command within timeout")
+
+    now = time.time()
+    state.energy.upsert_device(
+        device_sn=res["device_sn"],
+        name=res.get("name"),
+        model_name=res.get("model") or "Model Y",
+        brand="tesla",
+        device_type="ev_vehicle",
+        location_id=res.get("location_id"),
+    )
+    state.energy.record_tesla_device(res["device_sn"], now, res)
+    await broadcast_status("telemetry")
+    return {"ok": True, "vehicle": res}
+
+
+@app.get("/api/tesla/history/device")
+def api_tesla_device_history(device_sn: str = "tesla_twc_maison", hours: int = 24):
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+    rows = state.energy.history(device_sn, hours=hours, bucket_s=bucket_s)
+    return {
+        "device_sn": device_sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": [
+            {
+                "ts": r["ts"],
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+                "equipment_status": r.get("equipment_status"),
+                "battery_pct": r.get("battery_pct"),
+                "handle_temp_c": r.get("battery_temp_c"),
+                "outdoor_temp_c": r.get("outdoor_temp_c"),
+                "state_json": r.get("state_json"),
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------- Notifications / Email Alerts ----------
+@app.get("/api/notifications/config")
+def api_notifications_config_get():
+    return notifications.get_public_config()
+
+
+@app.post("/api/notifications/config")
+async def api_notifications_config_save(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "expected JSON object")
+    ok = notifications.save_config(body)
+    if not ok:
+        raise HTTPException(500, "Failed to save notifications configuration")
+    return {"ok": True, "config": notifications.get_public_config()}
+
+
+@app.post("/api/notifications/test")
+async def api_notifications_test(req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    override_cfg = body if isinstance(body, dict) else None
+    test_recipient = body.get("recipient") if isinstance(body, dict) else None
+    ok, msg = await notifications.send_test_email(override_cfg=override_cfg, test_recipient=test_recipient)
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"ok": True, "message": msg}
+
+
+@app.delete("/api/notifications/config")
+def api_notifications_config_delete():
+    ok = notifications.clear_config()
+    notifications.clear_alert_state()
+    return {"ok": ok, "config": notifications.get_public_config()}
 
 
 @app.get("/api/anthropic/key")
@@ -5066,23 +6922,10 @@ async def api_kasa_status(host: str):
 
 
 # ---- saved Kasa device registry (separate from rules) ----
-def _enrich_kasa_for_ui(d: dict) -> dict:
-    """Surface the registry's cached probe state on the wire shape the
-    UI expects: `online`/`is_on`/`error`/`status` derived from the
-    last reconciler outcome."""
-    return {
-        **d,
-        "is_on": d.get("last_known_is_on"),
-        "online": state.kasa.is_online(d),
-        "status": state.kasa.status_of(d),
-        "error": d.get("last_error"),
-        "last_seen_ts": d.get("last_seen_ts"),
-    }
-
-
 @app.get("/api/kasa/saved")
 async def api_kasa_saved_list(refresh: bool = False,
-                              jackery_sn: str | None = None):
+                              jackery_sn: str | None = None,
+                              location_id: str | None = None):
     """Return saved Kasa devices. If `jackery_sn` is provided, restrict
     to plugs assigned to that Jackery (or unassigned legacy entries).
 
@@ -5093,6 +6936,9 @@ async def api_kasa_saved_list(refresh: bool = False,
     in, refresh now" path. Both routes update the persisted
     consecutive_failures counter."""
     devices = state.kasa.list_devices(jackery_device_sn=jackery_sn)
+    if location_id and location_id.lower() != "all":
+        devices = [d for d in devices if (d.get("location_id") or "maison").lower() == location_id.lower()]
+
     if not refresh or not devices:
         return {"devices": [_enrich_kasa_for_ui(d) for d in devices]}
 
@@ -5104,6 +6950,8 @@ async def api_kasa_saved_list(refresh: bool = False,
                 is_on=info.get("is_on"),
                 model=info.get("model"),
                 alias=info.get("alias"),
+                power_w=info.get("power_w"),
+                type_=info.get("type"),
             )
         except Exception as e:
             await _kasa_update_probe_and_notify(
@@ -5143,6 +6991,7 @@ async def api_kasa_saved_upsert(body: dict):
         raise HTTPException(400, str(e)) from e
     # Distinguish "not provided" (None) from "explicit unassign" ("").
     j_sn = body.get("jackery_device_sn", None) if isinstance(body, dict) else None
+    loc_id = body.get("location_id", None) if isinstance(body, dict) else None
     saved = state.kasa.upsert(
         host=host,
         alias=requested_alias or info.get("alias") or "",
@@ -5150,8 +6999,18 @@ async def api_kasa_saved_upsert(body: dict):
         type_=info.get("type"),
         mark_tested=True,
         jackery_device_sn=j_sn,
+        location_id=loc_id,
     )
-    return {"ok": True, "device": {**saved, "is_on": info.get("is_on")}}
+    state.kasa.update_probe(
+        host,
+        success=True,
+        is_on=info.get("is_on"),
+        model=info.get("model"),
+        alias=info.get("alias"),
+        power_w=info.get("power_w"),
+        type_=info.get("type"),
+    )
+    return {"ok": True, "device": {**saved, "is_on": info.get("is_on"), "power_w": info.get("power_w")}}
 
 
 @app.delete("/api/kasa/saved/{host:path}")
@@ -5162,6 +7021,151 @@ async def api_kasa_saved_delete(host: str):
     in_use = [r for r in state.automation.list_rules() if r.get("kasa_host") == host]
     return {"ok": True, "deleted": deleted,
             "rules_referencing": [r["id"] for r in in_use]}
+
+
+@app.post("/api/kasa/poll")
+async def api_kasa_poll(location_id: str | None = None):
+    """Discover Kasa devices on the LAN, auto-register newly found ones into
+    the saved registry, and probe any known saved devices. Returns enriched
+    devices list and broadcasts state update."""
+    try:
+        discovered = await kasa_client.discover(timeout=4.0)
+    except Exception as e:
+        log.warning("api_kasa_poll discover failed: %s", e)
+        discovered = []
+
+    disc_map = {d["host"]: d for d in discovered if d.get("host")}
+
+    for host, dev in disc_map.items():
+        existing = state.kasa.get(host)
+        if not existing:
+            state.kasa.upsert(
+                host=host,
+                alias=dev.get("alias") or host,
+                model=dev.get("model"),
+                type_=dev.get("type"),
+                mac=dev.get("mac"),
+                mark_tested=True,
+                location_id="maison",
+            )
+        state.kasa.update_probe(
+            host,
+            success=True,
+            is_on=dev.get("is_on"),
+            model=dev.get("model"),
+            alias=dev.get("alias"),
+            power_w=dev.get("power_w"),
+            type_=dev.get("type"),
+            mac=dev.get("mac"),
+        )
+        saved_d = state.kasa.get(host) or dev
+        _record_kasa_energy(saved_d, dev)
+
+    for d in state.kasa.list_devices():
+        host = d.get("host")
+        if host and host not in disc_map:
+            try:
+                info = await kasa_client.status(host)
+                await _kasa_update_probe_and_notify(
+                    host,
+                    success=True,
+                    is_on=info.get("is_on"),
+                    model=info.get("model"),
+                    alias=info.get("alias"),
+                    power_w=info.get("power_w"),
+                    type_=info.get("type"),
+                    mac=info.get("mac"),
+                )
+                saved_d = state.kasa.get(host) or d
+                _record_kasa_energy(saved_d, info)
+            except Exception as e:
+                await _kasa_update_probe_and_notify(host, success=False, error=str(e))
+
+    all_devs = state.kasa.list_devices()
+    if location_id and location_id.lower() != "all":
+        all_devs = [d for d in all_devs if (d.get("location_id") or "maison").lower() == location_id.lower()]
+
+    enriched = [_enrich_kasa_for_ui(d) for d in all_devs]
+    await broadcast({
+        "type": "kasa_updated",
+        "data": {"devices": [_enrich_kasa_for_ui(d) for d in state.kasa.list_devices()]},
+    })
+    return {"ok": True, "devices": enriched}
+
+
+@app.post("/api/kasa/device/{host:path}/toggle")
+async def api_kasa_device_toggle(host: str, body: dict | None = None):
+    """Toggle a Kasa device (plug or wall switch) on or off."""
+    target_on: bool
+    if body is not None and "on" in body:
+        target_on = bool(body["on"])
+    else:
+        existing = state.kasa.get(host)
+        current_on = bool(existing.get("last_known_is_on")) if existing else False
+        target_on = not current_on
+
+    try:
+        result = await kasa_client.set_state(host, target_on)
+    except kasa_client.KasaError as e:
+        raise HTTPException(400, str(e)) from e
+
+    await _kasa_update_probe_and_notify(
+        host,
+        success=True,
+        is_on=result.get("is_on"),
+        model=result.get("model"),
+        alias=result.get("alias"),
+        power_w=result.get("power_w"),
+        type_=result.get("type"),
+        mac=result.get("mac"),
+    )
+
+    saved_d = state.kasa.get(host) or result
+    _record_kasa_energy(saved_d, result)
+
+    updated = state.kasa.get(host) or result
+    return {"ok": True, "device": _enrich_kasa_for_ui(updated)}
+
+
+@app.get("/api/kasa/history/device")
+def api_kasa_device_history(device_sn: str, hours: int = 24):
+    """Query time-series sample history for a Kasa smart plug or switch."""
+    hours = max(1, min(hours, 24 * 30))
+    bucket_s = max(60, (hours * 3600) // 120)
+
+    sn = device_sn
+    # Support lookup by IP host as well
+    if not sn.startswith("kasa_"):
+        dev = state.kasa.get(device_sn)
+        if dev:
+            sn = _kasa_device_sn(dev)
+
+    rows = state.energy.history(sn, hours=hours, bucket_s=bucket_s) if getattr(state, "energy", None) else []
+    # If no rows under mac-based sn, fallback to host-based sn
+    if not rows and getattr(state, "energy", None):
+        dev = state.kasa.get(device_sn) or next((d for d in state.kasa.list_devices() if _kasa_device_sn(d) == sn), None)
+        if dev and dev.get("host"):
+            alt_sn = f"kasa_{dev['host'].replace('.', '_')}"
+            if alt_sn != sn:
+                rows = state.energy.history(alt_sn, hours=hours, bucket_s=bucket_s)
+                if rows:
+                    sn = alt_sn
+
+    return {
+        "device_sn": sn,
+        "hours": hours,
+        "bucket_s": bucket_s,
+        "history": [
+            {
+                "ts": r["ts"],
+                "power_w": r.get("output_w", 0),
+                "energy_wh": r.get("output_wh", 0),
+                "equipment_status": r.get("equipment_status"),
+                "state_json": r.get("state_json"),
+            }
+            for r in rows
+        ],
+    }
 
 
 @app.get("/api/events")

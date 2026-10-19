@@ -645,8 +645,12 @@ async def cloud_loop() -> None:
         # written by the cloud_loop step that runs after this returns.
         raw = state.props_raw_by_sn.setdefault(device_sn, {})
         raw.update(props)
+        # Realtime MQTT push means the physical hardware is actively communicating
+        raw["_dev_onlineStatus"] = 1
+        raw["_dev_updateTime"] = int(time.time() * 1000)
         state.telemetry_by_sn[device_sn] = cloud_props_to_telemetry(raw, model_code=_model_code_for_sn(device_sn))
         state.ts_by_sn[device_sn] = time.time()
+
         # Inverter overload protection: as soon as a fresh output_power_w
         # comes through MQTT, check whether it crossed the per-device
         # threshold. If so, fire the diversion plug OFF immediately and
@@ -980,10 +984,26 @@ def merged_poll() -> dict:
 
     src = "cloud" if state.cloud_telemetry is not None else None
     tele = state.cloud_telemetry
-    device = state.cloud_device
+    device = dict(state.cloud_device) if state.cloud_device else None
+    if device and tele:
+        device["online"] = tele.get("device_online", True)
+        device["last_update_ts"] = tele.get("device_last_update_ts")
+        device["offline_ts"] = tele.get("device_offline_ts")
 
     pause_remaining = max(0.0, state.pause_until - now) if state.pause_until else 0.0
     contested_remaining = max(0.0, state.contested_until - now) if state.contested_until else 0.0
+
+    enriched_devices = []
+    for d in state.cloud_devices:
+        sn = d.get("device_sn")
+        t = state.telemetry_by_sn.get(sn) or {}
+        enriched_devices.append({
+            **d,
+            "online": t.get("device_online", True),
+            "last_update_ts": t.get("device_last_update_ts"),
+            "offline_ts": t.get("device_offline_ts"),
+        })
+
     # Build a per-device telemetry dict so the server can evaluate automation
     # rules against any device, not just the active one.
     devices_telemetry = {
@@ -1002,10 +1022,11 @@ def merged_poll() -> dict:
             "ts": state.cloud_ts,
             "age_s": round(cloud_age, 1) if cloud_age is not None else None,
             "error": state.cloud_error,
-            "device": state.cloud_device,
-            "devices": list(state.cloud_devices),
+            "device": device,
+            "devices": enriched_devices,
             "devices_telemetry": devices_telemetry,
             "selected_device_id": state.cloud_device_id,
+
             "pause_until": state.pause_until or None,
             "pause_remaining_s": round(pause_remaining, 1) if pause_remaining else None,
             "contested_until": state.contested_until or None,

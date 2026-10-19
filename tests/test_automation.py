@@ -844,3 +844,75 @@ def test_day_of_month_matching(isolated_data):
     assert _matches({"conditions": [{"type": "day_of_month", "operator": "=", "value": "last"}]}, None, now_ts=ts_oct_31, tz_offset=0) is True
     assert _matches({"conditions": [{"type": "day_of_month", "operator": "=", "value": "last"}]}, None, now_ts=ts_oct_15, tz_offset=0) is False
 
+
+def test_device_status_condition_validation():
+    import automation
+
+    # Valid values
+    c1 = automation._validate_condition({"type": "device_status", "operator": "=", "value": "offline"})
+    assert c1["value"] == "offline"
+    c2 = automation._validate_condition({"type": "device_status", "operator": "=", "value": "online"})
+    assert c2["value"] == "online"
+    c3 = automation._validate_condition({"type": "device_online", "operator": "!=", "value": "0"})
+    assert c3["type"] == "device_status"
+    assert c3["value"] == "offline"
+
+    # Invalid values
+    with pytest.raises(automation.AutomationError):
+        automation._validate_condition({"type": "device_status", "operator": "=", "value": "unknown"})
+    with pytest.raises(automation.AutomationError):
+        automation._validate_condition({"type": "device_status", "operator": "<", "value": "offline"})
+
+
+def test_device_status_matching():
+    from automation import _matches
+
+    rule_offline = {"conditions": [{"type": "device_status", "operator": "=", "value": "offline"}]}
+    assert _matches(rule_offline, None, is_online=False) is True
+    assert _matches(rule_offline, None, is_online=True) is False
+    assert _matches(rule_offline, None, is_online=None) is False
+
+    rule_online = {"conditions": [{"type": "device_status", "operator": "=", "value": "online"}]}
+    assert _matches(rule_online, None, is_online=True) is True
+    assert _matches(rule_online, None, is_online=False) is False
+
+
+@pytest.mark.asyncio
+async def test_engine_fires_when_device_goes_offline(engine_with_fake_kasa):
+    engine, calls, _ = engine_with_fake_kasa
+    engine.upsert({
+        "id": "offline-alert",
+        "name": "Turn plug on when Jackery goes offline",
+        "jackery_device_sn": "J1000",
+        "kasa_host": "192.168.1.100",
+        "action": "on",
+        "conditions": [{"type": "device_status", "operator": "=", "value": "offline"}],
+        "enabled": True,
+    })
+
+    # Device is online: does not fire
+    fired = await engine.evaluate({}, active_sn="J1000", online_by_sn={"J1000": True})
+    assert len(fired) == 0
+    assert len(calls) == 0
+
+    # Device transitions offline: fires and turns plug ON
+    fired = await engine.evaluate({}, active_sn="J1000", online_by_sn={"J1000": False})
+    assert len(fired) == 1
+    assert len(calls) == 1
+    assert calls[0] == ("192.168.1.100", True)
+
+    # Still offline: edge trigger already consumed, does not re-fire
+    fired = await engine.evaluate({}, active_sn="J1000", online_by_sn={"J1000": False})
+    assert len(fired) == 0
+    assert len(calls) == 1
+
+    # Device comes back online: resets edge state
+    fired = await engine.evaluate({}, active_sn="J1000", online_by_sn={"J1000": True})
+    assert len(fired) == 0
+
+    # Device goes offline again: fires again
+    fired = await engine.evaluate({}, active_sn="J1000", online_by_sn={"J1000": False})
+    assert len(fired) == 1
+    assert len(calls) == 2
+
+

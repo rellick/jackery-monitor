@@ -309,6 +309,26 @@ def test_cost_breakdown_aggregations(tmp_path, monkeypatch):
     assert yearly[0]["period"] == "2024"
 
 
+def test_cost_breakdown_low_kwh_rounding(tmp_path, monkeypatch):
+    cost = _fresh_cost(tmp_path, monkeypatch)
+    plan = {
+        "type": "tou", "currency": "CAD",
+        "tou_rates": [
+            {"start_hour": 0, "end_hour": 24, "rate": 0.08, "label": "flat_tou"},
+        ],
+    }
+    # 0.070 kWh at 0.08 $/kWh is 0.0056 $ (< 1 cent)
+    # If rounded to $0.01 first, rate would incorrectly become 0.01 / 0.070 = 0.1429 (14.3 cents).
+    history = [
+        {"ts": 1700000000, "ac_input_wh": 70, "output_wh": 70, "solar_wh": 0},
+    ]
+    daily = cost.cost_breakdown(history, plan, group_by="day")
+    assert len(daily) == 1
+    assert daily[0]["avg_buy_rate"] == 0.08
+    assert daily[0]["avg_use_rate"] == 0.08
+
+
+
 def test_tou_distribution_and_arbitrage_score(tmp_path, monkeypatch):
     cost = _fresh_cost(tmp_path, monkeypatch)
     plan = {

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,6 +40,12 @@ def app(isolated_data, monkeypatch, tmp_path):
     monkeypatch.setenv("JACKERY_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("JACKERY_BACKUP_CREDS_FILE",
                        str(tmp_path / "backup-creds.json"))
+    monkeypatch.setenv("JACKERY_SINOPE_CREDS_FILE",
+                       str(tmp_path / "sinope-creds.json"))
+    monkeypatch.setenv("JACKERY_LOCATIONS_FILE",
+                       str(tmp_path / "locations.json"))
+    monkeypatch.setenv("JACKERY_NOTIFICATIONS_FILE",
+                       str(tmp_path / "notifications.json"))
 
     # Reload in dependency order so each module sees the patched env
     # AND its dependencies' updated constants. crypto_util has to be
@@ -49,6 +56,7 @@ def app(isolated_data, monkeypatch, tmp_path):
         "auth", "settings", "automation", "location", "smart_charge",
         "cost", "anthropic_creds", "anthropic_prefs",
         "kasa_creds", "kasa_devices", "backup_creds", "energy_db",
+        "locations", "sinope_creds", "sinope_client", "notifications",
     ):
         mod = importlib.import_module(name)
         importlib.reload(mod)
@@ -286,6 +294,51 @@ def test_kasa_saved_initially_empty(client):
     assert body["devices"] == []
 
 
+def test_kasa_poll_and_toggle(client, monkeypatch):
+    import kasa_client
+    async def mock_discover(*args, **kwargs):
+        return [
+            {"host": "192.168.1.100", "alias": "Garage Switch", "model": "HS210", "type": "WallSwitch", "is_on": False, "power_w": None},
+            {"host": "192.168.1.101", "alias": "Living Room Plug", "model": "KP115", "type": "Plug", "is_on": True, "power_w": 42.5},
+        ]
+    async def mock_set_state(host, on):
+        return {"host": host, "alias": "Mocked", "model": "HS210", "type": "WallSwitch", "is_on": on, "power_w": None}
+
+    monkeypatch.setattr(kasa_client, "discover", mock_discover)
+    monkeypatch.setattr(kasa_client, "set_state", mock_set_state)
+
+    r = client.post("/api/kasa/poll")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert len(data["devices"]) == 2
+    hosts = [d["host"] for d in data["devices"]]
+    assert "192.168.1.100" in hosts
+    assert "192.168.1.101" in hosts
+
+    r2 = client.post("/api/kasa/device/192.168.1.100/toggle", json={"on": True})
+    assert r2.status_code == 200
+    assert r2.json()["ok"] is True
+    assert r2.json()["device"]["is_on"] is True
+
+
+def test_kasa_history_endpoint(app, client):
+    sn = "kasa_192_168_1_100"
+    app.state.energy.upsert_device(sn, "Garage Switch", brand="kasa", device_type="smart_switch", location_id="maison")
+    now = int(time.time())
+    app.state.energy.record_load(sn, now - 600, power_w=0, equipment_status=1)
+    app.state.energy.record_load(sn, now - 300, power_w=0, equipment_status=1)
+
+    r_hist = client.get(f"/api/kasa/history/device?device_sn={sn}&hours=6")
+    assert r_hist.status_code == 200
+    j_hist = r_hist.json()
+    assert j_hist["device_sn"] == sn
+    assert "history" in j_hist
+    assert len(j_hist["history"]) >= 1
+    assert "equipment_status" in j_hist["history"][0]
+
+
+
 def test_backup_status_endpoint(client):
     r = client.get("/api/backup/status")
     assert r.status_code == 200
@@ -376,3 +429,156 @@ def test_energy_daily_requires_auth(unauth_client):
     unauth_client.post("/api/auth/logout")
     r = unauth_client.get("/api/energy/daily")
     assert r.status_code == 401
+
+
+# ---------- locations & sinope routes ----------
+
+def test_locations_routes(client):
+    r = client.get("/api/locations")
+    assert r.status_code == 200
+    data = r.json()
+    assert "locations" in data
+    loc_ids = [l["id"] for l in data["locations"]]
+    assert "maison" in loc_ids
+    assert "chalet" in loc_ids
+
+    # Update locations list
+    current_locs = data["locations"]
+    current_locs.append({
+        "id": "chalet2",
+        "name": "Chalet 2",
+        "neviweb_name": "Chalet",
+        "plan_id": "hq-tarif-flex-d",
+        "is_default": False,
+        "assigned_jackerys": [],
+    })
+    r_up = client.post("/api/locations", json={"locations": current_locs})
+    assert r_up.status_code == 200
+    assert r_up.json()["ok"] is True
+
+    # Assign Jackery
+    r_assign = client.post("/api/locations/assign_jackery", json={
+        "device_sn": "J2000-TEST",
+        "location_id": "chalet",
+    })
+    assert r_assign.status_code == 200
+    assert r_assign.json()["ok"] is True
+
+
+def test_sinope_credentials_and_devices_routes(app, client, monkeypatch):
+    # GET credentials (initially not configured)
+    r = client.get("/api/sinope/credentials")
+    assert r.status_code == 200
+    assert r.json() == {"saved": False, "email": None}
+
+    # Mock test_credentials on state.sinope
+    async def mock_test_creds(email, password):
+        return {"ok": True, "locations": [{"id": 1, "name": "Maison"}]}
+
+    monkeypatch.setattr(app.state.sinope, "test_credentials", mock_test_creds)
+
+    # Save credentials
+    r_save = client.post("/api/sinope/credentials", json={
+        "email": "user@example.com",
+        "password": "secretpassword",
+    })
+    assert r_save.status_code == 200
+    assert r_save.json()["ok"] is True
+
+    # GET credentials (now configured)
+    r_get = client.get("/api/sinope/credentials")
+    assert r_get.status_code == 200
+    assert r_get.json()["saved"] is True
+    assert r_get.json()["email"] == "user@example.com"
+
+    # GET devices
+    r_devs = client.get("/api/sinope/devices")
+    assert r_devs.status_code == 200
+    assert "devices" in r_devs.json()
+
+    # DELETE credentials
+    r_del = client.delete("/api/sinope/credentials")
+    assert r_del.status_code == 200
+    assert r_del.json()["ok"] is True
+
+    # GET credentials again
+    r_check = client.get("/api/sinope/credentials")
+    assert r_check.status_code == 200
+    assert r_check.json()["saved"] is False
+
+
+def test_sinope_history_endpoints(app, client):
+    sn = "SINOPE-TEST-TH"
+    app.state.energy.upsert_device(sn, "Salon", brand="sinope", device_type="thermostat", location_id="maison")
+    now = int(time.time())
+    app.state.energy.record_load(sn, now - 600, power_w=1200, temp_c=21.0)
+    app.state.energy.record_load(sn, now - 300, power_w=1200, temp_c=21.5)
+
+    # Location history
+    r_loc = client.get("/api/sinope/history/location?location_id=maison&hours=6")
+    assert r_loc.status_code == 200
+    j_loc = r_loc.json()
+    assert j_loc["location_id"] == "maison"
+    assert "history" in j_loc
+    assert len(j_loc["history"]) >= 1
+
+    # Device history
+    r_dev = client.get(f"/api/sinope/history/device?device_sn={sn}&hours=6")
+    assert r_dev.status_code == 200
+    j_dev = r_dev.json()
+    assert j_dev["device_sn"] == sn
+    assert "history" in j_dev
+    assert len(j_dev["history"]) >= 1
+    assert "power_w" in j_dev["history"][0]
+
+
+def test_notifications_routes(app, client, monkeypatch):
+    from unittest.mock import AsyncMock
+    import notifications
+
+    # 1. GET config initially
+    r_get = client.get("/api/notifications/config")
+    assert r_get.status_code == 200
+    j_get = r_get.json()
+    assert j_get["enabled"] is False
+    assert j_get["has_password"] is False
+    assert j_get["is_configured"] is False
+
+    # 2. POST save config
+    r_save = client.post("/api/notifications/config", json={
+        "enabled": True,
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 587,
+        "username": "tester@gmail.com",
+        "password": "my-secret-app-password",
+        "recipient": "alerts@gmail.com",
+        "alert_on_low_battery": True,
+        "alert_on_water_leak": True,
+        "cooldown_minutes": 15,
+    })
+    assert r_save.status_code == 200
+    j_save = r_save.json()
+    assert j_save["ok"] is True
+    assert j_save["config"]["enabled"] is True
+    assert j_save["config"]["has_password"] is True
+    assert j_save["config"]["password"] == "••••••••"
+    assert j_save["config"]["is_configured"] is True
+
+    # 3. POST test email with mock
+    mock_test = AsyncMock(return_value=(True, "Test email sent successfully!"))
+    monkeypatch.setattr(notifications, "send_test_email", mock_test)
+    r_test = client.post("/api/notifications/test", json={"recipient": "alerts@gmail.com"})
+    assert r_test.status_code == 200
+    assert r_test.json()["ok"] is True
+    assert "successfully" in r_test.json()["message"]
+
+    # 4. DELETE config
+    r_del = client.delete("/api/notifications/config")
+    assert r_del.status_code == 200
+    assert r_del.json()["ok"] is True
+    assert r_del.json()["config"]["has_password"] is False
+    assert r_del.json()["config"]["is_configured"] is False
+
+
+
+

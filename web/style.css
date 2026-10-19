@@ -126,8 +126,11 @@ a.brand:hover .logo-dot { transform: scale(1.15); transition: transform .15s; }
 }
 .pill-conn.is-connected   .conn-dot { background: var(--accent); box-shadow: 0 0 8px rgba(74,222,128,.6); }
 .pill-conn.is-connecting  .conn-dot { background: var(--accent-3); animation: pulse 1.2s infinite; }
+.pill-conn.is-offline     .conn-dot { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,.6); }
+.pill-conn.is-offline     { border-color: rgba(245,158,11,.35); color: #fbbf24; }
 .pill-conn.is-error       .conn-dot { background: var(--danger); }
 @keyframes pulse { 50% { opacity: .35; } }
+
 
 /* ============== Buttons ============== */
 .btn {
@@ -1854,10 +1857,10 @@ main {
   border-radius: var(--radius-sm);
 }
 .auto-cond-row select.auto-cond-type {
-  flex: 0 0 135px;
+  flex: 0 0 165px;
 }
 .auto-cond-row select.auto-cond-op {
-  flex: 0 0 160px;
+  flex: 0 0 145px;
 }
 .auto-cond-val-wrap {
   display: inline-flex;
@@ -1865,7 +1868,7 @@ main {
   align-items: center;
   flex: 1 1 auto;
 }
-.auto-cond-batt-wrap, .auto-cond-time-wrap {
+.auto-cond-batt-wrap, .auto-cond-time-wrap, .auto-cond-status-wrap {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2265,6 +2268,26 @@ main {
   border-radius: var(--radius-sm);
   font-size: 13px;
 }
+
+.device-offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  color: #fbbf24;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.device-offline-banner[hidden] { display: none; }
+.offline-icon { font-size: 18px; flex-shrink: 0; }
+.offline-body { display: flex; flex-direction: column; gap: 2px; }
+.offline-body strong { color: #fef3c7; font-weight: 600; }
+.offline-body span { color: #fde68a; font-size: 12px; }
+
 
 /* ============== Footer ============== */
 footer {
@@ -3112,4 +3135,2668 @@ body.device-switching .tab-panel { opacity: .45; pointer-events: none;
   font-size: 9px;
   color: var(--accent);
 }
+
+/* ============================================================
+/* ============================================================
+   Sinopé Smart Climate & Loads Tab
+   ============================================================ */
+.sinope-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+
+.sinope-loc-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sinope-loc-pill {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.sinope-loc-pill:hover {
+  border-color: var(--border, #323d52);
+  color: var(--text, #f8fafc);
+}
+
+.sinope-loc-pill.on {
+  background: var(--surface-3, #222a3a);
+  border-color: var(--accent, #38ef7d);
+  color: var(--accent, #38ef7d);
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(56, 239, 125, 0.15);
+}
+
+.sinope-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sinope-kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.sinope-location-section {
+  margin-bottom: 24px;
+}
+
+.sinope-location-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px 8px 4px;
+  border-bottom: 1px solid var(--border-soft, #222938);
+}
+
+.sinope-location-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sinope-location-plan {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: var(--surface-card, #13171f);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft, #222938);
+}
+
+.sinope-loads-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.sinope-dev-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color .15s, background .15s;
+}
+
+.sinope-dev-card:hover {
+  border-color: var(--border, #323d52);
+}
+
+.sinope-dev-card.is-heating {
+  border-left: 3px solid #ff7a18;
+}
+
+.sinope-dev-card.is-active-load {
+  border-left: 3px solid var(--accent, #38ef7d);
+}
+
+.sinope-dev-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.sinope-dev-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sinope-dev-model {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.sinope-dev-metrics {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.sinope-temp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.sinope-temp-cur {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+}
+
+.sinope-temp-target {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sinope-power-val {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+}
+
+.sinope-duty-track {
+  width: 100%;
+  height: 5px;
+  background: var(--surface-2, #1a202c);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.sinope-duty-bar {
+  height: 100%;
+  background: #ff7a18;
+  border-radius: 999px;
+  transition: width .3s ease;
+}
+
+.sinope-duty-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.sinope-dev-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border-soft, #222938);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.sinope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.sinope-badge.heating {
+  background: rgba(255, 122, 24, 0.15);
+  color: #ff9d42;
+}
+
+.sinope-badge.idle {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+
+.sinope-badge.on {
+  background: rgba(56, 239, 125, 0.15);
+  color: var(--accent, #38ef7d);
+}
+
+.sinope-badge.off {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+
+.sinope-badge.dr-peak {
+  background: rgba(255, 68, 68, 0.2);
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+.sinope-badge.valve-open {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.sinope-badge.valve-closed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.sinope-badge.leak-alert {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  border: 1px solid #ef4444;
+}
+
+.sinope-badge.leak-dry {
+  background: rgba(56, 239, 125, 0.12);
+  color: #38ef7d;
+}
+
+.sinope-dev-card.is-leak-alert {
+  border-color: #ef4444;
+  border-left: 3px solid #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.sinope-group-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 16px 4px 8px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sinope-group-title:first-child {
+  margin-top: 4px;
+}
+
+.sinope-empty-card {
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--surface-card, #13171f);
+  border: 1px dashed var(--border, #323d52);
+  border-radius: 12px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sinope-empty-card h3 {
+  color: var(--text);
+  font-size: 16px;
+  margin: 0;
+}
+
+.sinope-empty-card p {
+  max-width: 440px;
+  font-size: 13.5px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Sinopé Location & Device History Charts
+   ============================================================ */
+
+.sinope-loc-chart-card {
+  margin-bottom: 16px;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.sinope-loc-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sinope-loc-chart-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sinope-loc-chart-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+
+.sinope-loc-chart-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+}
+
+.sinope-chart-stat .lbl {
+  color: var(--text-mute, #64748b);
+  margin-right: 3px;
+}
+
+.sinope-chart-stat b {
+  color: var(--text, #f8fafc);
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+
+.sinope-chart-canvas-wrap {
+  width: 100%;
+  position: relative;
+  min-height: 200px;
+}
+
+.sinope-chart {
+  width: 100%;
+  height: 250px;
+  display: block;
+}
+
+.sinope-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--text-dim, #94a3b8);
+}
+
+.sinope-chart-legend .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sinope-chart-legend .legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Range buttons in Sinopé charts */
+.sinope-loc-range-btn,
+.sinope-dev-range-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #94a3b8);
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.sinope-loc-range-btn:hover,
+.sinope-dev-range-btn:hover {
+  color: var(--text, #f8fafc);
+}
+
+.sinope-loc-range-btn.on,
+.sinope-dev-range-btn.on {
+  background: var(--accent, #38ef7d);
+  color: #032012;
+  font-weight: 600;
+}
+
+/* Device Card History Button & Drawer */
+.btn-sinope-history {
+  background: var(--surface-2, #1a202c);
+  border: 1px solid var(--border-soft, #2a3447);
+  color: var(--text-dim, #94a3b8);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-sinope-history:hover {
+  color: var(--text, #f8fafc);
+  border-color: var(--border, #3b475e);
+  background: var(--surface-3, #222a3a);
+}
+
+.btn-sinope-history.active {
+  background: rgba(56, 239, 125, 0.15);
+  color: var(--accent, #38ef7d);
+  border-color: var(--accent, #38ef7d);
+  font-weight: 600;
+}
+
+/* Expand active history card across all grid columns */
+.sinope-dev-card.has-open-history {
+  grid-column: 1 / -1;
+  border-color: rgba(56, 239, 125, 0.4);
+}
+
+.sinope-dev-history-drawer {
+  border-top: 1px solid var(--border-soft, #222938);
+  padding-top: 12px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: sinopeSlideDown .2s ease;
+}
+
+@keyframes sinopeSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sinope-dev-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sinope-dev-history-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sinope-dev-history-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+
+.sinope-dev-history-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+}
+
+.sinope-dev-history-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sinope-dev-history-close {
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sinope-dev-chart {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .sinope-loc-chart-header,
+  .sinope-dev-history-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .sinope-chart {
+    height: 200px;
+  }
+  .sinope-dev-chart {
+    height: 180px;
+  }
+}
+
+/* ============================================================
+   Daikin One Smart Thermostat & Heat Pump Tab
+   ============================================================ */
+.daikin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+
+.daikin-loc-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.daikin-loc-pill {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.daikin-loc-pill:hover {
+  border-color: var(--border, #323d52);
+  color: var(--text, #f8fafc);
+}
+
+.daikin-loc-pill.on {
+  background: var(--surface-3, #222a3a);
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.2);
+}
+
+.daikin-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.daikin-kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.daikin-thermostats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.daikin-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.daikin-card:hover {
+  border-color: var(--border, #323d52);
+}
+
+.daikin-card.is-heating {
+  border-left: 4px solid #f97316;
+}
+
+.daikin-card.is-cooling {
+  border-left: 4px solid #0ea5e9;
+}
+
+.daikin-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.daikin-card-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.daikin-card-meta {
+  font-size: 11.5px;
+  color: var(--text-dim, #94a3b8);
+  margin-top: 3px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.daikin-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.daikin-badge.heating {
+  background: rgba(249, 115, 22, 0.15);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.35);
+}
+
+.daikin-badge.cooling {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+
+.daikin-badge.fan {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.daikin-badge.idle {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.daikin-badge.off {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* Central Temperature & Readings Display */
+.daikin-display-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.025));
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 10px;
+  gap: 16px;
+}
+
+.daikin-indoor-temp-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.daikin-indoor-temp-val {
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: var(--font-mono, monospace);
+  color: var(--text, #f8fafc);
+}
+
+.daikin-indoor-sub {
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.daikin-outdoor-widget {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.daikin-outdoor-chip {
+  background: var(--surface-3, #222a3a);
+  border: 1px solid var(--border-soft, #222938);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  font-family: var(--font-mono, monospace);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daikin-outdoor-label {
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+}
+
+/* Mode Selector Pills */
+.daikin-mode-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.daikin-mode-btn {
+  flex: 1;
+  min-width: 60px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 7px;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  cursor: pointer;
+  transition: all .15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.daikin-mode-btn:hover {
+  border-color: var(--border, #323d52);
+  color: var(--text, #f8fafc);
+}
+
+.daikin-mode-btn.on.mode-heat {
+  background: rgba(249, 115, 22, 0.2);
+  border-color: #f97316;
+  color: #fb923c;
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.25);
+}
+
+.daikin-mode-btn.on.mode-cool {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.25);
+}
+
+.daikin-mode-btn.on.mode-auto {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: #a855f7;
+  color: #c084fc;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
+}
+
+.daikin-mode-btn.on.mode-off {
+  background: rgba(100, 116, 139, 0.25);
+  border-color: #64748b;
+  color: #cbd5e1;
+}
+
+.daikin-mode-btn.on.mode-emheat {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+/* Setpoint Adjustment Block */
+.daikin-setpoint-card {
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 9px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.daikin-setpoint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.daikin-sp-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.daikin-btn-step {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 8px;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text, #f8fafc);
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.daikin-btn-step:hover:not(:disabled) {
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  background: var(--surface-3, #222a3a);
+}
+
+.daikin-btn-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.daikin-sp-val {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  color: var(--text, #f8fafc);
+  min-width: 68px;
+  text-align: center;
+}
+
+.daikin-sp-slider {
+  width: 100%;
+  accent-color: #0ea5e9;
+  cursor: pointer;
+}
+
+/* Secondary Controls (Fan, Schedule) */
+.daikin-secondary-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft, #222938);
+}
+
+.daikin-ctrl-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text, #f8fafc);
+}
+
+.daikin-ctrl-label {
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+}
+
+.daikin-btn-subtle {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  cursor: pointer;
+}
+
+.daikin-btn-subtle:hover {
+  border-color: var(--border, #323d52);
+  color: var(--text, #f8fafc);
+}
+
+.daikin-btn-subtle.on {
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.daikin-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--surface-card, #13171f);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2394a3b8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 6px;
+  color: var(--text-dim, #94a3b8);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 24px 5px 10px;
+  cursor: pointer;
+  outline: none;
+  transition: all .15s ease;
+}
+
+.daikin-select:hover {
+  border-color: var(--border, #323d52);
+  color: var(--text, #f8fafc);
+}
+
+.daikin-select:focus {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+  color: var(--text, #f8fafc);
+}
+
+.daikin-select.on {
+  border-color: #0ea5e9;
+  color: #38bdf8;
+  background-color: rgba(14, 165, 233, 0.12);
+}
+
+.daikin-select:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.daikin-select option {
+  background: #182030;
+  color: #f8fafc;
+  padding: 6px 10px;
+}
+
+/* Daikin Air Clean Controls & Banner */
+.daikin-airclean-btn.on {
+  border-color: #06b6d4;
+  color: #22d3ee;
+  background: rgba(6, 182, 212, 0.15);
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.3);
+}
+
+.daikin-airclean-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.12) 0%, rgba(14, 165, 233, 0.12) 100%);
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.1);
+}
+
+.daikin-airclean-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.daikin-airclean-pulse-icon {
+  font-size: 20px;
+  animation: aircleanPulse 2s infinite ease-in-out;
+  display: inline-block;
+}
+
+@keyframes aircleanPulse {
+  0% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.85; }
+}
+
+.daikin-airclean-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #22d3ee;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daikin-airclean-banner-sub {
+  font-size: 11.5px;
+  color: var(--text-dim, #94a3b8);
+  margin-top: 1px;
+}
+
+.daikin-airclean-timer-text {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.daikin-airclean-cancel-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.daikin-airclean-cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+/* Fan Schedule & Duty Cycle Details Box */
+.daikin-fan-sched-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(14, 165, 233, 0.06);
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.daikin-fan-sched-box.always-on {
+  background: rgba(56, 189, 248, 0.05);
+  border-color: rgba(56, 189, 248, 0.2);
+}
+
+.daikin-fan-sched-box.auto {
+  background: rgba(148, 163, 184, 0.04);
+  border-color: var(--border-soft, #222938);
+}
+
+.daikin-fan-sched-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.daikin-fan-sched-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #38bdf8;
+}
+
+.daikin-fan-sched-box.auto .daikin-fan-sched-title {
+  color: var(--text-dim, #94a3b8);
+}
+
+.daikin-fan-runtime-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.daikin-fan-sched-box.auto .daikin-fan-runtime-badge {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-dim, #94a3b8);
+  border-color: var(--border-soft, #222938);
+}
+
+.daikin-fan-sched-desc {
+  font-size: 11.5px;
+  color: var(--text-dim, #94a3b8);
+  line-height: 1.4;
+}
+
+.daikin-fan-sched-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* History Graph Drawer */
+.daikin-history-drawer {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft, #222938);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daikin-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daikin-chart {
+  width: 100%;
+  height: 200px;
+  display: block;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+}
+
+.daikin-empty-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+  margin: 40px auto;
+}
+
+.daikin-empty-card h3 {
+  font-size: 20px;
+  color: var(--text, #f8fafc);
+  margin: 0;
+}
+
+.daikin-empty-card p {
+  font-size: 14px;
+  color: var(--text-dim, #94a3b8);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Hilo Smart Home & Smart Meter Tab
+   ============================================================ */
+.hilo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+
+.hilo-loc-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hilo-loc-pill {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hilo-loc-pill:hover {
+  background: var(--surface-hover, #1b212c);
+  color: var(--text, #f8fafc);
+  border-color: var(--border-medium, #2e384d);
+}
+
+.hilo-loc-pill.on {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+}
+
+/* Défi Hilo Challenge Banner */
+.hilo-challenge-banner {
+  background: linear-gradient(135deg, rgba(234, 88, 12, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hilo-challenge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hilo-challenge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  color: #f59e0b;
+}
+
+.hilo-challenge-icon {
+  font-size: 16px;
+}
+
+.hilo-progress-tag {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.hilo-challenge-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.hilo-challenge-time {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+
+.hilo-challenge-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hilo-challenge-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.hilo-challenge-stat.highlight {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.hilo-challenge-stat.highlight .stat-val {
+  color: #4ade80;
+}
+
+.hilo-challenge-stat .stat-label {
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.hilo-challenge-stat .stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+}
+
+/* KPI Summary Cards */
+.hilo-kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.hilo-hero-kpi {
+  grid-column: span 2;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(30, 41, 59, 0.5) 100%);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+@media (max-width: 768px) {
+  .hilo-hero-kpi {
+    grid-column: span 1;
+  }
+}
+
+.hilo-hero-kpi .hero-val {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #38bdf8;
+}
+
+.badge-live {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  animation: pulse-live 2s infinite ease-in-out;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Chart card */
+.hilo-chart-card {
+  margin-bottom: 24px;
+  padding: 20px;
+}
+
+.hilo-chart-ranges {
+  display: flex;
+  gap: 4px;
+}
+
+.hilo-range-btn.on {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+}
+
+/* Devices container */
+.hilo-devices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.hilo-meter-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hilo-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.hilo-meter-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  margin: 0;
+}
+
+.hilo-meter-sn {
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  font-family: monospace;
+}
+
+.hilo-meter-metrics {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.hilo-meter-power {
+  font-size: 26px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.hilo-meter-today {
+  font-size: 14px;
+  color: var(--text-dim, #94a3b8);
+}
+
+.hilo-meter-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+}
+
+/* Device card */
+.hilo-dev-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hilo-dev-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hilo-dev-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+
+.hilo-dev-type {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-dim, #94a3b8);
+  letter-spacing: 0.4px;
+}
+
+.hilo-dev-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text, #f8fafc);
+}
+
+/* Settings creds pills */
+.hilo-creds-loc-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.hilo-creds-loc-pill {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.hilo-creds-loc-pill.on {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+}
+
+.hilo-empty-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+  margin: 40px auto;
+}
+
+.hilo-empty-card h3 {
+  font-size: 20px;
+  color: var(--text, #f8fafc);
+  margin: 0;
+}
+
+.hilo-empty-card p {
+  font-size: 14px;
+  color: var(--text-dim, #94a3b8);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   LG ThinQ Smart Appliances Tab Styles
+   ========================================================================== */
+.thinq-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+
+.thinq-loc-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.thinq-loc-pill {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.thinq-loc-pill:hover {
+  color: var(--text, #f8fafc);
+  border-color: var(--border-strong, #3b4252);
+}
+
+.thinq-loc-pill.on {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+.thinq-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.thinq-kpis-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.thinq-category-section {
+  margin-top: 24px;
+}
+
+.thinq-category-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft, #222938);
+}
+
+.thinq-category-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.thinq-category-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface-hover, #1e2533);
+  color: var(--text-dim, #94a3b8);
+}
+
+.thinq-devices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.thinq-card {
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+
+.thinq-card:hover {
+  border-color: var(--border-strong, #3b4252);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.thinq-card.is-active {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.05) 0%, var(--surface-card, #13171f) 100%);
+}
+
+.thinq-card.door-alert {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, var(--surface-card, #13171f) 100%);
+}
+
+.thinq-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.thinq-card-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thinq-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.thinq-card-meta {
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thinq-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.thinq-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.thinq-pill.pill-online {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.thinq-pill.pill-offline {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.thinq-pill.pill-active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  animation: pulse-subtle 2s infinite ease-in-out;
+}
+
+.thinq-pill.pill-warn {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.thinq-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.thinq-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  background: var(--surface-bg, #0b0e14);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.thinq-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thinq-stat-label {
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.thinq-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+
+.thinq-stat-value small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim, #94a3b8);
+}
+
+.thinq-door-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.thinq-timer-display {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-feature-settings: "tnum";
+}
+
+.thinq-timer-huge {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--primary, #3b82f6);
+}
+
+.thinq-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Settings creds pills */
+.thinq-creds-loc-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.thinq-creds-loc-pill {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--surface-card, #13171f);
+  border: 1px solid var(--border-soft, #222938);
+  color: var(--text-dim, #94a3b8);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.thinq-creds-loc-pill.on {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+}
+
+/* Multi-cavity oven breakdown */
+.thinq-oven-cavities {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.thinq-cavity-card {
+  background: var(--surface-bg, #0b0e14);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.thinq-cavity-card.is-active {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08) 0%, var(--surface-bg, #0b0e14) 100%);
+}
+
+.thinq-cavity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.thinq-cavity-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thinq-cavity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* Multi-burner cooktop grid */
+.thinq-cooktop-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.thinq-cooktop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.thinq-burner-card {
+  background: var(--surface-bg, #0b0e14);
+  border: 1px solid var(--border-soft, #222938);
+  border-radius: 8px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.thinq-burner-card.is-active {
+  border-color: rgba(249, 115, 22, 0.6);
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.12) 0%, var(--surface-bg, #0b0e14) 100%);
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.2);
+}
+
+.thinq-burner-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.thinq-burner-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+
+.thinq-burner-power {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.thinq-burner-timer {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ============================================================
+   DANBY / MIDEA DEHUMIDIFIERS STYLING
+   ============================================================ */
+.midea-device-card {
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.midea-tank-full-card {
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.2) !important;
+}
+
+@keyframes pulse-red {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.pulse {
+  animation: pulse-red 2s infinite ease-in-out;
+}
+
+.midea-readout-center {
+  background: var(--bg-card-sub, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+}
+
+.midea-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.midea-badge.dehumidifying {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+
+.midea-badge.fan-only {
+  background: rgba(20, 184, 166, 0.15);
+  color: #2dd4bf;
+  border: 1px solid rgba(20, 184, 166, 0.35);
+}
+
+.midea-badge.defrosting {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.midea-badge.tank-full {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.midea-badge.off {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.midea-badge.online {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.midea-badge.offline {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+@keyframes midea-fan-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.midea-fan-spin {
+  display: inline-block;
+  animation: midea-fan-rotate 2s linear infinite;
+}
+
+@keyframes midea-water-drop {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+
+.midea-water-pulse {
+  display: inline-block;
+  animation: midea-water-drop 1.5s ease-in-out infinite;
+}
+
+/* Midea Dehumidifier Graph & Schedule Sections */
+.midea-card-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.midea-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.midea-section-title-btn {
+  background: transparent;
+  border: none;
+  color: var(--text, #f8fafc);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.midea-section-title-btn:hover {
+  color: var(--primary, #38bdf8);
+}
+
+.midea-runtime-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0 10px 0;
+}
+
+.midea-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.midea-chip-blue {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.midea-chip-teal {
+  background: rgba(20, 184, 166, 0.15);
+  color: #2dd4bf;
+  border: 1px solid rgba(20, 184, 166, 0.3);
+}
+
+.midea-chip-slate {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.midea-chip-green {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.midea-chart-box {
+  position: relative;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 8px 4px 4px;
+}
+
+.midea-chart {
+  width: 100%;
+  height: 180px;
+  display: block;
+}
+
+.midea-chart-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  margin-top: 6px;
+}
+
+.midea-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.midea-schedule-box {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.midea-sched-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.midea-tz-select {
+  background: var(--bg-card-sub, #1e293b);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  color: var(--text, #f8fafc);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  outline: none;
+}
+
+.midea-sched-events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.midea-sched-event-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.midea-sched-event-row.disabled {
+  opacity: 0.55;
+}
+
+.midea-day-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.midea-day-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim, #94a3b8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.midea-day-pill.on {
+  background: var(--primary, #3b82f6);
+  color: #fff;
+  border-color: var(--primary, #3b82f6);
+}
+
+/* ============================================================
+   TESLA EV & WALL CONNECTOR STYLES
+   ============================================================ */
+.tesla-card {
+  position: relative;
+  background: var(--card-bg, #1e293b);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.tesla-card:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.tesla-card.is-charging {
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.15);
+}
+
+.tesla-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tesla-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tesla-card-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.tesla-card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  margin: 0;
+}
+
+.tesla-card-meta {
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+  margin-top: 2px;
+}
+
+.tesla-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tesla-badge-charging {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.tesla-badge-connected {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.tesla-badge-idle {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.tesla-badge-offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.tesla-card-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tesla-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.tesla-metric {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tesla-metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, #94a3b8);
+  margin-bottom: 2px;
+}
+
+.tesla-metric-val {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+}
+
+.tesla-metric-val small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim, #94a3b8);
+  margin-left: 2px;
+}
+
+.tesla-battery-gauge {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tesla-battery-bar-track {
+  height: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 0 4px 0;
+  position: relative;
+}
+
+.tesla-battery-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #38bdf8);
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.tesla-battery-bar-fill.charging {
+  animation: teslaPulse 2s infinite ease-in-out;
+}
+
+@keyframes teslaPulse {
+  0%, 100% { opacity: 0.85; filter: brightness(1); }
+  50% { opacity: 1; filter: brightness(1.25); }
+}
+
+.tesla-charger-infer-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text, #f8fafc);
+}
+
+.tesla-loc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim, #cbd5e1);
+}
+
+/* ---- Kasa Smart Devices Tab ---- */
+.kasa-card {
+  background: var(--bg-card, #1e293b);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.2s ease;
+}
+
+.kasa-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.kasa-card.is-on {
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.12);
+}
+
+.kasa-card-header {
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.kasa-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kasa-card-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.kasa-card-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+  margin: 0 0 2px 0;
+}
+
+.kasa-card-meta {
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+}
+
+.kasa-card-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.kasa-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim, #cbd5e1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.kasa-type-badge.switch {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.35);
+}
+
+.kasa-type-badge.plug {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.kasa-card-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  justify-content: space-between;
+}
+
+.kasa-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.kasa-metric {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.kasa-metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, #94a3b8);
+  margin-bottom: 2px;
+}
+
+.kasa-metric-val {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kasa-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kasa-toggle-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.kasa-toggle-btn.is-on {
+  background: #16a34a;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+}
+
+.kasa-toggle-btn.is-on:hover {
+  background: #15803d;
+}
+
+.kasa-toggle-btn.is-off {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim, #94a3b8);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.kasa-toggle-btn.is-off:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text, #f8fafc);
+}
+
+.kasa-toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kasa-dev-history-drawer {
+  border-top: 1px solid var(--border-soft, #222938);
+  padding-top: 12px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: kasaSlideDown .2s ease;
+}
+
+@keyframes kasaSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.kasa-dev-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.kasa-dev-history-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kasa-dev-history-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+}
+
+.kasa-dev-history-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+}
+
+.kasa-dev-history-stats b {
+  color: var(--text, #f8fafc);
+}
+
+.kasa-dev-history-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kasa-dev-range-picker {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.kasa-dev-range-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #94a3b8);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.kasa-dev-range-btn:hover {
+  color: var(--text, #f8fafc);
+}
+
+.kasa-dev-range-btn.on {
+  background: var(--accent, #10b981);
+  color: #fff;
+  font-weight: 600;
+}
+
+.kasa-chart-canvas-wrap {
+  width: 100%;
+  height: 160px;
+  position: relative;
+}
+
+.kasa-dev-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.kasa-chart-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  margin-top: -4px;
+}
+
+
+
+
+
+
+
 

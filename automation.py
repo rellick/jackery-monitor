@@ -49,8 +49,8 @@ EQUALS_TOLERANCE = 0.5   # SOC is noisy; "= 50" matches 49.5..50.5 to avoid flap
 
 VALID_OPERATORS = ("<", "<=", "=", "==", "!=", ">=", ">", "in", "not in")
 VALID_ACTIONS = ("on", "off", "enable", "disable", "true", "false")
-VALID_TRIGGERS = ("battery_percent", "time_of_day", "day_of_week", "weekday", "day_of_month")
-VALID_CONDITION_TYPES = ("battery_percent", "time_of_day", "day_of_week", "day_of_month")
+VALID_TRIGGERS = ("battery_percent", "time_of_day", "day_of_week", "weekday", "day_of_month", "device_status")
+VALID_CONDITION_TYPES = ("battery_percent", "time_of_day", "day_of_week", "day_of_month", "device_status")
 VALID_ACTION_TYPES = ("kasa", "jackery_setting", "setting")
 
 CONDITION_TYPE_ALIASES = {
@@ -70,7 +70,13 @@ CONDITION_TYPE_ALIASES = {
     "day_of_month": "day_of_month",
     "month_day": "day_of_month",
     "mday": "day_of_month",
+    "device_status": "device_status",
+    "status": "device_status",
+    "device_online": "device_status",
+    "online_status": "device_status",
+    "connection": "device_status",
 }
+
 
 
 def _parse_time_of_day(val: str | int | float) -> int:
@@ -175,7 +181,7 @@ class AutomationError(ConfigError, ValueError):
     pass
 
 
-def _evaluate_condition(cond: dict, soc: float | None, now_ts: float, tz_offset: int) -> bool:
+def _evaluate_condition(cond: dict, soc: float | None, now_ts: float, tz_offset: int, is_online: bool | None = None) -> bool:
     raw_type = cond.get("type") or cond.get("trigger") or "battery_percent"
     cond_type = CONDITION_TYPE_ALIASES.get(raw_type, raw_type)
     op = cond.get("operator")
@@ -200,7 +206,20 @@ def _evaluate_condition(cond: dict, soc: float | None, now_ts: float, tz_offset:
             return soc > threshold
         return False
 
+    elif cond_type == "device_status":
+        if is_online is None:
+            return False
+        raw_val = str(val).strip().lower()
+        target_offline = raw_val in ("offline", "disconnected", "false", "0")
+        device_is_offline = not is_online
+        if op in ("=", "=="):
+            return device_is_offline if target_offline else is_online
+        if op in ("!=", "<>"):
+            return not (device_is_offline if target_offline else is_online)
+        return False
+
     elif cond_type == "time_of_day":
+
         try:
             target_min = _parse_time_of_day(val)
         except Exception:
@@ -338,19 +357,19 @@ def _evaluate_condition(cond: dict, soc: float | None, now_ts: float, tz_offset:
     return False
 
 
-def _matches(rule: dict, soc: float | None, now_ts: float | None = None, tz_offset: int | None = None) -> bool:
+def _matches(rule: dict, soc: float | None, now_ts: float | None = None, tz_offset: int | None = None, is_online: bool | None = None) -> bool:
     ts = now_ts if now_ts is not None else time.time()
     tz = _resolve_tz_offset(tz_offset, ts)
     conditions = rule.get("conditions")
     if conditions:
-        return all(_evaluate_condition(c, soc, ts, tz) for c in conditions)
+        return all(_evaluate_condition(c, soc, ts, tz, is_online=is_online) for c in conditions)
     # Legacy fallback: single trigger condition
     legacy_cond = {
         "type": rule.get("trigger") or "battery_percent",
         "operator": rule.get("operator"),
         "value": rule.get("value"),
     }
-    return _evaluate_condition(legacy_cond, soc, ts, tz)
+    return _evaluate_condition(legacy_cond, soc, ts, tz, is_online=is_online)
 
 
 def _validate_condition(cond: dict) -> dict:
@@ -375,6 +394,16 @@ def _validate_condition(cond: dict) -> dict:
         if not (0 <= val_num <= 100):
             raise AutomationError("battery_percent value must be between 0 and 100")
         clean_val = val_num
+    elif cond_type == "device_status":
+        raw_val = str(val).strip().lower()
+        if raw_val in ("offline", "disconnected", "false", "0"):
+            clean_val = "offline"
+        elif raw_val in ("online", "connected", "true", "1"):
+            clean_val = "online"
+        else:
+            raise AutomationError("device_status value must be 'offline' or 'online'")
+        if op not in ("=", "==", "!="):
+            raise AutomationError("device_status operator must be '=' or '!='")
     elif cond_type == "time_of_day":
         min_of_day = _parse_time_of_day(val)
         clean_val = _format_time_of_day(min_of_day)
@@ -404,6 +433,7 @@ def _validate_condition(cond: dict) -> dict:
         clean_val = val
 
     return {
+
         "type": cond_type,
         "operator": op,
         "value": clean_val,
@@ -572,34 +602,45 @@ class AutomationEngine:
 
     # ---- evaluation ----
     async def evaluate(self, soc_by_sn: dict, active_sn: str | None = None,
-                       now_ts: float | None = None, tz_offset: int | None = None) -> list[dict]:
+                       now_ts: float | None = None, tz_offset: int | None = None,
+                       online_by_sn: dict | None = None) -> list[dict]:
         """Walk all enabled rules. `soc_by_sn` is a dict mapping each Jackery
-           device's serial number to its current battery_percent (None for
-           devices we don't have data for yet). Each rule is evaluated
-           against ITS target device's SOC (if battery conditions are present);
-           rules with no target sn fall back to the active device (legacy behavior).
+           device's serial number to its current battery_percent.
+           `online_by_sn` is an optional dict mapping device SN to online bool.
+           Each rule is evaluated against ITS target device's SOC and online status;
+           rules with no target sn fall back to the active device.
 
            Edge-triggered: fire (and return) the ones whose condition just
            transitioned from false to true. State is mutated in place and
            persisted on any change."""
         soc_map = soc_by_sn or {}
+        online_map = online_by_sn or {}
         if not self.rules:
             return []
 
-        # Fast exit if all enabled rules require battery data and none is available
+        # Check if rules require battery data or device status
         def _requires_batt(r: dict) -> bool:
             conds = r.get("conditions")
             if conds:
                 return any(
-                    CONDITION_TYPE_ALIASES.get(c.get("type", "battery_percent"), c.get("type")) == "battery_percent"
+                    CONDITION_TYPE_ALIASES.get(c.get("type") or "battery_percent", c.get("type")) == "battery_percent"
                     for c in conds
                 )
-            return CONDITION_TYPE_ALIASES.get(r.get("trigger", "battery_percent"), r.get("trigger")) == "battery_percent"
+            return CONDITION_TYPE_ALIASES.get(r.get("trigger") or "battery_percent", r.get("trigger")) == "battery_percent"
+
+        def _requires_status(r: dict) -> bool:
+            conds = r.get("conditions")
+            if conds:
+                return any(
+                    CONDITION_TYPE_ALIASES.get(c.get("type") or "", c.get("type")) == "device_status"
+                    for c in conds
+                )
+            return CONDITION_TYPE_ALIASES.get(r.get("trigger") or "", r.get("trigger")) == "device_status"
 
         enabled_rules = [r for r in self.rules if r.get("enabled", True)]
         if not enabled_rules:
             return []
-        if not soc_map and all(_requires_batt(r) for r in enabled_rules):
+        if not soc_map and not online_map and all(_requires_batt(r) or _requires_status(r) for r in enabled_rules):
             return []
 
         ts = now_ts if now_ts is not None else time.time()
@@ -613,12 +654,16 @@ class AutomationEngine:
                     continue
                 target_sn = rule.get("jackery_device_sn") or active_sn
                 soc = soc_map.get(target_sn) if target_sn else None
+                is_online = online_map.get(target_sn) if target_sn else None
                 if _requires_batt(rule) and soc is None:
                     # No data for this rule's target device; skip without
                     # changing edge state so we don't spuriously fire when
                     # it comes back online.
                     continue
-                matches_now = _matches(rule, float(soc) if soc is not None else None, ts, tz)
+                if _requires_status(rule) and is_online is None:
+                    continue
+                matches_now = _matches(rule, float(soc) if soc is not None else None, ts, tz, is_online=is_online)
+
                 last = rule.get("last_state")
                 if matches_now and not last:
                     # Edge: transition from false -> true (or unknown -> true)

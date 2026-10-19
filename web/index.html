@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=6" />
 </head>
 <body>
   <!-- =============== LOGIN MODAL =============== -->
@@ -94,6 +94,13 @@
     <!-- Tab nav -->
     <nav class="tabs">
       <button class="tab on" data-tab="live">Live</button>
+      <button class="tab" data-tab="sinope">Sinopé</button>
+      <button class="tab" data-tab="daikin">Daikin</button>
+      <button class="tab" data-tab="hilo">Hilo</button>
+      <button class="tab" data-tab="thinq">ThinQ</button>
+      <button class="tab" data-tab="midea">Danby</button>
+      <button class="tab" data-tab="tesla">Tesla</button>
+      <button class="tab" data-tab="kasa">Kasa</button>
       <button class="tab" data-tab="energy">Energy</button>
       <button class="tab" data-tab="cost">Cost</button>
       <button class="tab" data-tab="forecast">Forecast</button>
@@ -105,9 +112,20 @@
 
     <!-- ============== LIVE TAB ============== -->
     <section id="tab-live" class="tab-panel">
+      <!-- Disconnected / Offline banner: shown when the physical Jackery loses Wi-Fi
+           and stops pushing fresh telemetry to Jackery Cloud. -->
+      <div id="device-offline-banner" class="device-offline-banner" hidden>
+        <span class="offline-icon">⚠️</span>
+        <div class="offline-body">
+          <strong id="device-offline-title">Battery Disconnected from Wi-Fi</strong>
+          <span id="device-offline-detail">This device stopped reporting fresh data to Jackery Cloud. Values shown reflect the last known snapshot.</span>
+        </div>
+      </div>
+
       <!-- Hero: battery + key KPIs. Cards are drag-reorderable on
            desktop; the order persists per-browser via localStorage. -->
       <div id="hero-grid" class="grid hero-grid">
+
         <section id="battery-card" class="card battery-card has-accent" data-card="battery">
           <span class="grab-handle" aria-label="Drag to reorder" title="Drag to reorder"></span>
           <div class="card-eyebrow">
@@ -353,6 +371,448 @@
         </div>
         <canvas id="chart-live-temp" class="chart"></canvas>
       </section>
+    </section>
+
+    <!-- ============== SINOPÉ TAB ============== -->
+    <section id="tab-sinope" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter & Poll button -->
+      <div class="sinope-toolbar">
+        <div class="sinope-loc-pills" id="sinope-loc-pills">
+          <button type="button" class="sinope-loc-pill on" data-loc="all">All Locations</button>
+          <button type="button" class="sinope-loc-pill" data-loc="maison">Maison</button>
+          <button type="button" class="sinope-loc-pill" data-loc="chalet">Chalet</button>
+        </div>
+        <div class="sinope-toolbar-actions">
+          <span id="sinope-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="sinope-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Poll Neviweb Cloud now">
+            <span class="poll-icon">🔄</span> Poll now
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid sinope-kpis-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">Active Power</span>
+          <div class="kpi-value"><span id="sinope-kpi-power">0</span> <small>W</small></div>
+          <span class="kpi-sub">Total current consumption</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Thermostats</span>
+          <div class="kpi-value"><span id="sinope-kpi-heating-count">0</span><small id="sinope-kpi-heating-total">/ 0</small></div>
+          <span class="kpi-sub" id="sinope-kpi-heating-sub">Actively heating</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Controllers</span>
+          <div class="kpi-value"><span id="sinope-kpi-ctrl-count">0</span><small id="sinope-kpi-ctrl-total">/ 0</small></div>
+          <span class="kpi-sub" id="sinope-kpi-ctrl-sub">Active loads &amp; switches</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Average Temp</span>
+          <div class="kpi-value"><span id="sinope-kpi-avg-temp">—</span> <small>°C</small></div>
+          <span class="kpi-sub" id="sinope-kpi-temp-sub">Across reporting zones</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Water Protection</span>
+          <div class="kpi-value"><span id="sinope-kpi-water-status">Safe</span></div>
+          <span class="kpi-sub" id="sinope-kpi-water-sub">Valves &amp; leak sensors</span>
+        </div>
+      </div>
+
+      <!-- Main device containers (dynamically rendered) -->
+      <div id="sinope-devices-container"></div>
+    </section>
+
+    <!-- ============== DAIKIN TAB ============== -->
+    <section id="tab-daikin" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter & Poll button -->
+      <div class="daikin-toolbar">
+        <div class="daikin-loc-pills" id="daikin-loc-pills">
+          <button type="button" class="daikin-loc-pill on" data-loc="all">All Locations</button>
+          <button type="button" class="daikin-loc-pill" data-loc="maison">Maison</button>
+          <button type="button" class="daikin-loc-pill" data-loc="chalet">Chalet</button>
+        </div>
+        <div class="daikin-toolbar-actions">
+          <span id="daikin-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="daikin-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Poll Daikin Open API now">
+            <span class="poll-icon">🔄</span> Poll now
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid daikin-kpis-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">Indoor Temp</span>
+          <div class="kpi-value"><span id="daikin-kpi-indoor-temp">—</span> <small class="temp-unit-label">°C</small></div>
+          <span class="kpi-sub" id="daikin-kpi-indoor-sub">Living space</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Outdoor Temp</span>
+          <div class="kpi-value"><span id="daikin-kpi-outdoor-temp">—</span> <small class="temp-unit-label">°C</small></div>
+          <span class="kpi-sub" id="daikin-kpi-outdoor-sub">Heat pump sensor</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Humidity</span>
+          <div class="kpi-value"><span id="daikin-kpi-humidity">—</span></div>
+          <span class="kpi-sub" id="daikin-kpi-humidity-sub">Indoor / Outdoor</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Equipment Status</span>
+          <div class="kpi-value"><span id="daikin-kpi-equip-status">Idle</span></div>
+          <span class="kpi-sub" id="daikin-kpi-equip-sub">Heat pump active</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">System Mode</span>
+          <div class="kpi-value"><span id="daikin-kpi-mode">—</span></div>
+          <span class="kpi-sub" id="daikin-kpi-mode-sub">Target setpoints</span>
+        </div>
+      </div>
+
+      <!-- Main device containers (dynamically rendered) -->
+      <div id="daikin-devices-container"></div>
+    </section>
+
+    <!-- ============== HILO TAB ============== -->
+    <section id="tab-hilo" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter & Poll button -->
+      <div class="hilo-toolbar">
+        <div class="hilo-loc-pills" id="hilo-loc-pills">
+          <button type="button" class="hilo-loc-pill on" data-loc="all">All Locations</button>
+          <button type="button" class="hilo-loc-pill" data-loc="maison">Maison</button>
+          <button type="button" class="hilo-loc-pill" data-loc="chalet">Chalet</button>
+        </div>
+        <div class="hilo-toolbar-actions">
+          <span id="hilo-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="hilo-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Poll Hilo Cloud now">
+            <span class="poll-icon">🔄</span> Poll now
+          </button>
+        </div>
+      </div>
+
+      <!-- Défi Hilo Challenge Banner (shown when active or upcoming) -->
+      <div id="hilo-challenge-banner" class="hilo-challenge-banner" hidden>
+        <div class="hilo-challenge-header">
+          <div class="hilo-challenge-badge">
+            <span class="hilo-challenge-icon">⚡</span>
+            <span id="hilo-challenge-badge-title">DÉFI HILO</span>
+          </div>
+          <span id="hilo-challenge-progress-tag" class="hilo-progress-tag">Programmé</span>
+        </div>
+        <div class="hilo-challenge-body">
+          <div class="hilo-challenge-info">
+            <div class="hilo-challenge-time" id="hilo-challenge-times">—</div>
+            <div class="hilo-challenge-loc hint" id="hilo-challenge-loc-label">—</div>
+          </div>
+          <div class="hilo-challenge-stats">
+            <div class="hilo-challenge-stat">
+              <span class="stat-label">Objectif de base</span>
+              <span class="stat-val" id="hilo-challenge-baseline">— kWh</span>
+            </div>
+            <div class="hilo-challenge-stat">
+              <span class="stat-label">Conso. mesurée</span>
+              <span class="stat-val" id="hilo-challenge-current">— kWh</span>
+            </div>
+            <div class="hilo-challenge-stat highlight">
+              <span class="stat-label">Récompense</span>
+              <span class="stat-val" id="hilo-challenge-reward">— $</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Whole-House Hero KPI Card + Secondary KPIs -->
+      <div class="grid hilo-kpis-grid">
+        <div class="card kpi-card hilo-hero-kpi">
+          <div class="kpi-header-row">
+            <span class="kpi-label">Puissance instantanée de la maison</span>
+            <span class="badge badge-live" id="hilo-live-indicator">LIVE</span>
+          </div>
+          <div class="kpi-value hero-val">
+            <span id="hilo-kpi-power">—</span> <small>W</small>
+          </div>
+          <span class="kpi-sub" id="hilo-kpi-power-sub">Compteur Hydro-Québec via passerelle Hilo</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Aujourd'hui (Compteur)</span>
+          <div class="kpi-value"><span id="hilo-kpi-today">—</span> <small>kWh</small></div>
+          <span class="kpi-sub" id="hilo-kpi-today-sub">Énergie cumulée</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">État du compteur</span>
+          <div class="kpi-value"><span id="hilo-kpi-status">—</span></div>
+          <span class="kpi-sub" id="hilo-kpi-status-sub">Zigbee SEP Hydro-Québec</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Appareils Hilo</span>
+          <div class="kpi-value"><span id="hilo-kpi-devices-count">—</span></div>
+          <span class="kpi-sub" id="hilo-kpi-devices-sub">Connectés au réseau Zigbee</span>
+        </div>
+      </div>
+
+      <!-- Whole-House Power History Chart Card -->
+      <section class="card hilo-chart-card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h2 style="font-size:16px; margin:0;">Courbe de puissance — Compteur Hydro-Québec</h2>
+            <p class="hint" style="margin:2px 0 0; font-size:12px;">Profil de charge de toute la maison échantillonné chaque minute</p>
+          </div>
+          <div class="hilo-chart-ranges" id="hilo-meter-ranges">
+            <button type="button" class="btn btn-ghost btn-tiny hilo-range-btn" data-hours="6">6h</button>
+            <button type="button" class="btn btn-ghost btn-tiny hilo-range-btn on" data-hours="24">24h</button>
+            <button type="button" class="btn btn-ghost btn-tiny hilo-range-btn" data-hours="168">7j</button>
+          </div>
+        </div>
+        <div class="hilo-chart-wrapper" style="position:relative; width:100%; height:260px; margin-top:12px;">
+          <canvas id="chart-hilo-meter" class="chart" style="width:100%; height:100%;"></canvas>
+        </div>
+      </section>
+
+      <!-- Main device containers (dynamically rendered) -->
+      <div id="hilo-devices-container"></div>
+    </section>
+
+    <!-- ============== LG THINQ TAB ============== -->
+    <section id="tab-thinq" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter & Poll button -->
+      <div class="thinq-toolbar">
+        <div class="thinq-loc-pills" id="thinq-loc-pills">
+          <button type="button" class="thinq-loc-pill on" data-loc="all">All Locations</button>
+          <button type="button" class="thinq-loc-pill" data-loc="maison">Maison</button>
+          <button type="button" class="thinq-loc-pill" data-loc="chalet">Chalet</button>
+        </div>
+        <div class="thinq-toolbar-actions">
+          <span id="thinq-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="thinq-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Poll LG ThinQ Cloud now">
+            <span class="poll-icon">🔄</span> Poll now
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid thinq-kpis-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">Connected Appliances</span>
+          <div class="kpi-value"><span id="thinq-kpi-total">—</span></div>
+          <span class="kpi-sub" id="thinq-kpi-total-sub">LG ThinQ Open API</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Active / In Cycle</span>
+          <div class="kpi-value"><span id="thinq-kpi-active">—</span></div>
+          <span class="kpi-sub" id="thinq-kpi-active-sub">Running or Heating</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Refrigeration</span>
+          <div class="kpi-value"><span id="thinq-kpi-refrig">—</span></div>
+          <span class="kpi-sub" id="thinq-kpi-refrig-sub">Cold storage status</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Cooking &amp; Kitchen</span>
+          <div class="kpi-value"><span id="thinq-kpi-cooking">—</span></div>
+          <span class="kpi-sub" id="thinq-kpi-cooking-sub">Ovens, Ranges, Dishwashers</span>
+        </div>
+      </div>
+
+      <!-- Empty state if no appliances or credentials -->
+      <div id="thinq-empty" class="thinq-empty card" hidden style="text-align: center; padding: 48px 24px; margin-top: 16px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">🧺 🧊 🍳</div>
+        <h2 style="margin: 0 0 8px 0; font-size: 20px;">No LG ThinQ Appliances Connected</h2>
+        <p class="hint" style="max-width: 520px; margin: 0 auto 20px auto; font-size: 14px; line-height: 1.5;">
+          Connect your LG ThinQ account using a Personal Access Token (PAT) from connect-pat.lgthinq.com to monitor your washers, dryers, refrigerators, ovens, and other smart appliances.
+        </p>
+        <button id="thinq-go-settings-btn" class="btn btn-primary" type="button">Configure ThinQ Credentials</button>
+      </div>
+
+      <!-- Appliance containers grouped by category -->
+      <div id="thinq-appliances-container" style="margin-top: 16px;">
+        <!-- Dynamically rendered: Laundry, Refrigeration, Cooking, Other -->
+      </div>
+    </section>
+
+    <!-- ============== DANBY / MIDEA DEHUMIDIFIERS TAB ============== -->
+    <section id="tab-midea" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter & Poll button -->
+      <div class="thinq-toolbar midea-toolbar">
+        <div class="thinq-loc-pills midea-loc-pills" id="midea-loc-pills">
+          <button type="button" class="thinq-loc-pill midea-loc-pill on" data-loc="all">All Locations</button>
+          <button type="button" class="thinq-loc-pill midea-loc-pill" data-loc="maison">Maison</button>
+          <button type="button" class="thinq-loc-pill midea-loc-pill" data-loc="chalet">Chalet</button>
+        </div>
+        <div class="thinq-toolbar-actions">
+          <span id="midea-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="midea-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Poll Midea Dehumidifiers now">
+            <span class="poll-icon">🔄</span> Poll now
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid thinq-kpis-grid midea-kpis-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">Dehumidifiers</span>
+          <div class="kpi-value"><span id="midea-kpi-total">—</span></div>
+          <span class="kpi-sub" id="midea-kpi-total-sub">Danby / MSmartHome</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Active / Running</span>
+          <div class="kpi-value"><span id="midea-kpi-active">—</span></div>
+          <span class="kpi-sub" id="midea-kpi-active-sub">Compressor running</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Average Humidity</span>
+          <div class="kpi-value"><span id="midea-kpi-avg-humidity">—</span></div>
+          <span class="kpi-sub">Ambient RH</span>
+        </div>
+        <div class="card kpi-card" id="midea-kpi-tank-card">
+          <span class="kpi-label">Water Tanks</span>
+          <div class="kpi-value"><span id="midea-kpi-tanks-status">OK</span></div>
+          <span class="kpi-sub" id="midea-kpi-tanks-sub">All buckets normal</span>
+        </div>
+      </div>
+
+      <!-- Empty state if no dehumidifiers configured -->
+      <div id="midea-empty" class="thinq-empty card" hidden style="text-align: center; padding: 48px 24px; margin-top: 16px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">💧 🌪️ 🎛️</div>
+        <h2 style="margin: 0 0 8px 0; font-size: 20px;">No Danby Dehumidifiers Connected</h2>
+        <p class="hint" style="max-width: 520px; margin: 0 auto 20px auto; font-size: 14px; line-height: 1.5;">
+          Connect your MSmartHome (or NetHome Plus) account in Settings to monitor and control your Danby smart dehumidifiers with real-time humidity tracking, target setpoints, and bucket full alerts.
+        </p>
+        <button id="midea-go-settings-btn" class="btn btn-primary" type="button">Configure Danby / MSmartHome Credentials</button>
+      </div>
+
+      <!-- Dehumidifiers cards container -->
+      <div id="midea-devices-container" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px;">
+        <!-- Dynamically rendered dehumidifier cards -->
+      </div>
+    </section>
+
+    <!-- ============== TESLA & EV CHARGERS TAB ============== -->
+    <section id="tab-tesla" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter & Poll button -->
+      <div class="thinq-toolbar tesla-toolbar">
+        <div class="thinq-loc-pills tesla-loc-pills" id="tesla-loc-pills">
+          <button type="button" class="thinq-loc-pill tesla-loc-pill on" data-loc="all">All Locations</button>
+          <button type="button" class="thinq-loc-pill tesla-loc-pill" data-loc="maison">Maison</button>
+          <button type="button" class="thinq-loc-pill tesla-loc-pill" data-loc="chalet">Chalet</button>
+        </div>
+        <div class="thinq-toolbar-actions">
+          <span id="tesla-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="tesla-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Poll Tesla devices now">
+            <span class="poll-icon">🔄</span> Poll now
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid thinq-kpis-grid tesla-kpis-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">EV Charging Power</span>
+          <div class="kpi-value"><span id="tesla-kpi-power">—</span></div>
+          <span class="kpi-sub" id="tesla-kpi-power-sub">Active EV draw</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Model Y Battery</span>
+          <div class="kpi-value"><span id="tesla-kpi-battery">—</span></div>
+          <span class="kpi-sub" id="tesla-kpi-battery-sub">State of Charge</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Vehicle Location</span>
+          <div class="kpi-value"><span id="tesla-kpi-location">—</span></div>
+          <span class="kpi-sub" id="tesla-kpi-location-sub">GPS Geofence</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Active Charger</span>
+          <div class="kpi-value"><span id="tesla-kpi-charger">—</span></div>
+          <span class="kpi-sub" id="tesla-kpi-charger-sub">EVSE in use</span>
+        </div>
+      </div>
+
+      <!-- Empty state if no devices configured -->
+      <div id="tesla-empty" class="thinq-empty card" hidden style="text-align: center; padding: 48px 24px; margin-top: 16px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">⚡ 🚗 🔌</div>
+        <h2 style="margin: 0 0 8px 0; font-size: 20px;">No Tesla Devices Connected</h2>
+        <p class="hint" style="max-width: 520px; margin: 0 auto 20px auto; font-size: 14px; line-height: 1.5;">
+          Configure your local Tesla Wall Connector (IP) and official Tesla credentials in Settings to monitor your Wall Connectors, Model Y, and Mobile Connector charging sessions.
+        </p>
+        <button id="tesla-go-settings-btn" class="btn btn-primary" type="button">Configure Tesla Settings</button>
+      </div>
+
+      <!-- Tesla devices container -->
+      <div id="tesla-devices-container" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 16px;">
+        <!-- Dynamically rendered Wall Connector & Model Y cards -->
+      </div>
+    </section>
+
+    <!-- ============== KASA SMART DEVICES TAB ============== -->
+    <section id="tab-kasa" class="tab-panel" hidden>
+      <!-- Toolbar: Location filter, Device type filter & Actions -->
+      <div class="thinq-toolbar kasa-toolbar">
+        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+          <!-- Location pills -->
+          <div class="thinq-loc-pills kasa-loc-pills" id="kasa-loc-pills">
+            <button type="button" class="thinq-loc-pill kasa-loc-pill on" data-loc="all">All Locations</button>
+            <button type="button" class="thinq-loc-pill kasa-loc-pill" data-loc="maison">Maison</button>
+            <button type="button" class="thinq-loc-pill kasa-loc-pill" data-loc="chalet">Chalet</button>
+          </div>
+          <!-- Type filter pills -->
+          <div class="thinq-loc-pills kasa-type-pills" id="kasa-type-pills" style="margin-left:4px;">
+            <button type="button" class="thinq-loc-pill kasa-type-pill on" data-type="all">All Types</button>
+            <button type="button" class="thinq-loc-pill kasa-type-pill" data-type="switch">🔘 Switches &amp; Interruptors</button>
+            <button type="button" class="thinq-loc-pill kasa-type-pill" data-type="plug">🔌 Plugs</button>
+          </div>
+        </div>
+        <div class="thinq-toolbar-actions">
+          <span id="kasa-last-poll-time" class="hint" style="font-size:12px">Last update: —</span>
+          <button id="kasa-tab-poll-btn" class="btn btn-ghost btn-tiny" title="Scan local network and poll Kasa devices now">
+            <span class="poll-icon">🔄</span> Scan &amp; Poll
+          </button>
+          <button id="kasa-tab-add-btn" class="btn btn-primary btn-tiny" type="button" title="Add device in Settings">
+            + Add Device
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="grid thinq-kpis-grid kasa-kpis-grid">
+        <div class="card kpi-card">
+          <span class="kpi-label">Total Devices</span>
+          <div class="kpi-value"><span id="kasa-kpi-total">—</span></div>
+          <span class="kpi-sub" id="kasa-kpi-total-sub">Saved &amp; discovered</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Active Devices</span>
+          <div class="kpi-value"><span id="kasa-kpi-active">—</span></div>
+          <span class="kpi-sub" id="kasa-kpi-active-sub">Currently turned ON</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Smart Interruptors</span>
+          <div class="kpi-value"><span id="kasa-kpi-switches">—</span></div>
+          <span class="kpi-sub" id="kasa-kpi-switches-sub">Wall switches &amp; dimmers</span>
+        </div>
+        <div class="card kpi-card">
+          <span class="kpi-label">Smart Plugs</span>
+          <div class="kpi-value"><span id="kasa-kpi-plugs">—</span></div>
+          <span class="kpi-sub" id="kasa-kpi-plugs-sub">Power outlets</span>
+        </div>
+      </div>
+
+      <!-- Empty state if no devices configured/found -->
+      <div id="kasa-empty" class="thinq-empty card" hidden style="text-align: center; padding: 48px 24px; margin-top: 16px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">🔌 💡 🔘</div>
+        <h2 style="margin: 0 0 8px 0; font-size: 20px;">No Kasa Devices Found</h2>
+        <p class="hint" style="max-width: 520px; margin: 0 auto 20px auto; font-size: 14px; line-height: 1.5;">
+          Scan your local network to discover TP-Link Kasa smart plugs and interruptors / wall switches, or manage credentials in Settings &rarr; Integrations.
+        </p>
+        <div style="display:flex; justify-content:center; gap:10px;">
+          <button id="kasa-empty-scan-btn" class="btn btn-primary" type="button">Scan Network Now</button>
+          <button id="kasa-go-settings-btn" class="btn btn-ghost" type="button">Configure in Settings</button>
+        </div>
+      </div>
+
+      <!-- Kasa devices container -->
+      <div id="kasa-devices-container" class="grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px;">
+        <!-- Dynamically rendered Kasa device cards (plugs, switches, dimmers) -->
+      </div>
     </section>
 
     <!-- ============== ENERGY TAB ============== -->
@@ -920,11 +1380,13 @@
           <dt>Name</dt><dd id="dev-name">—</dd>
           <dt>Model</dt><dd id="dev-model">—</dd>
           <dt>Serial</dt><dd id="dev-sn">—</dd>
+          <dt>Wi-Fi / Status</dt><dd id="dev-wifi-status">—</dd>
           <dt>Cloud</dt><dd id="src-cloud">—</dd>
           <dt>Last update</dt><dd id="dev-updated">—</dd>
           <dt>UPS / Super charge</dt><dd id="dev-ups">—</dd>
           <dt>Error code</dt><dd id="dev-err">—</dd>
         </dl>
+
       </section>
 
       <section class="card device-card" id="hardware-settings-card">
@@ -1158,40 +1620,10 @@
         <button class="automation-subtab on" type="button" role="tab"
                 data-automation-tab="controllers">Controllers</button>
         <button class="automation-subtab" type="button" role="tab"
-                data-automation-tab="devices">Devices</button>
-        <button class="automation-subtab" type="button" role="tab"
                 data-automation-tab="rules">Rules</button>
         <button class="automation-subtab" type="button" role="tab"
                 data-automation-tab="insights">Insights</button>
       </nav>
-
-      <!-- KASA ACCOUNT section: cloud credentials for newer SMART devices -->
-      <section class="card" data-automation-group="devices">
-        <div class="card-header">
-          <h2>Kasa account</h2>
-          <span id="kasa-creds-status" class="hint">—</span>
-        </div>
-        <p class="hint" style="margin:6px 0 12px">
-          Newer Kasa "SMART" devices (KP125M, EP25, KP405, etc.) require your Kasa cloud account credentials even for local control. Older devices (KP115, HS103) ignore them. Stored encrypted at rest in the data volume.
-        </p>
-        <form id="kasa-creds-form">
-          <div class="auto-form-grid">
-            <label class="auto-field">
-              <span class="auto-label">Email</span>
-              <input id="kasa-creds-email" type="email" required autocomplete="username" />
-            </label>
-            <label class="auto-field">
-              <span class="auto-label">Password</span>
-              <input id="kasa-creds-password" type="password" required autocomplete="current-password" />
-            </label>
-            <span id="kasa-creds-msg" class="hint" hidden></span>
-          </div>
-          <div style="margin-top:14px; display:flex; gap:8px">
-            <button class="btn btn-primary" type="submit">Save credentials</button>
-            <button id="kasa-creds-clear" class="btn btn-ghost" type="button">Forget</button>
-          </div>
-        </form>
-      </section>
 
       <!-- AI INSIGHTS: daily AI-advisor review of forecast/control performance -->
       <section class="card device-card" data-automation-group="insights">
@@ -1478,60 +1910,6 @@
         </div>
       </section>
 
-      <!-- DEVICES section: add, test, save Kasa plugs separately from rules. -->
-      <!-- (Kasa devices list — Devices sub-tab) -->
-      <section class="card" data-automation-group="devices">
-        <div class="card-header">
-          <h2>Kasa devices</h2>
-          <span id="auto-status" class="hint" hidden></span>
-        </div>
-        <p class="hint" style="margin:6px 0 14px">
-          Add the Kasa smart plugs you want to control. The container connects directly to each device by IP — discovery may not work in Docker bridge mode, but direct connection always does.
-        </p>
-
-        <div class="auto-toolbar">
-          <button id="kasa-add" class="btn btn-primary" type="button">+ Add device</button>
-          <button id="kasa-discover" class="btn btn-ghost" type="button">Discover on LAN</button>
-        </div>
-
-        <div id="auto-discovered" class="auto-discovered" hidden></div>
-
-        <div id="kasa-list" class="kasa-list"></div>
-      </section>
-
-      <!-- Device editor: shown inline when adding/editing a Kasa device. -->
-      <section id="kasa-editor" class="card" data-automation-group="devices" hidden>
-        <div class="card-header">
-          <h2 id="kasa-editor-title">Add Kasa device</h2>
-          <button id="kasa-editor-close" class="btn btn-ghost" type="button">Cancel</button>
-        </div>
-        <form id="kasa-form">
-          <div class="auto-form-grid">
-            <label class="auto-field">
-              <span class="auto-label">IP address</span>
-              <input id="kasa-host" type="text" required placeholder="192.168.1.50" autocomplete="off" />
-            </label>
-            <label class="auto-field">
-              <span class="auto-label">Alias (optional)</span>
-              <input id="kasa-alias" type="text" placeholder="Auto-fills from device" autocomplete="off" />
-            </label>
-            <label class="auto-field">
-              <span class="auto-label">Assigned to Jackery</span>
-              <select id="kasa-jackery-sn">
-                <option value="">— unassigned (visible to all) —</option>
-              </select>
-              <span class="hint" style="margin-top:4px">Smart-charge picker only shows plugs assigned to that Jackery (or unassigned).</span>
-            </label>
-            <div id="kasa-test-result" class="hint" hidden></div>
-          </div>
-          <div style="margin-top:14px; display:flex; gap:8px">
-            <button id="kasa-test-btn" class="btn btn-ghost" type="button">Test</button>
-            <button class="btn btn-primary" type="submit">Save device</button>
-            <button id="kasa-cancel" class="btn btn-ghost" type="button">Cancel</button>
-          </div>
-        </form>
-      </section>
-
       <!-- RULES section: now a pure list — pick from saved devices, no IP entry. -->
       <section class="card" data-automation-group="rules">
         <div class="card-header">
@@ -1539,7 +1917,7 @@
           <span class="hint">Edge-triggered · fires once per crossing</span>
         </div>
         <p class="hint" style="margin:6px 0 14px">
-          When the battery state of charge crosses a threshold, turn one of the saved Kasa devices on or off. Add at least one device above before creating rules.
+          When the battery state of charge crosses a threshold, turn one of the saved Kasa devices on or off. (Manage Kasa smart plugs under <a href="#settings" onclick="switchTab('settings'); selectSettingsSubtab('integrations');" style="color:var(--accent); text-decoration:underline;">Settings &rarr; Integrations</a>).
         </p>
 
         <div class="auto-toolbar">
@@ -1744,11 +2122,15 @@
         <button class="settings-subtab on" type="button" role="tab"
                 data-settings-tab="general">General</button>
         <button class="settings-subtab" type="button" role="tab"
+                data-settings-tab="integrations">Integrations</button>
+        <button class="settings-subtab" type="button" role="tab"
                 data-settings-tab="intelligence">Intelligence</button>
         <button class="settings-subtab" type="button" role="tab"
                 data-settings-tab="rates">Rates</button>
         <button class="settings-subtab" type="button" role="tab"
                 data-settings-tab="backup">Backup</button>
+        <button class="settings-subtab" type="button" role="tab"
+                data-settings-tab="notifications">Notifications</button>
       </nav>
 
       <div data-settings-group="general">
@@ -1796,6 +2178,480 @@
         </div>
       </section>
       </div><!-- /data-settings-group=general -->
+
+      <div data-settings-group="integrations" hidden>
+      <!-- TP-Link Kasa Smart Plugs Integration Card -->
+      <section class="card device-card collapsible collapsed" id="settings-card-kasa" data-settings-collapse-key="kasa">
+        <div class="card-header collapsible-header" id="settings-kasa-toggle"
+             role="button" tabindex="0" aria-expanded="false">
+          <h2>TP-Link Kasa smart plugs</h2>
+          <span id="kasa-creds-status" class="hint">—</span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Connect and control your TP-Link Kasa smart plugs (KP115, KP125M, EP25, etc.) for automated grid switching and solar diversion. Older plugs work purely over local Wi-Fi LAN; newer SMART devices can also use optional cloud credentials.
+        </p>
+
+        <!-- Saved Kasa Devices List -->
+        <div style="margin-top:14px; margin-bottom:20px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+            <h3 style="margin:0; font-size:14px; font-weight:600; color:var(--text);">Saved Kasa devices</h3>
+            <span id="auto-status" class="hint" hidden></span>
+            <div class="auto-toolbar" style="margin:0;">
+              <button id="kasa-add" class="btn btn-primary btn-tiny" type="button">+ Add device</button>
+              <button id="kasa-discover" class="btn btn-ghost btn-tiny" type="button">Discover on LAN</button>
+            </div>
+          </div>
+          <p class="hint" style="margin:0 0 12px">
+            The container connects directly to each device by IP on your local network.
+          </p>
+
+          <div id="auto-discovered" class="auto-discovered" hidden></div>
+          <div id="kasa-list" class="kasa-list"></div>
+        </div>
+
+        <!-- Inline Kasa device editor -->
+        <div id="kasa-editor" class="card" style="margin-top:14px; margin-bottom:20px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1);" hidden>
+          <div class="card-header" style="padding-bottom:8px;">
+            <h3 id="kasa-editor-title" style="margin:0; font-size:14px;">Add Kasa device</h3>
+            <button id="kasa-editor-close" class="btn btn-ghost btn-tiny" type="button">Cancel</button>
+          </div>
+          <form id="kasa-form">
+            <div class="auto-form-grid">
+              <label class="auto-field">
+                <span class="auto-label">IP address</span>
+                <input id="kasa-host" type="text" required placeholder="192.168.1.50" autocomplete="off" />
+              </label>
+              <label class="auto-field">
+                <span class="auto-label">Alias (optional)</span>
+                <input id="kasa-alias" type="text" placeholder="Auto-fills from device" autocomplete="off" />
+              </label>
+              <label class="auto-field">
+                <span class="auto-label">Assigned to Jackery</span>
+                <select id="kasa-jackery-sn">
+                  <option value="">— unassigned (visible to all) —</option>
+                </select>
+                <span class="hint" style="margin-top:4px">Smart-charge picker only shows plugs assigned to that Jackery (or unassigned).</span>
+              </label>
+              <div id="kasa-test-result" class="hint" hidden></div>
+            </div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="kasa-test-btn" class="btn btn-ghost" type="button">Test</button>
+              <button class="btn btn-primary" type="submit">Save device</button>
+              <button id="kasa-cancel" class="btn btn-ghost" type="button">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Kasa Cloud Credentials -->
+        <div style="margin-top:20px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08);">
+          <h3 style="margin:0 0 6px; font-size:14px; font-weight:600; color:var(--text);">Kasa cloud account (Optional)</h3>
+          <p class="hint" style="margin:0 0 12px">
+            Required for newer "SMART" devices (KP125M, EP25, KP405). Stored encrypted with AES-256-GCM.
+          </p>
+          <form id="kasa-creds-form">
+            <div class="settings-fields">
+              <div class="settings-row">
+                <label class="settings-label" for="kasa-creds-email">
+                  <span class="settings-label-text">Email</span>
+                </label>
+                <div class="settings-control">
+                  <input id="kasa-creds-email" type="email" class="device-select" autocomplete="username" placeholder="you@example.com" style="min-width:240px" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="kasa-creds-password">
+                  <span class="settings-label-text">Password</span>
+                </label>
+                <div class="settings-control">
+                  <input id="kasa-creds-password" type="password" class="device-select" autocomplete="current-password" placeholder="••••••••" style="min-width:240px" />
+                </div>
+              </div>
+              <div id="kasa-creds-msg" class="hint" style="margin:8px 0" hidden></div>
+              <div style="margin-top:14px; display:flex; gap:8px">
+                <button class="btn btn-primary" type="submit">Save credentials</button>
+                <button id="kasa-creds-clear" class="btn btn-ghost" type="button">Forget</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Sinopé Account Settings -->
+      <section class="card device-card collapsible collapsed" id="settings-card-sinope" data-settings-collapse-key="sinope">
+        <div class="card-header collapsible-header" id="settings-sinope-toggle"
+             role="button" tabindex="0" aria-expanded="false">
+          <h2>Sinopé / Neviweb account</h2>
+          <span id="sinope-creds-status" class="hint">—</span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Connect your Neviweb account to monitor Wi-Fi thermostats, load controllers, and water heaters. Credentials are encrypted with AES-256-GCM and stored locally in this container's data volume.
+        </p>
+        <form id="sinope-creds-form">
+          <div class="settings-fields">
+            <div class="settings-row">
+              <label class="settings-label" for="sinope-email">
+                <span class="settings-label-text">Email</span>
+              </label>
+              <div class="settings-control">
+                <input id="sinope-email" type="email" class="device-select" autocomplete="username" placeholder="you@example.com" style="min-width:220px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="sinope-password">
+                <span class="settings-label-text">Password</span>
+              </label>
+              <div class="settings-control">
+                <input id="sinope-password" type="password" class="device-select" autocomplete="current-password" placeholder="••••••••" style="min-width:220px" />
+              </div>
+            </div>
+            <div id="sinope-msg" class="hint" style="margin:8px 0" hidden></div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="sinope-save-btn" class="btn btn-primary" type="submit">Sign in &amp; Save</button>
+              <button id="sinope-clear-btn" class="btn btn-ghost" type="button">Forget</button>
+              <button id="sinope-poll-btn" class="btn btn-ghost" type="button">Poll now</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Daikin One Account Settings -->
+      <section class="card device-card collapsible collapsed" id="settings-card-daikin" data-settings-collapse-key="daikin">
+        <div class="card-header collapsible-header" id="settings-daikin-toggle"
+             role="button" tabindex="0" aria-expanded="false">
+          <h2>Daikin One account</h2>
+          <span id="daikin-creds-status" class="hint">—</span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Connect your Daikin One smart thermostat and communicating heat pump system via the official Daikin One Open API. Credentials are encrypted with AES-256-GCM and stored locally in this container's data volume.
+        </p>
+        <div class="settings-help-box" style="margin-bottom:12px; padding:10px 12px; border-radius:6px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); font-size:12px; line-height:1.5;">
+          <strong>How to get your Integrator Token &amp; API Key:</strong>
+          <ol style="margin:6px 0 0 18px; padding:0;">
+            <li>In the mobile app (<em>SkyportHome</em> / <em>Daikin One</em>), open <strong>SkyportCare</strong> &rarr; <strong>home integration</strong> &rarr; <strong>get integration token</strong>.</li>
+            <li>Enable Developer Menu:
+              <br>&bull; <em>iOS:</em> Device Settings app &rarr; SkyportHome &rarr; turn on <em>Developer Menu</em>.
+              <br>&bull; <em>Android:</em> Under SkyportCare &rarr; home integration, tap the description text 5 times.
+            </li>
+            <li>Go to <strong>SkyportCare</strong> &rarr; <strong>home integration</strong> &rarr; <strong>developer</strong> to retrieve your <strong>API Key</strong>.</li>
+          </ol>
+        </div>
+        <form id="daikin-creds-form">
+          <div class="settings-fields">
+            <div class="settings-row">
+              <label class="settings-label" for="daikin-email">
+                <span class="settings-label-text">Account Email</span>
+              </label>
+              <div class="settings-control">
+                <input id="daikin-email" type="email" class="device-select" autocomplete="username" placeholder="you@example.com" style="min-width:240px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="daikin-token">
+                <span class="settings-label-text">Integrator Token</span>
+              </label>
+              <div class="settings-control">
+                <input id="daikin-token" type="password" class="device-select" autocomplete="off" placeholder="••••••••" style="min-width:240px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="daikin-api-key">
+                <span class="settings-label-text">API Key</span>
+              </label>
+              <div class="settings-control">
+                <input id="daikin-api-key" type="password" class="device-select" autocomplete="off" placeholder="••••••••" style="min-width:240px" />
+              </div>
+            </div>
+            <div id="daikin-msg" class="hint" style="margin:8px 0" hidden></div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="daikin-save-btn" class="btn btn-primary" type="submit">Sign in &amp; Save</button>
+              <button id="daikin-clear-btn" class="btn btn-ghost" type="button">Forget</button>
+              <button id="daikin-poll-btn" class="btn btn-ghost" type="button">Poll now</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Hilo Account Settings -->
+      <section class="card device-card collapsible collapsed" id="settings-card-hilo" data-settings-collapse-key="hilo">
+        <div class="card-header collapsible-header" id="settings-hilo-toggle"
+             role="button" tabindex="0" aria-expanded="false">
+          <h2>Hilo / Hydro-Québec passerelle</h2>
+          <span id="hilo-creds-status" class="hint">—</span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Connect your Hilo gateway (passerelle) to read real-time whole-home power draw from Hydro-Québec smart meters and monitor peak challenge events (Défis Hilo). Separate credentials can be entered for Maison and Chalet. Credentials are encrypted with AES-256-GCM.
+        </p>
+
+        <!-- Location selector pill for credentials -->
+        <div class="hilo-settings-loc-bar" style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+          <span class="settings-hint" style="font-weight:600;">Location:</span>
+          <div class="hilo-creds-loc-pills">
+            <button type="button" class="btn btn-tiny hilo-creds-loc-pill on" data-loc="maison">Maison</button>
+            <button type="button" class="btn btn-tiny hilo-creds-loc-pill" data-loc="chalet">Chalet</button>
+          </div>
+          <span id="hilo-creds-loc-indicator" class="hint" style="margin-left:auto; font-size:12px;">Maison credentials</span>
+        </div>
+
+        <form id="hilo-creds-form">
+          <div class="settings-fields">
+            <div class="settings-row">
+              <label class="settings-label" for="hilo-email">
+                <span class="settings-label-text">Hilo Account Email</span>
+              </label>
+              <div class="settings-control">
+                <input id="hilo-email" type="email" class="device-select" autocomplete="username" placeholder="you@example.com" style="min-width:240px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="hilo-password">
+                <span class="settings-label-text">Password</span>
+              </label>
+              <div class="settings-control">
+                <input id="hilo-password" type="password" class="device-select" autocomplete="current-password" placeholder="••••••••" style="min-width:240px" />
+              </div>
+            </div>
+            <div id="hilo-msg" class="hint" style="margin:8px 0" hidden></div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="hilo-save-btn" class="btn btn-primary" type="submit">Sign in &amp; Save</button>
+              <button id="hilo-clear-btn" class="btn btn-ghost" type="button">Forget</button>
+              <button id="hilo-poll-btn" class="btn btn-ghost" type="button">Poll now</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- LG ThinQ Smart Appliances Credentials Card -->
+      <section class="card device-card collapsible collapsed" id="settings-card-thinq" data-settings-collapse-key="thinq">
+        <div class="card-header collapsible-header" id="settings-thinq-toggle" role="button" tabindex="0" aria-expanded="false">
+          <h2>LG ThinQ Smart Appliances</h2>
+          <span id="thinq-creds-status" class="hint">Not configured</span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Connect your LG ThinQ smart appliances (washers, dryers, refrigerators, ovens, cooktops, dishwashers). Generate a <strong>Personal Access Token (PAT)</strong> at <a href="https://connect-pat.lgthinq.com" target="_blank" rel="noopener noreferrer" style="color:var(--accent,#00d26a); text-decoration:underline;">connect-pat.lgthinq.com</a>. Credentials are encrypted with AES-256-GCM.
+        </p>
+
+        <!-- Location selector pill for credentials -->
+        <div class="thinq-settings-loc-bar" style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+          <span class="settings-hint" style="font-weight:600;">Location:</span>
+          <div class="thinq-creds-loc-pills">
+            <button type="button" class="btn btn-tiny thinq-creds-loc-pill on" data-loc="maison">Maison</button>
+            <button type="button" class="btn btn-tiny thinq-creds-loc-pill" data-loc="chalet">Chalet</button>
+          </div>
+          <span id="thinq-creds-loc-indicator" class="hint" style="margin-left:auto; font-size:12px;">Maison credentials</span>
+        </div>
+
+        <form id="thinq-creds-form">
+          <div class="settings-fields">
+            <div class="settings-row">
+              <label class="settings-label" for="thinq-token">
+                <span class="settings-label-text">Personal Access Token (PAT)</span>
+                <span class="settings-hint">Obtained from LG ThinQ Connect Developer Portal</span>
+              </label>
+              <div class="settings-control">
+                <input id="thinq-token" type="password" class="device-select" autocomplete="off" placeholder="Paste your LG PAT here..." style="min-width:280px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="thinq-country">
+                <span class="settings-label-text">Account Country / Region</span>
+              </label>
+              <div class="settings-control">
+                <select id="thinq-country" class="device-select" style="min-width:200px">
+                  <option value="CA">Canada (CA)</option>
+                  <option value="US">United States (US)</option>
+                  <option value="GB">United Kingdom (GB)</option>
+                  <option value="FR">France (FR)</option>
+                  <option value="DE">Germany (DE)</option>
+                  <option value="KR">South Korea (KR)</option>
+                  <option value="AU">Australia (AU)</option>
+                </select>
+              </div>
+            </div>
+            <div id="thinq-msg" class="hint" style="margin:8px 0" hidden></div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="thinq-save-btn" class="btn btn-primary" type="submit">Verify &amp; Save</button>
+              <button id="thinq-clear-btn" class="btn btn-ghost" type="button">Forget</button>
+              <button id="thinq-poll-btn" class="btn btn-ghost" type="button">Poll now</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Danby / Midea Smart Dehumidifiers Credentials Card -->
+      <section class="card device-card collapsible collapsed" id="settings-card-midea" data-settings-collapse-key="midea">
+        <div class="card-header collapsible-header" id="settings-midea-toggle" role="button" tabindex="0" aria-expanded="false">
+          <h2>Danby Dehumidifiers (MSmartHome)</h2>
+          <span id="midea-creds-status" class="hint">Not configured</span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Connect your Danby smart dehumidifiers using your <strong>MSmartHome</strong> (or NetHome Plus) account. Devices are discovered and controlled locally on your Wi-Fi LAN with cloud fallback. Credentials are encrypted with AES-256-GCM.
+        </p>
+
+        <!-- Location selector pill for credentials -->
+        <div class="thinq-settings-loc-bar midea-settings-loc-bar" style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+          <span class="settings-hint" style="font-weight:600;">Location:</span>
+          <div class="thinq-creds-loc-pills midea-creds-loc-pills">
+            <button type="button" class="btn btn-tiny midea-creds-loc-pill on" data-loc="maison">Maison</button>
+            <button type="button" class="btn btn-tiny midea-creds-loc-pill" data-loc="chalet">Chalet</button>
+          </div>
+          <span id="midea-creds-loc-indicator" class="hint" style="margin-left:auto; font-size:12px;">Maison credentials</span>
+        </div>
+
+        <form id="midea-creds-form">
+          <div class="settings-fields">
+            <div class="settings-row">
+              <label class="settings-label" for="midea-email">
+                <span class="settings-label-text">MSmartHome Email</span>
+                <span class="settings-hint">Account username / email address</span>
+              </label>
+              <div class="settings-control">
+                <input id="midea-email" type="email" class="device-select" autocomplete="email" placeholder="user@example.com" style="min-width:280px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="midea-password">
+                <span class="settings-label-text">Password</span>
+                <span class="settings-hint">MSmartHome account password</span>
+              </label>
+              <div class="settings-control">
+                <input id="midea-password" type="password" class="device-select" autocomplete="current-password" placeholder="••••••••" style="min-width:280px" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="midea-app-name">
+                <span class="settings-label-text">Application Platform</span>
+              </label>
+              <div class="settings-control">
+                <select id="midea-app-name" class="device-select" style="min-width:200px">
+                  <option value="MSmartHome">SmartHome / MSmartHome</option>
+                  <option value="NetHome Plus">NetHome Plus</option>
+                  <option value="Midea Air">Midea Air</option>
+                </select>
+              </div>
+            </div>
+            <div id="midea-msg" class="hint" style="margin:8px 0" hidden></div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="midea-save-btn" class="btn btn-primary" type="submit">Verify &amp; Save</button>
+              <button id="midea-clear-btn" class="btn btn-ghost" type="button">Forget</button>
+              <button id="midea-poll-btn" class="btn btn-ghost" type="button">Poll now</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Tesla & EV Chargers Settings Card -->
+      <section class="card device-card collapsible collapsed" id="settings-card-tesla" data-settings-collapse-key="tesla">
+        <div class="card-header collapsible-header" id="settings-tesla-toggle" role="button" tabindex="0" aria-expanded="false">
+          <h2>Tesla &amp; EV Chargers</h2>
+          <span id="tesla-creds-status" class="hint"></span>
+          <span class="collapsible-chevron" aria-hidden="true">▾</span>
+        </div>
+        <p class="hint" style="margin:6px 0 12px">
+          Monitor your Tesla Wall Connectors locally over Wi-Fi and track your Model Y charging states, GPS position, and Mobile Connector usage directly via official Tesla API (100% Free, no subscription required).
+        </p>
+
+        <form id="tesla-creds-form">
+          <div class="settings-fields">
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-access-token">
+                <span class="settings-label-text">Tesla Access Token</span>
+                <span class="settings-hint">Direct Tesla OAuth access token (starts with <code>qts-</code> or <code>eyJ</code>). Allows immediate API access without waiting for token refresh.</span>
+              </label>
+              <div class="settings-control">
+                <input id="tesla-access-token" type="password" class="device-select" autocomplete="off" placeholder="Paste Tesla access token…" style="min-width:320px" />
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-refresh-token">
+                <span class="settings-label-text">Tesla OAuth Refresh Token</span>
+                <span class="settings-hint">Direct Tesla OAuth refresh token (e.g. from free <a href="https://github.com/adriankumpf/tesla_auth" target="_blank" rel="noopener" style="color:var(--accent)">tesla_auth</a> or <em>Auth app for Tesla</em>). Automatically rotated &amp; renewed.</span>
+              </label>
+              <div class="settings-control">
+                <input id="tesla-refresh-token" type="password" class="device-select" autocomplete="off" placeholder="Paste Tesla refresh token…" style="min-width:320px" />
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-client-id">
+                <span class="settings-label-text">Tesla Fleet API Client ID (Optional)</span>
+                <span class="settings-hint">Leave default (<code>ownerapi</code>) or enter your app Client ID from <a href="https://developer.tesla.com" target="_blank" rel="noopener" style="color:var(--accent)">developer.tesla.com</a></span>
+              </label>
+              <div class="settings-control">
+                <input id="tesla-client-id" type="text" class="device-select" placeholder="ownerapi" style="min-width:320px" />
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-client-secret">
+                <span class="settings-label-text">Tesla Fleet API Client Secret (Optional)</span>
+                <span class="settings-hint">Only required if using a custom registered developer.tesla.com confidential application</span>
+              </label>
+              <div class="settings-control">
+                <input id="tesla-client-secret" type="password" class="device-select" autocomplete="off" placeholder="Leave blank if using ownerapi" style="min-width:320px" />
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-region">
+                <span class="settings-label-text">Fleet API Region</span>
+                <span class="settings-hint">Select region matching your vehicle's registered country</span>
+              </label>
+              <div class="settings-control">
+                <select id="tesla-region" class="device-select" style="min-width:200px">
+                  <option value="na" selected>North America (na)</option>
+                  <option value="eu">Europe / Middle East / Africa (eu)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-maison-ip">
+                <span class="settings-label-text">Maison Wall Connector IP</span>
+                <span class="settings-hint">Local IP on home Wi-Fi (defaults to 192.168.86.41)</span>
+              </label>
+              <div class="settings-control">
+                <input id="tesla-maison-ip" type="text" class="device-select" placeholder="192.168.86.41" style="min-width:240px" />
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label" for="tesla-chalet-ip">
+                <span class="settings-label-text">Chalet Wall Connector IP (Optional)</span>
+                <span class="settings-hint">IP address if reachable over VPN / network route</span>
+              </label>
+              <div class="settings-control">
+                <input id="tesla-chalet-ip" type="text" class="device-select" placeholder="Leave blank if on isolated LAN" style="min-width:240px" />
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <label class="settings-label">
+                <span class="settings-label-text">Chalet Geofence Coordinates</span>
+                <span class="settings-hint">Used to detect when Model Y is at Chalet for Wall Connector &amp; Mobile Connector inference</span>
+              </label>
+              <div class="settings-control" style="display:flex; gap:8px">
+                <input id="tesla-chalet-lat" type="number" step="any" class="device-select" placeholder="Latitude (e.g. 46.123)" style="min-width:130px" />
+                <input id="tesla-chalet-lon" type="number" step="any" class="device-select" placeholder="Longitude (e.g. -74.123)" style="min-width:130px" />
+              </div>
+            </div>
+
+            <div id="tesla-msg" class="hint" style="margin:8px 0" hidden></div>
+            <div style="margin-top:14px; display:flex; gap:8px">
+              <button id="tesla-save-btn" class="btn btn-primary" type="submit">Verify &amp; Save</button>
+              <button id="tesla-clear-btn" class="btn btn-ghost" type="button">Forget</button>
+              <button id="tesla-poll-btn" class="btn btn-ghost" type="button">Poll now</button>
+            </div>
+          </div>
+        </form>
+      </section>
+      </div><!-- /data-settings-group=integrations -->
 
       <div data-settings-group="intelligence" hidden>
       <section class="card device-card" id="settings-card-ai-provider">
@@ -2336,6 +3192,142 @@
         <div id="backup-snapshots" class="backup-snapshots"><div class="hint">Click <em>List snapshots</em> to load.</div></div>
       </section>
       </div><!-- /data-settings-group=backup -->
+
+      <div data-settings-group="notifications" hidden>
+        <section class="card device-card" id="settings-card-notifications">
+          <div class="card-header">
+            <h2>Email notifications</h2>
+            <span id="notif-status" class="hint">Not configured</span>
+          </div>
+          <p class="hint" style="margin:6px 0 16px">
+            Receive automated email alerts for low battery warnings, bridge disconnections, Sinopé water leak detections, and freeze warnings. Optimized for Gmail SMTP with an <strong>App Password</strong>. Settings are encrypted at rest with AES-256-GCM.
+          </p>
+
+          <form id="notif-form">
+            <div class="settings-fields">
+              <div class="settings-row">
+                <label class="settings-label" for="notif-enabled">
+                  <span class="settings-label-text">Enable email alerts</span>
+                  <span class="settings-hint">Turn automatic alert emails on or off.</span>
+                </label>
+                <div class="settings-control">
+                  <input id="notif-enabled" type="checkbox" style="width:20px; height:20px; accent-color:var(--accent); cursor:pointer" />
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <label class="settings-label" for="notif-username">
+                  <span class="settings-label-text">Sender email (Gmail)</span>
+                  <span class="settings-hint">The Gmail address used to send the emails (e.g. <code>myhome.alerts@gmail.com</code>).</span>
+                </label>
+                <div class="settings-control">
+                  <input id="notif-username" type="email" class="device-select" autocomplete="username" placeholder="your-alerts@gmail.com" style="min-width:260px" />
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <label class="settings-label" for="notif-password">
+                  <span class="settings-label-text">Google App Password</span>
+                  <span class="settings-hint">
+                    16-character App Password generated in Google Account &rarr; Security &rarr; 2-Step Verification &rarr; App passwords. (Leave blank to keep current password).
+                  </span>
+                </label>
+                <div class="settings-control">
+                  <input id="notif-password" type="password" class="device-select" autocomplete="new-password" placeholder="••••••••" style="min-width:260px" />
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <label class="settings-label" for="notif-recipient">
+                  <span class="settings-label-text">Recipient email</span>
+                  <span class="settings-hint">Where alerts are sent (e.g. your primary Gmail address). Multiple emails can be separated by commas.</span>
+                </label>
+                <div class="settings-control">
+                  <input id="notif-recipient" type="text" class="device-select" placeholder="user@gmail.com" style="min-width:260px" />
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <label class="settings-label" for="notif-sender-name">
+                  <span class="settings-label-text">Sender name</span>
+                  <span class="settings-hint">Display name shown in your email client's inbox.</span>
+                </label>
+                <div class="settings-control">
+                  <input id="notif-sender-name" type="text" class="device-select" placeholder="Jackery Monitor" style="min-width:260px" />
+                </div>
+              </div>
+
+              <div class="settings-row">
+                <label class="settings-label" for="notif-cooldown">
+                  <span class="settings-label-text">Alert cooldown</span>
+                  <span class="settings-hint">Minimum minutes between repeated emails for the same ongoing alert condition to prevent spamming.</span>
+                </label>
+                <div class="settings-control">
+                  <input id="notif-cooldown" type="number" min="1" max="1440" step="1" class="device-select" style="width:90px" value="60" />
+                  <span class="hint" style="margin-left:8px">minutes</span>
+                </div>
+              </div>
+
+              <!-- Alert Triggers -->
+              <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border)">
+                <h3 style="margin:0 0 10px; font-size:14px; font-weight:600; color:var(--text)">Alert triggers</h3>
+                <div style="display:flex; flex-direction:column; gap:10px">
+                  <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+                    <input id="notif-trigger-battery" type="checkbox" checked style="accent-color:var(--accent)" />
+                    <span><strong>Low Battery:</strong> Alert when Jackery system SOC falls to or below threshold</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+                    <input id="notif-trigger-stall" type="checkbox" checked style="accent-color:var(--accent)" />
+                    <span><strong>Bridge Stalled / Disconnected:</strong> Alert when cloud telemetry stops updating</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+                    <input id="notif-trigger-leak" type="checkbox" checked style="accent-color:var(--accent)" />
+                    <span><strong>Sinopé Water Leak:</strong> Urgent alert when any water leak sensor detects moisture</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:10px; cursor:pointer">
+                    <input id="notif-trigger-freeze" type="checkbox" checked style="accent-color:var(--accent)" />
+                    <span><strong>Freeze Warning:</strong> Alert when any thermostat reports temp below</span>
+                    <input id="notif-freeze-temp" type="number" step="0.5" class="device-select" style="width:65px; margin:0 4px" value="5.0" />
+                    <span>°C</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Advanced SMTP Settings (collapsible) -->
+              <details style="margin-top:20px; padding:12px; border-radius:6px; background:var(--bg-card-alt, rgba(255,255,255,0.03)); border:1px solid var(--border)">
+                <summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-dim)">Advanced SMTP settings (defaults for Gmail)</summary>
+                <div style="margin-top:12px; display:flex; flex-direction:column; gap:12px">
+                  <div class="settings-row">
+                    <label class="settings-label" for="notif-host">
+                      <span class="settings-label-text">SMTP server</span>
+                    </label>
+                    <div class="settings-control">
+                      <input id="notif-host" type="text" class="device-select" value="smtp.gmail.com" style="min-width:200px" />
+                    </div>
+                  </div>
+                  <div class="settings-row">
+                    <label class="settings-label" for="notif-port">
+                      <span class="settings-label-text">SMTP port</span>
+                    </label>
+                    <div class="settings-control">
+                      <input id="notif-port" type="number" class="device-select" value="587" style="width:80px" />
+                      <span class="hint" style="margin-left:8px">(587 for STARTTLS, 465 for SSL)</span>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <div id="notif-msg" class="hint" style="margin:14px 0" hidden></div>
+
+              <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+                <button id="notif-save-btn" class="btn btn-primary" type="submit">Save settings</button>
+                <button id="notif-test-btn" class="btn btn-ghost" type="button">Send test email</button>
+                <button id="notif-clear-btn" class="btn btn-ghost" type="button">Forget / Clear</button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </div><!-- /data-settings-group=notifications -->
     </section>
 
     <div id="alert-banner" class="alert" hidden></div>
@@ -2346,6 +3338,6 @@
   </footer>
 
   <script src="/static/sortable.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

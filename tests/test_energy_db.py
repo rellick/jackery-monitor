@@ -286,6 +286,215 @@ def test_battery_temp_c_recording_and_history(db):
     assert len(rows) >= 1
     # Check that the bucket has the recorded average temperature
     temp_rows = [r for r in rows if r.get("battery_temp_c") is not None]
-    assert len(temp_rows) >= 1
-    assert temp_rows[0]["battery_temp_c"] == 26.0
+    assert temp_rows[-1]["battery_temp_c"] == 26.0
+
+
+def test_location_load_history(db):
+    sn1 = "SINOPE-TH1"
+    sn2 = "SINOPE-CTRL1"
+    db.upsert_device(sn1, "Salon Thermostat", brand="sinope", device_type="thermostat", location_id="maison")
+    db.upsert_device(sn2, "Water Heater", brand="sinope", device_type="controller", location_id="maison")
+    now = int(time.time())
+    bkt = (now - 1800) // 600 * 600
+    db.record_load(sn1, bkt, power_w=1500, temp_c=21.5)
+    db.record_load(sn2, bkt, power_w=3000, temp_c=None)
+
+    rows = db.location_load_history("maison", hours=2, bucket_s=600)
+    assert len(rows) >= 1
+    r = rows[-1]
+    assert r["total_w"] == 4500
+    assert r["thermostat_w"] == 1500
+    assert r["controller_w"] == 3000
+    assert r["avg_temp_c"] == 21.5
+    assert r["device_count"] == 2
+
+
+def test_fan_runtime_summary(db):
+    sn = "DAIKIN-FAN-TEST"
+    db.upsert_device(sn, "Daikin Thermostat", brand="daikin", device_type="thermostat", location_id="maison")
+    now = int(time.time())
+    start = (now - 25 * 60) // 60 * 60
+
+    # Record 10 samples with equipment_status = 3 (heating)
+    for i in range(10):
+        t = start + i * 60
+        db.record_thermostat(sn, t, power_w=1200, temp_c=21.0, outdoor_temp_c=12.0, equipment_status=3)
+
+    # Record 15 samples with equipment_status = 4 (fan circulating)
+    for i in range(10, 25):
+        t = start + i * 60
+        db.record_thermostat(sn, t, power_w=80, temp_c=21.0, outdoor_temp_c=12.0, equipment_status=4)
+
+    summary = db.fan_runtime_summary(sn, hours=1)
+    assert summary["circulating_min"] == 15
+    assert summary["total_fan_min"] == 25
+    assert summary["window_hours"] == 1
+
+
+def test_record_metered_hourly_consumption(db):
+    sn = "SINOPE-RM3500-TEST"
+    db.upsert_device(sn, "Water Heater", brand="sinope", device_type="controller", location_id="maison")
+    now = int(time.time())
+    hour_start = (now - 3600) // 3600 * 3600
+
+    # Record 1500 Wh for this hour
+    db.record_metered_hourly_consumption(sn, hour_start, wh=1500.0, water_temp_c=58.5)
+
+    totals = db.totals(sn)
+    assert totals["lifetime"]["output_wh"] == pytest.approx(1500.0, rel=1e-2)
+
+    rows = db.history(sn, hours=2, bucket_s=3600)
+    assert len(rows) >= 1
+    hour_row = next((r for r in rows if r["ts"] == hour_start), None)
+    assert hour_row is not None
+    assert hour_row["output_wh"] == pytest.approx(1500.0, rel=1e-2)
+    assert hour_row["battery_temp_c"] == pytest.approx(58.5, rel=1e-2)
+
+    # Test delete_device_samples
+    del_count = db.delete_device_samples(sn)
+    assert del_count == 60  # 60 minute buckets deleted
+    assert db.totals(sn)["lifetime"]["output_wh"] == 0.0
+
+
+def test_record_dehumidifier_and_summary(db):
+    sn = "midea_150633095041182"
+    db.upsert_device(sn, "Danby Dehumidifier", brand="danby", device_type="dehumidifier", location_id="maison")
+    now = int(time.time())
+    start = (now - 30 * 60) // 60 * 60
+
+    # 10 minutes compressor running (status="dehumidifying", eq_status=1)
+    for i in range(10):
+        t = start + i * 60
+        db.record_dehumidifier(sn, t, current_humidity=55, target_humidity=45, operational_status="dehumidifying", temp_c=21.0, fan_speed=40)
+
+    # 10 minutes fan only (status="fan_only", eq_status=2)
+    for i in range(10, 20):
+        t = start + i * 60
+        db.record_dehumidifier(sn, t, current_humidity=42, target_humidity=45, operational_status="fan_only", temp_c=21.2, fan_speed=40)
+
+    # 10 minutes off (status="off", eq_status=0)
+    for i in range(20, 30):
+        t = start + i * 60
+        db.record_dehumidifier(sn, t, current_humidity=43, target_humidity=45, operational_status="off", temp_c=21.5, fan_speed=40)
+
+    summary = db.dehumidifier_runtime_summary(sn, hours=1)
+    assert summary["compressor_min"] == 10
+    assert summary["fan_only_min"] == 10
+    assert summary["off_min"] == 10
+    assert summary["window_hours"] == 1
+    assert summary["energy_kwh"] > 0
+
+
+def test_record_thinq_appliance_cooking_and_subzones(db):
+    sn = "thinq_maison_oven_123"
+    db.upsert_device(sn, "LG Double Oven Range", brand="thinq", device_type="cooking", location_id="maison")
+    now = int(time.time()) // 60 * 60
+
+    norm_dev = {
+        "category": "cooking",
+        "online": True,
+        "is_cooking": True,
+        "run_state": "COOKING",
+        "current_temp_c": 195.0,
+        "target_temp_c": 200.0,
+        "remaining_min": 25,
+        "sub_zones": [
+            {
+                "id": "LEFT_FRONT",
+                "name": "Left Front",
+                "zone_type": "burner",
+                "power_level": 7,
+                "state": "ON",
+                "is_active": True,
+            },
+            {
+                "id": "UPPER",
+                "name": "Upper Cavity",
+                "zone_type": "cavity",
+                "power_level": 0,
+                "state": "COOKING",
+                "target_temp_c": 200.0,
+                "current_temp_c": 195.0,
+                "is_active": True,
+            },
+        ],
+    }
+
+    db.record_thinq_appliance(sn, now, norm_dev)
+    db.record_thinq_appliance(sn, now + 60, norm_dev)
+
+    rows = db.history(sn, hours=1, bucket_s=60)
+    assert len(rows) >= 1
+    r = rows[-1]
+    assert r["output_w"] >= 2500  # Burner lvl 7 (1400W) + Oven cavity (1500W)
+    assert r["equipment_status"] == 1
+    assert r["battery_temp_c"] == 195.0
+    assert r["outdoor_temp_c"] == 200.0
+    assert "LEFT_FRONT" in (r.get("state_json") or "")
+
+
+def test_record_thinq_appliance_laundry_and_refrigeration(db):
+    w_sn = "thinq_maison_washer_456"
+    now = int(time.time()) // 60 * 60
+    norm_washer = {
+        "category": "laundry",
+        "online": True,
+        "is_running": True,
+        "run_state": "SPINNING",
+        "current_step": "Spin",
+        "course": "Heavy Duty",
+        "remaining_min": 12,
+        "door_locked": True,
+        "raw_type": "WASHER",
+    }
+    db.record_thinq_appliance(w_sn, now, norm_washer)
+    rows_w = db.history(w_sn, hours=1, bucket_s=60)
+    assert len(rows_w) >= 1
+    assert rows_w[-1]["equipment_status"] == 3  # spinning
+    assert rows_w[-1]["output_w"] == 650.0
+
+    f_sn = "thinq_maison_fridge_789"
+    norm_fridge = {
+        "category": "refrigeration",
+        "online": True,
+        "fridge_temp_c": 3.0,
+        "freezer_temp_c": -18.0,
+        "express_freeze": True,
+        "door_opened": False,
+        "eco_friendly": False,
+    }
+    db.record_thinq_appliance(f_sn, now, norm_fridge)
+    rows_f = db.history(f_sn, hours=1, bucket_s=60)
+    assert len(rows_f) >= 1
+    assert rows_f[-1]["equipment_status"] == 1  # express freeze
+    assert rows_f[-1]["output_w"] == 160.0
+    assert rows_f[-1]["battery_temp_c"] == 3.0
+    assert rows_f[-1]["outdoor_temp_c"] == -18.0
+
+
+def test_record_thermostat_preserves_duty_and_state_json(db):
+    sn = "sinope_555"
+    now = int(time.time()) // 60 * 60
+    import json
+    st_json = json.dumps({"duty_pct": 65, "setpoint_c": 21.0, "load_watt": 2000})
+    db.record_thermostat(
+        device_sn=sn,
+        ts=now,
+        power_w=1300.0,
+        temp_c=20.5,
+        outdoor_temp_c=21.0,
+        equipment_status=65,
+        state_json=st_json,
+    )
+    rows = db.history(sn, hours=1, bucket_s=60)
+    assert len(rows) >= 1
+    r = rows[-1]
+    assert r["output_w"] == 1300
+    assert r["equipment_status"] == 65
+    assert r["battery_temp_c"] == 20.5
+    assert r["outdoor_temp_c"] == 21.0
+    assert "duty_pct" in (r.get("state_json") or "")
+
+
+
 

@@ -208,6 +208,41 @@ PRESETS: dict[str, dict[str, Any]] = {
             ],
         },
     },
+    "hq-tarif-flex-d": {
+        "label": "Hydro-Québec Tarif Flex D",
+        "plan": {
+            "type": "tou",
+            "currency": "CAD",
+            "holiday_calendar": "CA-QC",
+            "tou_rates": [
+                # WINTER (Dec 1 – Mar 31)
+                # Morning peak: 6h - 9h (weekdays, excluding holidays)
+                {"start_hour": 6, "end_hour": 9, "rate": 0.55832,
+                 "label": "winter peak (AM)", "months": [12, 1, 2, 3],
+                 "weekdays": [1, 2, 3, 4, 5], "holidays": "exclude"},
+                # Evening peak: 16h - 20h (weekdays, excluding holidays)
+                {"start_hour": 16, "end_hour": 20, "rate": 0.55832,
+                 "label": "winter peak (PM)", "months": [12, 1, 2, 3],
+                 "weekdays": [1, 2, 3, 4, 5], "holidays": "exclude"},
+                # Winter base (all other weekday hours)
+                {"start_hour": 0, "end_hour": 6, "rate": 0.04712,
+                 "label": "winter base", "months": [12, 1, 2, 3]},
+                {"start_hour": 9, "end_hour": 16, "rate": 0.04712,
+                 "label": "winter base", "months": [12, 1, 2, 3],
+                 "weekdays": [1, 2, 3, 4, 5], "holidays": "exclude"},
+                {"start_hour": 20, "end_hour": 24, "rate": 0.04712,
+                 "label": "winter base", "months": [12, 1, 2, 3]},
+                # Winter weekends / holidays (all day base rate)
+                {"start_hour": 6, "end_hour": 20, "rate": 0.04712,
+                 "label": "winter weekend/holiday base", "months": [12, 1, 2, 3],
+                 "weekdays": [6, 7], "holidays": "include"},
+
+                # SUMMER / NON-WINTER (Apr 1 – Nov 30) — domestic baseline rate
+                {"start_hour": 0, "end_hour": 24, "rate": 0.08500,
+                 "label": "summer base", "months": [4, 5, 6, 7, 8, 9, 10, 11]},
+            ],
+        },
+    },
 }
 
 _lock = threading.Lock()
@@ -787,9 +822,9 @@ def cost_breakdown(history: list[dict[str, Any]],
         charged_kwh = round(g["charged_kwh"], 3)
         consumed_kwh = round(g["consumed_kwh"], 3)
         solar_kwh = round(g["solar_kwh"], 3)
-        avg_buy_rate = round(grid_cost / charged_kwh, 4) if charged_kwh > 0 else 0.0
-        avg_use_rate = round(baseline_cost / consumed_kwh, 4) if consumed_kwh > 0 else 0.0
-        efficiency_pct = round((consumed_kwh / charged_kwh) * 100, 1) if charged_kwh > 0 else None
+        avg_buy_rate = round(g["grid_cost"] / g["charged_kwh"], 4) if g["charged_kwh"] > 0 else 0.0
+        avg_use_rate = round(g["baseline_cost"] / g["consumed_kwh"], 4) if g["consumed_kwh"] > 0 else 0.0
+        efficiency_pct = round((g["consumed_kwh"] / g["charged_kwh"]) * 100, 1) if g["charged_kwh"] > 0 else None
 
         out.append({
             "period": key,

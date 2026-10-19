@@ -129,6 +129,19 @@ function fmtKwh(wh) {
   return k.toFixed(2);
 }
 
+function fmtDurationAgo(seconds) {
+  if (seconds == null || isNaN(seconds) || seconds < 0) return '';
+  if (seconds < 60) return `${Math.round(seconds)}s ago`;
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hours < 24) return remMins ? `${hours}h ${remMins}m ago` : `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+
 // Charged-source split under the "kWh charged" KPI: shown only when
 // BOTH solar and AC contributed meaningfully today (>=0.05 kWh each),
 // so pure-solar days keep the clean single number. Shares come from
@@ -437,7 +450,7 @@ $('forget-creds')?.addEventListener('click', async () => {
 // URL on explicit navigations (clearing the hash from the address bar
 // would be over-ridden by the saved value, snapping back).
 const VALID_TABS = new Set([
-  'live', 'energy', 'cost', 'forecast', 'device', 'automation', 'logs', 'settings',
+  'live', 'sinope', 'daikin', 'hilo', 'thinq', 'midea', 'tesla', 'kasa', 'energy', 'cost', 'forecast', 'device', 'automation', 'logs', 'settings',
 ]);
 
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -466,10 +479,17 @@ function switchTab(name, opts = {}) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.toggleAttribute('hidden', p.id !== `tab-${name}`));
   if (name === 'live')     { drawLiveChart(lastStatus); drawLiveTempChart(lastStatus); }
+  if (name === 'sinope')   { renderSinopeTab(); }
+  if (name === 'daikin')   { renderDaikinTab(true); }
+  if (name === 'hilo')     { renderHiloTab(true); }
+  if (name === 'thinq')    { renderThinqTab(true); }
+  if (name === 'midea')    { renderMideaTab(true); }
+  if (name === 'tesla')    { renderTeslaTab(true); }
+  if (name === 'kasa')     { renderKasaTab(true); }
   if (name === 'energy')   { fetchEnergyHistory(); fetchEnergyAllDevices(); fetchEnergyDaily(); }
   if (name === 'cost')     { loadCostTab(); }
   if (name === 'forecast') { fetchForecast(); }
-  if (name === 'settings') { loadSettings(); loadCostPlan(); initKeepAwakeToggle(); loadAnthropicKeyStatus(); loadAnthropicModelPickers(); loadAIProvider(); loadOpenAIKeyStatus(); loadOpenAIModelPickers(); loadBackupAll(); restoreSettingsSubtab(); }
+  if (name === 'settings') { loadSettings(); loadCostPlan(); initKeepAwakeToggle(); loadAnthropicKeyStatus(); loadAnthropicModelPickers(); loadAIProvider(); loadOpenAIKeyStatus(); loadOpenAIModelPickers(); loadBackupAll(); restoreSettingsSubtab(); loadKasaCreds(); loadSavedKasa(); loadSinopeCreds(); loadDaikinCreds(); loadHiloCreds(); loadThinqCreds(); loadMideaCreds(); loadTeslaCreds(); }
   if (name === 'logs')     { loadLogs(); }
   if (name === 'automation') {
     restoreAutomationSubtab();
@@ -512,7 +532,7 @@ window.addEventListener('hashchange', () => {
 // group is visible. Selection persists per-browser via localStorage so
 // a refresh / reload lands you back on the same view.
 const SETTINGS_SUBTAB_KEY = 'jackery-settings-subtab';
-const SETTINGS_SUBTABS = ['general', 'intelligence', 'rates', 'backup'];
+const SETTINGS_SUBTABS = ['general', 'integrations', 'intelligence', 'rates', 'backup', 'notifications'];
 
 function selectSettingsSubtab(name) {
   if (!SETTINGS_SUBTABS.includes(name)) name = 'general';
@@ -524,6 +544,16 @@ function selectSettingsSubtab(name) {
     group.toggleAttribute('hidden', group.dataset.settingsGroup !== name);
   });
   try { localStorage.setItem(SETTINGS_SUBTAB_KEY, name); } catch (_) {}
+  if (name === 'integrations') {
+    if (typeof loadKasaCreds === 'function') loadKasaCreds();
+    if (typeof loadSavedKasa === 'function') loadSavedKasa();
+    if (typeof loadSinopeCreds === 'function') loadSinopeCreds();
+    if (typeof loadDaikinCreds === 'function') loadDaikinCreds();
+    if (typeof loadHiloCreds === 'function') loadHiloCreds();
+    if (typeof loadThinqCreds === 'function') loadThinqCreds();
+    if (typeof loadMideaCreds === 'function') loadMideaCreds();
+    if (typeof loadTeslaCreds === 'function') loadTeslaCreds();
+  }
 }
 
 function restoreSettingsSubtab() {
@@ -536,6 +566,7 @@ function restoreSettingsSubtab() {
   // when Settings opens. Display is the odd one out — it's pure
   // localStorage.
   _refreshSettingsDisplayChip();
+  if (typeof loadNotificationsSettings === 'function') loadNotificationsSettings();
 }
 
 document.querySelectorAll('.settings-subtab').forEach((btn) => {
@@ -584,12 +615,12 @@ document.body.addEventListener('click', (e) => {
 });
 
 // ---- Automation sub-tabs: same pattern as Settings ------------------------
-// Four groups (controllers / devices / rules / insights). Each card under
+// Three groups (controllers / rules / insights). Each card under
 // #tab-automation carries data-automation-group; this handler hides the
 // non-matching ones and tracks the choice in localStorage so a reload
 // or tab switch lands the user back where they left off.
 const AUTOMATION_SUBTAB_KEY = 'jackery-automation-subtab';
-const AUTOMATION_SUBTABS = ['controllers', 'devices', 'rules', 'insights'];
+const AUTOMATION_SUBTABS = ['controllers', 'rules', 'insights'];
 
 function selectAutomationSubtab(name) {
   if (!AUTOMATION_SUBTABS.includes(name)) name = 'controllers';
@@ -667,9 +698,11 @@ document.querySelectorAll('[data-settings-collapse-key] .collapsible-header')
 let _settingsSearchIndex = null;
 const _SETTINGS_GROUP_LABELS = {
   general: 'General',
+  integrations: 'Integrations',
   intelligence: 'Intelligence',
   rates: 'Rates',
   backup: 'Backup',
+  notifications: 'Notifications',
 };
 
 function _buildSettingsSearchIndex() {
@@ -2049,10 +2082,17 @@ function renderAutomationRules(rules) {
       ? r.conditions
       : [{ type: r.trigger || 'battery_percent', operator: r.operator, value: r.value }];
 
-    const hasBatt = conds.some((c) => (c.type || 'battery_percent') === 'battery_percent');
+    const hasDeviceSpecific = conds.some((c) => {
+      const t = c.type || 'battery_percent';
+      return t === 'battery_percent' || t === 'device_status' || t === 'device_online';
+    });
 
     const condParts = conds.map((c) => {
       const op = opLabel[c.operator] || c.operator;
+      if (c.type === 'device_status' || c.type === 'device_online') {
+        const valLabel = (c.value === 'online' || c.value === true || c.value === '1') ? 'online' : 'offline';
+        return `status <span class="op">${op}</span> <span class="val">${safe(valLabel)}</span>`;
+      }
       if (c.type === 'time_of_day') {
         return `time <span class="op">${op}</span> <span class="val">${safe(c.value)}</span>`;
       }
@@ -2065,7 +2105,7 @@ function renderAutomationRules(rules) {
       return `battery <span class="op">${op}</span> <span class="val">${c.value}%</span>`;
     });
     const condsText = condParts.join(' <span class="ar-and">AND</span> ');
-    const devicePrefix = hasBatt ? `<span class="device">${safe(jackeryName)}</span> ` : '';
+    const devicePrefix = hasDeviceSpecific ? `<span class="device">${safe(jackeryName)}</span> ` : '';
 
     let actionText = '';
     if (r.action_type === 'jackery_setting' || r.setting) {
@@ -2145,7 +2185,8 @@ function _renderEditorConditions() {
     const isTime = cond.type === 'time_of_day';
     const isDay = cond.type === 'day_of_week' || cond.type === 'weekday';
     const isDom = cond.type === 'day_of_month' || cond.type === 'dom';
-    const isBatt = !isTime && !isDay && !isDom;
+    const isStatus = cond.type === 'device_status' || cond.type === 'device_online';
+    const isBatt = !isTime && !isDay && !isDom && !isStatus;
     const divider = idx > 0
       ? `<div class="auto-cond-divider"><span class="auto-cond-and">AND</span></div>`
       : '';
@@ -2153,6 +2194,7 @@ function _renderEditorConditions() {
       <div class="auto-cond-row" data-cond-index="${idx}">
         <select class="auto-cond-type">
           <option value="battery_percent" ${isBatt ? 'selected' : ''}>Battery SOC</option>
+          <option value="device_status" ${isStatus ? 'selected' : ''}>Battery Online/Offline</option>
           <option value="time_of_day" ${isTime ? 'selected' : ''}>Time of day</option>
           <option value="day_of_week" ${isDay ? 'selected' : ''}>Day of week</option>
           <option value="day_of_month" ${isDom ? 'selected' : ''}>Day of month</option>
@@ -2160,15 +2202,21 @@ function _renderEditorConditions() {
         <select class="auto-cond-op">
           <option value="=" ${cond.operator === '=' || cond.operator === '==' ? 'selected' : ''}>= is / equal</option>
           <option value="!=" ${cond.operator === '!=' ? 'selected' : ''}>!= is not</option>
-          <option value="<" ${cond.operator === '<' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&lt; less than</option>
-          <option value="<=" ${cond.operator === '<=' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&le; less or equal</option>
-          <option value=">=" ${cond.operator === '>=' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&ge; greater or equal</option>
-          <option value=">" ${cond.operator === '>' ? 'selected' : ''} ${isDay ? 'style="display:none"' : ''}>&gt; greater than</option>
+          <option value="<" ${cond.operator === '<' ? 'selected' : ''} ${(isDay || isStatus) ? 'style="display:none"' : ''}>&lt; less than</option>
+          <option value="<=" ${cond.operator === '<=' ? 'selected' : ''} ${(isDay || isStatus) ? 'style="display:none"' : ''}>&le; less or equal</option>
+          <option value=">=" ${cond.operator === '>=' ? 'selected' : ''} ${(isDay || isStatus) ? 'style="display:none"' : ''}>&ge; greater or equal</option>
+          <option value=">" ${cond.operator === '>' ? 'selected' : ''} ${(isDay || isStatus) ? 'style="display:none"' : ''}>&gt; greater than</option>
         </select>
         <div class="auto-cond-val-wrap">
           <div class="auto-cond-batt-wrap" ${!isBatt ? 'hidden' : ''}>
             <input type="number" class="auto-cond-val-batt" min="0" max="100" step="1" value="${isBatt ? (cond.value ?? 20) : 20}" placeholder="20" />
             <span class="auto-pct">%</span>
+          </div>
+          <div class="auto-cond-status-wrap" ${!isStatus ? 'hidden' : ''}>
+            <select class="auto-cond-val-status">
+              <option value="offline" ${(cond.value === 'offline' || cond.value === false || !cond.value) ? 'selected' : ''}>Offline (disconnected)</option>
+              <option value="online" ${(cond.value === 'online' || cond.value === true) ? 'selected' : ''}>Online (connected)</option>
+            </select>
           </div>
           <div class="auto-cond-time-wrap" ${!isTime ? 'hidden' : ''}>
             <input type="time" class="auto-cond-val-time" step="60" value="${isTime ? (cond.value || '20:00') : '20:00'}" />
@@ -2203,10 +2251,12 @@ function _renderEditorConditions() {
     const typeSelect = row.querySelector('.auto-cond-type');
     const opSelect = row.querySelector('.auto-cond-op');
     const battWrap = row.querySelector('.auto-cond-batt-wrap');
+    const statusWrap = row.querySelector('.auto-cond-status-wrap');
     const timeWrap = row.querySelector('.auto-cond-time-wrap');
     const dayWrap = row.querySelector('.auto-cond-day-wrap');
     const domWrap = row.querySelector('.auto-cond-dom-wrap');
     const battInput = row.querySelector('.auto-cond-val-batt');
+    const statusSelect = row.querySelector('.auto-cond-val-status');
     const timeInput = row.querySelector('.auto-cond-val-time');
     const daySelect = row.querySelector('.auto-cond-val-day');
     const domInput = row.querySelector('.auto-cond-val-dom');
@@ -2215,16 +2265,29 @@ function _renderEditorConditions() {
       const isTime = typeSelect.value === 'time_of_day';
       const isDay = typeSelect.value === 'day_of_week';
       const isDom = typeSelect.value === 'day_of_month';
-      const isBatt = !isTime && !isDay && !isDom;
+      const isStatus = typeSelect.value === 'device_status';
+      const isBatt = !isTime && !isDay && !isDom && !isStatus;
       battWrap.hidden = !isBatt;
+      if (statusWrap) statusWrap.hidden = !isStatus;
       timeWrap.hidden = !isTime;
       dayWrap.hidden = !isDay;
       domWrap.hidden = !isDom;
+      opSelect.querySelectorAll('option').forEach((opt) => {
+        if (['<', '<=', '>=', '>'].includes(opt.value)) {
+          opt.style.display = (isDay || isStatus) ? 'none' : '';
+        }
+      });
       _editorConditions[idx].type = typeSelect.value;
       if (isTime) {
         _editorConditions[idx].value = timeInput.value || '20:00';
       } else if (isDay) {
         _editorConditions[idx].value = daySelect.value || 'weekend_or_holiday';
+        if (!['=', '!='].includes(opSelect.value)) {
+          opSelect.value = '=';
+          _editorConditions[idx].operator = '=';
+        }
+      } else if (isStatus) {
+        _editorConditions[idx].value = statusSelect ? statusSelect.value : 'offline';
         if (!['=', '!='].includes(opSelect.value)) {
           opSelect.value = '=';
           _editorConditions[idx].operator = '=';
@@ -2243,6 +2306,12 @@ function _renderEditorConditions() {
     battInput.addEventListener('input', () => {
       if (_editorConditions[idx].type === 'battery_percent') {
         _editorConditions[idx].value = Number(battInput.value);
+      }
+    });
+
+    statusSelect?.addEventListener('change', () => {
+      if (_editorConditions[idx].type === 'device_status') {
+        _editorConditions[idx].value = statusSelect.value;
       }
     });
 
@@ -2292,6 +2361,8 @@ function _syncEditorConditionsFromDom() {
       value = row.querySelector('.auto-cond-val-day')?.value || 'weekend_or_holiday';
     } else if (type === 'day_of_month') {
       value = row.querySelector('.auto-cond-val-dom')?.value || '1';
+    } else if (type === 'device_status') {
+      value = row.querySelector('.auto-cond-val-status')?.value || 'offline';
     } else {
       value = Number(row.querySelector('.auto-cond-val-batt')?.value || 20);
     }
@@ -2569,6 +2640,11 @@ document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
         alert('Battery SOC must be between 0 and 100%.');
         return;
       }
+    } else if (c.type === 'device_status') {
+      if (!c.value || !['offline', 'online'].includes(String(c.value).toLowerCase())) {
+        alert('Please choose whether device status is offline or online.');
+        return;
+      }
     } else if (c.type === 'time_of_day') {
       if (!c.value || !String(c.value).trim()) {
         alert('Please specify a valid time of day (e.g. 20:00).');
@@ -2588,7 +2664,8 @@ document.getElementById('auto-form')?.addEventListener('submit', async (e) => {
   }
 
   const hasBatt = _editorConditions.some((c) => c.type === 'battery_percent');
-  if (hasBatt && !jackerySn) {
+  const hasStatus = _editorConditions.some((c) => c.type === 'device_status');
+  if ((hasBatt || hasStatus) && !jackerySn) {
     alert('Pick which Jackery device this rule should watch.');
     return;
   }
@@ -4411,19 +4488,6537 @@ function renderDevicePicker(devices, selectedId) {
   if (!wrap || !sel) return;
   if (!devices || devices.length < 2) { show(wrap, false); return; }
   show(wrap, true);
-  // Only rebuild if the option set changed
-  const sig = devices.map(d => d.device_id).join('|') + '#' + (selectedId || '');
+  // Only rebuild if the option set changed (include online status in signature)
+  const sig = devices.map(d => `${d.device_id}:${d.online}`).join('|') + '#' + (selectedId || '');
   if (sel.dataset.sig === sig) return;
   sel.dataset.sig = sig;
   sel.innerHTML = '';
   for (const d of devices) {
     const o = document.createElement('option');
     o.value = d.device_id;
-    o.textContent = d.name || d.model_name || d.device_sn || d.device_id;
+    let label = d.name || d.model_name || d.device_sn || d.device_id;
+    if (d.online === false) {
+      label += ' (Offline)';
+    }
+    o.textContent = label;
     if (d.device_id === selectedId) o.selected = true;
     sel.appendChild(o);
   }
 }
+
+// ============================================================
+// SINOPÉ SMART CLIMATE & LOADS TAB
+// ============================================================
+let _sinopeSelectedLocation = localStorage.getItem('sinope_selected_location') || 'all';
+let lastSinopeDevices = [];
+let _lastSinopePollTs = null;
+const _sinopeLocHours = { maison: 24, chalet: 24 };
+const _sinopeDevHours = {};
+const _sinopeOpenDeviceHistories = new Set();
+const _sinopeLocHistData = {};
+const _sinopeDevHistData = {};
+let _sinopeResizeBound = false;
+
+function initSinopeTab() {
+  document.querySelectorAll('.sinope-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _sinopeSelectedLocation = pill.dataset.loc || 'all';
+      localStorage.setItem('sinope_selected_location', _sinopeSelectedLocation);
+      document.querySelectorAll('.sinope-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _sinopeSelectedLocation);
+      });
+      renderSinopeTab();
+    });
+  });
+
+  $('sinope-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('sinope-tab-poll-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;"></span> Polling…';
+    }
+    try {
+      const r = await fetch('/api/sinope/poll', { method: 'POST' });
+      const j = await r.json();
+      if (j.devices) {
+        lastSinopeDevices = j.devices;
+        if (lastStatus) lastStatus.sinope_devices = j.devices;
+        _lastSinopePollTs = Date.now();
+      }
+    } catch (e) {
+      console.warn('Manual Sinopé poll error:', e);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="poll-icon">🔄</span> Poll now';
+      }
+      renderSinopeTab();
+    }
+  });
+
+  if (!_sinopeResizeBound) {
+    _sinopeResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (activeTab === 'sinope') {
+        Object.keys(_sinopeLocHours).forEach(lid => {
+          const canvas = $('sinope-chart-loc-' + lid);
+          if (canvas && canvas._redraw) canvas._redraw();
+        });
+        _sinopeOpenDeviceHistories.forEach(sn => {
+          const canvas = $('chart-sinope-dev-' + sn);
+          if (canvas && canvas._redraw) canvas._redraw();
+        });
+      }
+    });
+  }
+}
+
+function buildLocationChartHtml(lid, locName) {
+  const currentHours = _sinopeLocHours[lid] || 24;
+  return `
+    <div class="sinope-loc-chart-card card" id="sinope-loc-card-${escapeHtml(lid)}">
+      <div class="sinope-loc-chart-header">
+        <div class="sinope-loc-chart-info">
+          <span class="sinope-loc-chart-title">📊 ${escapeHtml(locName)} Total Energy &amp; Power Draw</span>
+          <div class="sinope-loc-chart-stats">
+            <span class="sinope-chart-stat"><span class="lbl">Now:</span> <b id="sinope-loc-now-${escapeHtml(lid)}">—</b></span>
+            <span class="sinope-chart-stat"><span class="lbl">Period Energy:</span> <b id="sinope-loc-energy-${escapeHtml(lid)}">—</b></span>
+            <span class="sinope-chart-stat"><span class="lbl">Peak:</span> <b id="sinope-loc-peak-${escapeHtml(lid)}">—</b></span>
+          </div>
+        </div>
+        <div class="range-picker sinope-loc-range-picker" data-loc="${escapeHtml(lid)}">
+          <button type="button" class="sinope-loc-range-btn ${currentHours === 6 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="6">6h</button>
+          <button type="button" class="sinope-loc-range-btn ${currentHours === 12 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="12">12h</button>
+          <button type="button" class="sinope-loc-range-btn ${currentHours === 24 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="24">24h</button>
+          <button type="button" class="sinope-loc-range-btn ${currentHours === 168 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="168">7d</button>
+        </div>
+      </div>
+      <div class="sinope-chart-canvas-wrap">
+        <canvas id="sinope-chart-loc-${escapeHtml(lid)}" class="chart sinope-chart"></canvas>
+      </div>
+      <div class="legend sinope-chart-legend" id="sinope-legend-loc-${escapeHtml(lid)}">
+        <span class="legend-item"><i style="background:#38ef7d"></i> Total Load (W)</span>
+        <span class="legend-item"><i style="background:#ff7a18"></i> Thermostats (W)</span>
+        <span class="legend-item"><i style="background:#38bdf8"></i> Controllers (W)</span>
+        <span class="legend-item" id="sinope-legend-temp-${escapeHtml(lid)}"><i style="background:#a78bfa; border-radius:50%"></i> Avg Temp</span>
+      </div>
+    </div>
+  `;
+}
+
+function drawSinopeLocationChart(locId, hist, hours) {
+  const canvas = $('sinope-chart-loc-' + locId);
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 10) return;
+
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const padL = 52, padR = 48, padT = 16, padB = 30;
+
+  if (!hist || !hist.length) {
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating historical telemetry data for this location…', w / 2, h / 2);
+    return;
+  }
+
+  let plotHist = hist;
+  if (hist.length === 1) {
+    const single = hist[0];
+    plotHist = [{ ...single, ts: single.ts - 300 }, single];
+  }
+
+  const isF = getTempUnit() === 'F';
+  const totalW = plotHist.map(r => r.total_w || 0);
+  const thermW = plotHist.map(r => r.thermostat_w || 0);
+  const ctrlW = plotHist.map(r => r.controller_w || 0);
+  const temps = plotHist.map(r => (r.avg_temp_c != null ? (isF ? r.avg_temp_c * 9/5 + 32 : r.avg_temp_c) : null));
+  const validTemps = temps.filter(t => t != null && Number.isFinite(t));
+  const hasTemps = validTemps.length > 0;
+
+  const maxW = Math.max(100, Math.ceil((Math.max(...totalW) * 1.15) / 50) * 50);
+  const xs = (i) => padL + (i / Math.max(1, plotHist.length - 1)) * (w - padL - padR);
+  const yWatts = (v) => (h - padB) - (v / maxW) * (h - padT - padB);
+  const baseY = h - padB;
+
+  let minT = 15, maxT = 25;
+  if (hasTemps) {
+    minT = Math.floor(Math.min(...validTemps) - 1);
+    maxT = Math.ceil(Math.max(...validTemps) + 1);
+    if (maxT - minT < 4) maxT = minT + 4;
+  }
+  const yTemp = (t) => (h - padB) - ((t - minT) / (maxT - minT)) * (h - padT - padB);
+
+  // Gridlines & Axes
+  ctx.strokeStyle = 'rgba(35,42,51,.7)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 4; i++) {
+    const y = padT + ((h - padT - padB) * i) / 5;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+  }
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // Left Y-axis labels (Watts)
+  ctx.fillStyle = '#6b7280'; ctx.font = '11px Inter, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = (maxW * (4 - i)) / 4;
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.fillText(`${Math.round(v)} W`, padL - 6, y + 3);
+  }
+
+  // Right Y-axis labels (Avg Temp if available)
+  if (hasTemps) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#a78bfa';
+    const midT = (minT + maxT) / 2;
+    ctx.fillText(`${Math.round(maxT)}°`, w - padR + 6, yTemp(maxT) + 3);
+    ctx.fillText(`${Math.round(midT)}°`, w - padR + 6, yTemp(midT) + 3);
+    ctx.fillText(`${Math.round(minT)}°`, w - padR + 6, yTemp(minT) + 3);
+  }
+
+  // X-axis time ticks
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(5, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 8);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  // Traces
+  drawAreaFill(ctx, totalW, xs, yWatts, baseY, '#38ef7d', 0.18);
+  drawSmoothLine(ctx, totalW, xs, yWatts, '#38ef7d', 2.5);
+
+  if (thermW.some(v => v > 0)) {
+    drawSmoothLine(ctx, thermW, xs, yWatts, '#ff7a18', 1.8);
+  }
+  if (ctrlW.some(v => v > 0)) {
+    drawSmoothLine(ctx, ctrlW, xs, yWatts, '#38bdf8', 1.8);
+  }
+  if (hasTemps) {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    drawSmoothLine(ctx, temps, xs, yTemp, '#a78bfa', 1.6);
+    ctx.restore();
+  }
+
+  canvas._redraw = () => drawSinopeLocationChart(locId, hist, hours);
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const totW = Math.round(p.total_w || 0);
+    const totWh = p.total_wh != null ? (p.total_wh >= 1000 ? (p.total_wh / 1000).toFixed(2) + ' kWh' : Math.round(p.total_wh) + ' Wh') : '—';
+    const thW = Math.round(p.thermostat_w || 0);
+    const ctW = Math.round(p.controller_w || 0);
+    const tStr = p.avg_temp_c != null ? formatTemp(p.avg_temp_c, 1) : null;
+    const count = p.device_count || 0;
+
+    let rows = `
+      <div class="cht-ts">${escapeHtml(tsStr)}</div>
+      <div class="cht-row"><i style="background:#38ef7d"></i> Total Load: <b>${totW.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:#ff7a18"></i> Thermostats: <b>${thW.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:#38bdf8"></i> Controllers: <b>${ctW.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Interval Energy: <b>${totWh}</b></div>
+    `;
+    if (tStr != null) {
+      rows += `<div class="cht-row"><i style="background:#a78bfa; border-radius:50%"></i> Avg Temp: <b>${tStr}</b></div>`;
+    }
+    if (count > 0) {
+      rows += `<div class="cht-row" style="font-size:11px; opacity:0.8"><i style="background:transparent"></i> Devices: <b>${count}</b></div>`;
+    }
+    return rows;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+async function loadAndDrawLocationChart(locId, force = false) {
+  const hours = _sinopeLocHours[locId] || 24;
+  const cacheKey = `${locId}_${hours}`;
+  const now = Date.now();
+  let hist = null;
+
+  if (!force && _sinopeLocHistData[cacheKey] && (now - _sinopeLocHistData[cacheKey].ts < 45000)) {
+    hist = _sinopeLocHistData[cacheKey].data;
+  } else {
+    try {
+      const r = await fetch(`/api/sinope/history/location?location_id=${encodeURIComponent(locId)}&hours=${hours}`);
+      if (r.ok) {
+        const j = await r.json();
+        hist = j.history || [];
+        _sinopeLocHistData[cacheKey] = { ts: now, data: hist };
+      }
+    } catch (e) {
+      console.warn('Failed to load Sinope location history:', e);
+    }
+  }
+
+  if (hist) {
+    drawSinopeLocationChart(locId, hist, hours);
+
+    const nowEl = $(`sinope-loc-now-${locId}`);
+    const energyEl = $(`sinope-loc-energy-${locId}`);
+    const peakEl = $(`sinope-loc-peak-${locId}`);
+
+    if (nowEl) {
+      const latestW = hist.length ? Math.round(hist[hist.length - 1].total_w || 0) : 0;
+      nowEl.textContent = `${latestW.toLocaleString()} W`;
+    }
+    if (energyEl) {
+      const sumWh = hist.reduce((sum, r) => sum + (r.total_wh || 0), 0);
+      energyEl.textContent = sumWh >= 1000 ? `${(sumWh / 1000).toFixed(2)} kWh` : `${Math.round(sumWh)} Wh`;
+    }
+    if (peakEl) {
+      const maxW = hist.length ? Math.max(...hist.map(r => r.total_w || 0)) : 0;
+      peakEl.textContent = `${Math.round(maxW).toLocaleString()} W`;
+    }
+  }
+}
+
+function drawSinopeDeviceChart(sn, hist, hours) {
+  const canvas = $('chart-sinope-dev-' + sn);
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 10) return;
+
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+
+  const devices = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  const dev = devices.find(d => d.device_sn === sn) || { device_type: 'load' };
+  const isThermostat = dev.device_type === 'thermostat';
+  const isWaterHeater = Boolean(dev.is_water_heater || (dev.model && dev.model.startsWith('RM35')) || dev.water_temperature_c != null);
+
+  const padL = 46, padR = ((isThermostat || isWaterHeater) ? 44 : 20), padT = 14, padB = 26;
+
+  if (!hist || !hist.length) {
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating history for this device…', w / 2, h / 2);
+    return;
+  }
+
+  let plotHist = hist;
+  if (hist.length === 1) {
+    const single = hist[0];
+    plotHist = [{ ...single, ts: single.ts - 300 }, single];
+  }
+
+  const isF = getTempUnit() === 'F';
+  const powerW = plotHist.map(r => r.power_w || 0);
+  const temps = plotHist.map(r => (r.temp_c != null ? (isF ? r.temp_c * 9/5 + 32 : r.temp_c) : null));
+  const validTemps = temps.filter(t => t != null && Number.isFinite(t));
+  const hasTemps = (isThermostat || isWaterHeater) && validTemps.length > 0;
+
+  const maxW = Math.max(50, Math.ceil((Math.max(...powerW) * 1.15) / 25) * 25);
+  const xs = (i) => padL + (i / Math.max(1, plotHist.length - 1)) * (w - padL - padR);
+  const yWatts = (v) => (h - padB) - (v / maxW) * (h - padT - padB);
+  const baseY = h - padB;
+
+  let minT = 15, maxT = 25;
+  if (hasTemps) {
+    minT = Math.floor(Math.min(...validTemps) - 1);
+    maxT = Math.ceil(Math.max(...validTemps) + 1);
+    if (maxT - minT < 4) maxT = minT + 4;
+  }
+  const yTemp = (t) => (h - padB) - ((t - minT) / (maxT - minT)) * (h - padT - padB);
+
+  // Gridlines & Axes
+  ctx.strokeStyle = 'rgba(35,42,51,.7)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+  }
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // Left Y-axis labels
+  ctx.fillStyle = '#6b7280'; ctx.font = '10px Inter, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 3; i++) {
+    const v = (maxW * (3 - i)) / 3;
+    const y = padT + ((h - padT - padB) * i) / 3;
+    ctx.fillText(`${Math.round(v)}`, padL - 5, y + 3);
+  }
+
+  // Right Y-axis labels for temperature
+  if (hasTemps) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`${Math.round(maxT)}°`, w - padR + 5, yTemp(maxT) + 3);
+    ctx.fillText(`${Math.round((minT + maxT) / 2)}°`, w - padR + 5, yTemp((minT + maxT) / 2) + 3);
+    ctx.fillText(`${Math.round(minT)}°`, w - padR + 5, yTemp(minT) + 3);
+  }
+
+  // X-axis time ticks
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(4, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 7);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  // Traces
+  const primaryColor = isThermostat ? '#ff7a18' : '#38ef7d';
+  drawAreaFill(ctx, powerW, xs, yWatts, baseY, primaryColor, 0.22);
+  drawSmoothLine(ctx, powerW, xs, yWatts, primaryColor, 2.0);
+
+  if (hasTemps) {
+    drawSmoothLine(ctx, temps, xs, yTemp, '#38bdf8', 1.8);
+  }
+
+  canvas._redraw = () => drawSinopeDeviceChart(sn, hist, hours);
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const pwr = Math.round(p.power_w || 0);
+    const wh = p.energy_wh != null ? (p.energy_wh >= 1000 ? (p.energy_wh / 1000).toFixed(2) + ' kWh' : Math.round(p.energy_wh) + ' Wh') : '—';
+    const tStr = p.temp_c != null ? formatTemp(p.temp_c, 1) : null;
+    const stateStr = (!isThermostat) ? (pwr > 10 ? '⚡ ON' : '○ Standby') : null;
+    const tempLabel = isWaterHeater ? 'Tank Temp' : 'Room Temp';
+
+    let rows = `
+      <div class="cht-ts">${escapeHtml(tsStr)}</div>
+      <div class="cht-row"><i style="background:${primaryColor}"></i> Power: <b>${pwr.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Interval Energy: <b>${wh}</b></div>
+    `;
+    if (tStr != null && hasTemps) {
+      rows += `<div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> ${tempLabel}: <b>${tStr}</b></div>`;
+    }
+    if (stateStr != null) {
+      rows += `<div class="cht-row"><i style="background:${pwr > 10 ? '#38ef7d' : '#64748b'}"></i> State: <b>${stateStr}</b></div>`;
+    }
+    return rows;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+async function loadAndDrawDeviceChart(sn, force = false) {
+  const hours = _sinopeDevHours[sn] || 24;
+  const cacheKey = `${sn}_${hours}`;
+  const now = Date.now();
+  let hist = null;
+
+  if (!force && _sinopeDevHistData[cacheKey] && (now - _sinopeDevHistData[cacheKey].ts < 45000)) {
+    hist = _sinopeDevHistData[cacheKey].data;
+  } else {
+    try {
+      const r = await fetch(`/api/sinope/history/device?device_sn=${encodeURIComponent(sn)}&hours=${hours}`);
+      if (r.ok) {
+        const j = await r.json();
+        hist = j.history || [];
+        _sinopeDevHistData[cacheKey] = { ts: now, data: hist };
+      }
+    } catch (e) {
+      console.warn('Failed to load Sinope device history:', e);
+    }
+  }
+
+  if (hist) {
+    drawSinopeDeviceChart(sn, hist, hours);
+
+    const energyEl = $(`sinope-dev-energy-${sn}`);
+    const peakEl = $(`sinope-dev-peak-${sn}`);
+    const avgTempEl = $(`sinope-dev-avgtemp-${sn}`);
+
+    if (energyEl) {
+      const sumWh = hist.reduce((sum, r) => sum + (r.energy_wh || 0), 0);
+      energyEl.textContent = sumWh >= 1000 ? `${(sumWh / 1000).toFixed(2)} kWh` : `${Math.round(sumWh)} Wh`;
+    }
+    if (peakEl) {
+      const maxW = hist.length ? Math.max(...hist.map(r => r.power_w || 0)) : 0;
+      peakEl.textContent = `${Math.round(maxW).toLocaleString()} W`;
+    }
+    if (avgTempEl) {
+      const validTemps = hist.map(r => r.temp_c).filter(t => t != null && Number.isFinite(t));
+      if (validTemps.length) {
+        const avgC = validTemps.reduce((a, b) => a + b, 0) / validTemps.length;
+        avgTempEl.textContent = formatTemp(avgC, 1);
+      } else {
+        avgTempEl.textContent = '—';
+      }
+    }
+  }
+}
+
+function renderSinopeTab() {
+  const container = $('sinope-devices-container');
+  if (!container) return;
+
+  const devices = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  const locations = (lastStatus && lastStatus.locations) || [
+    { id: 'maison', name: 'Maison', plan_id: 'hq-tarif-d-tdt' },
+    { id: 'chalet', name: 'Chalet', plan_id: 'hq-tarif-flex-d' },
+  ];
+
+  // Update Location pill active classes
+  document.querySelectorAll('.sinope-loc-pill').forEach(p => {
+    p.classList.toggle('on', p.dataset.loc === _sinopeSelectedLocation);
+  });
+
+  // Update Last poll time
+  const pollTimeEl = $('sinope-last-poll-time');
+  if (pollTimeEl) {
+    if (_lastSinopePollTs) {
+      const elapsedM = Math.max(0, Math.round((Date.now() - _lastSinopePollTs) / 60000));
+      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+    } else if (devices.length) {
+      pollTimeEl.textContent = 'Last update: active';
+    } else {
+      pollTimeEl.textContent = 'Last update: —';
+    }
+  }
+
+  // Filter devices based on chosen location
+  const locFilter = _sinopeSelectedLocation;
+  const filtered = (locFilter === 'all')
+    ? devices
+    : devices.filter(d => (d.location_id || '').toLowerCase() === locFilter.toLowerCase());
+
+  // Compute KPIs
+  const isF = getTempUnit() === 'F';
+  let totalW = 0;
+  let thermostats = [];
+  let controllers = [];
+  let valves = [];
+  let leakSensors = [];
+  let heatingCount = 0;
+  let activeCtrlCount = 0;
+  let temps = [];
+  let leakAlertCount = 0;
+
+  filtered.forEach(d => {
+    const pwr = Math.round(d.power_w || 0);
+    totalW += pwr;
+    if (d.device_type === 'thermostat') {
+      thermostats.push(d);
+      if (d.heat_level_pct != null && d.heat_level_pct > 0) {
+        heatingCount++;
+      }
+      if (d.room_temp_c != null) {
+        temps.push(d.room_temp_c);
+      }
+    } else if (d.device_type === 'valve') {
+      valves.push(d);
+    } else if (d.device_type === 'leak_sensor') {
+      leakSensors.push(d);
+      const isLeak = Boolean(d.leak_status && d.leak_status.toLowerCase() !== 'ok' && d.leak_status.toLowerCase() !== 'dry');
+      if (isLeak) leakAlertCount++;
+    } else {
+      controllers.push(d);
+      const isWh = Boolean(d.is_water_heater || (d.model && d.model.startsWith('RM35')) || d.water_temperature_c != null);
+      if (d.is_on && (!isWh || pwr > 10)) {
+        activeCtrlCount++;
+      }
+    }
+  });
+
+  // Update KPI card DOM
+  const kpiPower = $('sinope-kpi-power');
+  if (kpiPower) kpiPower.textContent = totalW.toLocaleString();
+
+  const kpiHeatCount = $('sinope-kpi-heating-count');
+  const kpiHeatTotal = $('sinope-kpi-heating-total');
+  const kpiHeatSub = $('sinope-kpi-heating-sub');
+  if (kpiHeatCount) kpiHeatCount.textContent = heatingCount;
+  if (kpiHeatTotal) kpiHeatTotal.textContent = `/ ${thermostats.length}`;
+  if (kpiHeatSub) kpiHeatSub.textContent = `${heatingCount} heating now`;
+
+  const kpiCtrlCount = $('sinope-kpi-ctrl-count');
+  const kpiCtrlTotal = $('sinope-kpi-ctrl-total');
+  const kpiCtrlSub = $('sinope-kpi-ctrl-sub');
+  if (kpiCtrlCount) kpiCtrlCount.textContent = activeCtrlCount;
+  if (kpiCtrlTotal) kpiCtrlTotal.textContent = `/ ${controllers.length}`;
+  if (kpiCtrlSub) kpiCtrlSub.textContent = `${activeCtrlCount} active load`;
+
+  const kpiAvgTemp = $('sinope-kpi-avg-temp');
+  const kpiTempSub = $('sinope-kpi-temp-sub');
+  if (temps.length) {
+    const avgC = temps.reduce((a, b) => a + b, 0) / temps.length;
+    if (kpiAvgTemp) kpiAvgTemp.textContent = isF ? (avgC * 9/5 + 32).toFixed(1) : avgC.toFixed(1);
+    if (kpiTempSub) kpiTempSub.textContent = `Across ${temps.length} zones`;
+  } else {
+    if (kpiAvgTemp) kpiAvgTemp.textContent = '—';
+    if (kpiTempSub) kpiTempSub.textContent = 'No temp sensors';
+  }
+
+  const kpiWaterStatus = $('sinope-kpi-water-status');
+  const kpiWaterSub = $('sinope-kpi-water-sub');
+  const totalWaterDevs = valves.length + leakSensors.length;
+  if (kpiWaterStatus) {
+    if (leakAlertCount > 0) {
+      kpiWaterStatus.textContent = 'LEAK ALERT';
+      kpiWaterStatus.style.color = '#ef4444';
+      if (kpiWaterSub) kpiWaterSub.textContent = `${leakAlertCount} sensor(s) triggered!`;
+    } else if (totalWaterDevs > 0) {
+      kpiWaterStatus.textContent = 'All Dry';
+      kpiWaterStatus.style.color = '#38ef7d';
+      if (kpiWaterSub) kpiWaterSub.textContent = `${valves.length} valve${valves.length > 1 ? 's' : ''}, ${leakSensors.length} sensor${leakSensors.length > 1 ? 's' : ''}`;
+    } else {
+      kpiWaterStatus.textContent = '—';
+      kpiWaterStatus.style.color = '';
+      if (kpiWaterSub) kpiWaterSub.textContent = 'No water devices';
+    }
+  }
+
+  // Handle empty state
+  if (!devices.length) {
+    container.innerHTML = `
+      <div class="sinope-empty-card">
+        <span style="font-size:36px">❄️</span>
+        <h3>No Sinopé Devices Found</h3>
+        <p>If you haven't configured your Sinopé / Neviweb account yet, add your credentials in Settings. Otherwise, click Poll Now to scan your account.</p>
+        <div style="display:flex; gap:10px; margin-top:8px">
+          <button type="button" class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-sinope')?.classList.remove('collapsed'); document.getElementById('settings-card-sinope')?.scrollIntoView({behavior:'smooth'});">Configure in Settings</button>
+          <button type="button" class="btn btn-ghost" onclick="$('sinope-tab-poll-btn')?.click()">Poll Now</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (!filtered.length) {
+    const locObj = locations.find(l => l.id.toLowerCase() === locFilter.toLowerCase());
+    const locName = locObj ? locObj.name : locFilter;
+    container.innerHTML = `
+      <div class="sinope-empty-card">
+        <span style="font-size:32px">🏠</span>
+        <h3>No devices at ${escapeHtml(locName)}</h3>
+        <p>There are no Sinopé devices registered under the location "${escapeHtml(locName)}". Switch to "All Locations" to view other devices.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Helper to build a single device card HTML
+  function buildDeviceCardHtml(d) {
+    const pwr = Math.round(d.power_w || 0);
+    const isHeating = (d.heat_level_pct != null && d.heat_level_pct > 0);
+    const isActiveLoad = (d.device_type === 'controller' && d.is_on && pwr > 10);
+    const isLeakAlert = Boolean(d.device_type === 'leak_sensor' && d.leak_status && d.leak_status.toLowerCase() !== 'ok' && d.leak_status.toLowerCase() !== 'dry');
+    const snEsc = escapeHtml(d.device_sn);
+    const isExpanded = _sinopeOpenDeviceHistories.has(d.device_sn);
+    const cardClass = [
+      'sinope-dev-card',
+      isHeating ? 'is-heating' : '',
+      isActiveLoad ? 'is-active-load' : '',
+      isLeakAlert ? 'is-leak-alert' : '',
+      isExpanded ? 'has-open-history' : '',
+    ].filter(Boolean).join(' ');
+
+    let metricsHtml = '';
+    let dutyHtml = '';
+    let statusBadge = '';
+    let canShowHistory = (d.device_type === 'thermostat' || d.device_type === 'controller');
+
+    if (d.device_type === 'thermostat') {
+      const curC = d.room_temp_c;
+      const curDisplay = curC != null ? formatTemp(curC, 1) : '—';
+      const setC = d.setpoint_c;
+      const setDisplay = setC != null ? formatTemp(setC, 1) : '—';
+
+      metricsHtml = `
+        <div class="sinope-dev-metrics">
+          <div class="sinope-temp-row">
+            <span class="sinope-temp-cur">${curDisplay}</span>
+            <span class="sinope-temp-target">Set: ${setDisplay}</span>
+          </div>
+          <span class="sinope-power-val">${pwr} W</span>
+        </div>
+      `;
+
+      const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));
+      dutyHtml = `
+        <div class="sinope-duty-track">
+          <div class="sinope-duty-bar" style="width: ${pct}%;"></div>
+        </div>
+        <div class="sinope-duty-label">
+          <span>${pct}% duty cycle</span>
+          <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated' : ''}</span>
+        </div>
+      `;
+
+      if (!d.is_online) {
+        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+      } else if (isHeating) {
+        statusBadge = `<span class="sinope-badge heating">🔥 ${pct}% heat</span>`;
+      } else {
+        statusBadge = `<span class="sinope-badge idle">Idle</span>`;
+      }
+    } else if (d.is_water_heater || (d.model && d.model.startsWith('RM35')) || d.water_temperature_c != null) {
+      const waterC = d.water_temperature_c;
+      const waterDisplay = waterC != null ? formatTemp(waterC, 1) : '—';
+      const todayKwhStr = d.today_kwh != null ? `${d.today_kwh.toFixed(1)} kWh today` : '';
+      metricsHtml = `
+        <div class="sinope-dev-metrics">
+          <div class="sinope-temp-row">
+            <span class="sinope-temp-cur">💧 ${waterDisplay}</span>
+            <span class="sinope-temp-target">${d.is_on ? '⚡ Armed' : '○ Shed'}</span>
+          </div>
+          <span class="sinope-power-val">${pwr > 10 ? pwr + ' W' : (todayKwhStr || 'Standby')}</span>
+        </div>
+      `;
+      dutyHtml = `
+        <div class="sinope-duty-label" style="margin-top:6px">
+          <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated element' : 'Calypso Water Heater'}</span>
+          <span>${todayKwhStr ? todayKwhStr : (d.is_on ? 'Relay Active' : 'Relay Off')}</span>
+        </div>
+      `;
+      if (!d.is_online) {
+        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+      } else if (!d.is_on) {
+        statusBadge = `<span class="sinope-badge off">○ Disabled / Peak Shed</span>`;
+      } else if (pwr > 10) {
+        statusBadge = `<span class="sinope-badge heating">🔥 Reheating (${pwr} W)</span>`;
+      } else {
+        statusBadge = `<span class="sinope-badge idle">⚡ Armed (Standby)</span>`;
+      }
+    } else if (d.device_type === 'controller') {
+      metricsHtml = `
+        <div class="sinope-dev-metrics">
+          <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '⚡ ON' : '○ OFF'}</span>
+          <span class="sinope-power-val">${pwr} W</span>
+        </div>
+      `;
+      dutyHtml = `
+        <div class="sinope-duty-label" style="margin-top:6px">
+          <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated load' : 'Heavy Load Relay'}</span>
+          <span>${d.is_on ? 'Active' : 'Standby'}</span>
+        </div>
+      `;
+      if (!d.is_online) {
+        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+      } else {
+        statusBadge = d.is_on
+          ? `<span class="sinope-badge on">● Active Load</span>`
+          : `<span class="sinope-badge off">○ Standby</span>`;
+      }
+    } else if (d.device_type === 'valve') {
+      metricsHtml = `
+        <div class="sinope-dev-metrics">
+          <span class="sinope-temp-cur" style="font-size:17px">🛡️ Valve Open</span>
+          <span class="sinope-power-val" style="font-size:13px; color:var(--text-dim)">Main Line</span>
+        </div>
+      `;
+      dutyHtml = `
+        <div class="sinope-duty-label" style="margin-top:6px">
+          <span>Sedna Smart Valve</span>
+          <span>Auto-shutoff</span>
+        </div>
+      `;
+      statusBadge = d.is_online
+        ? `<span class="sinope-badge valve-open">💧 Protected</span>`
+        : `<span class="sinope-badge off">⚠️ Offline</span>`;
+    } else if (d.device_type === 'leak_sensor') {
+      const curC = d.room_temp_c;
+      const curDisplay = curC != null ? formatTemp(curC, 1) : '—';
+      const battDisplay = d.battery_pct != null
+        ? `${d.battery_pct}%`
+        : (d.battery_v != null ? `${d.battery_v.toFixed(1)}V` : (d.is_online ? 'OK' : '—'));
+
+      metricsHtml = `
+        <div class="sinope-dev-metrics">
+          <div class="sinope-temp-row">
+            <span class="sinope-temp-cur">${curDisplay}</span>
+            <span class="sinope-temp-target">ambient</span>
+          </div>
+          <span class="sinope-power-val" style="font-size:13px; color:var(--text-dim)">🔋 ${battDisplay}</span>
+        </div>
+      `;
+      dutyHtml = `
+        <div class="sinope-duty-label" style="margin-top:6px">
+          <span>Water Leak Detector</span>
+          <span>${d.is_online ? 'Signal OK' : 'Offline'}</span>
+        </div>
+      `;
+      if (isLeakAlert) {
+        statusBadge = `<span class="sinope-badge leak-alert">🚨 LEAK DETECTED</span>`;
+      } else if (!d.is_online) {
+        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+      } else {
+        statusBadge = `<span class="sinope-badge leak-dry">✓ Dry</span>`;
+      }
+    } else {
+      // Generic switch / load
+      metricsHtml = `
+        <div class="sinope-dev-metrics">
+          <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '● ON' : '○ OFF'}</span>
+          <span class="sinope-power-val">${pwr} W</span>
+        </div>
+      `;
+      dutyHtml = `
+        <div class="sinope-duty-label" style="margin-top:6px">
+          <span>Smart Load</span>
+          <span>${d.is_on ? 'Active' : 'Standby'}</span>
+        </div>
+      `;
+      statusBadge = d.is_on
+        ? `<span class="sinope-badge on">● Active</span>`
+        : `<span class="sinope-badge off">○ Standby</span>`;
+    }
+
+    if (d.dr_status && d.dr_status.toLowerCase() === 'active') {
+      statusBadge += ` <span class="sinope-badge dr-peak" title="Hydro-Québec Peak Event">⚠️ DR Peak</span>`;
+    }
+
+    const devName = escapeHtml(d.name || d.device_sn);
+    const devModel = escapeHtml(d.model || (d.device_type === 'thermostat' ? 'Thermostat' : 'Controller'));
+    const roomBadge = (d.room_name && d.room_name.toLowerCase() !== (d.name || '').toLowerCase())
+      ? ` · ${escapeHtml(d.room_name)}`
+      : '';
+    const locLabel = escapeHtml(d.location_name || (d.location_id ? d.location_id.toUpperCase() : ''));
+    const devHours = _sinopeDevHours[d.device_sn] || 24;
+
+    const drawerHtml = canShowHistory ? `
+      <div class="sinope-dev-history-drawer" id="sinope-history-drawer-${snEsc}" ${isExpanded ? '' : 'hidden'}>
+        <div class="sinope-dev-history-header">
+          <div class="sinope-dev-history-title-row">
+            <span class="sinope-dev-history-title">📈 ${devName} History</span>
+            <div class="sinope-dev-history-stats" id="sinope-dev-stats-${snEsc}">
+              <span class="sinope-chart-stat"><span class="lbl">Period Energy:</span> <b id="sinope-dev-energy-${snEsc}">—</b></span>
+              <span class="sinope-chart-stat"><span class="lbl">Peak:</span> <b id="sinope-dev-peak-${snEsc}">—</b></span>
+              ${d.device_type === 'thermostat' ? `<span class="sinope-chart-stat"><span class="lbl">Avg Temp:</span> <b id="sinope-dev-avgtemp-${snEsc}">—</b></span>` : ''}
+            </div>
+          </div>
+          <div class="sinope-dev-history-controls">
+            <div class="range-picker sinope-dev-range-picker" data-sn="${snEsc}">
+              <button type="button" class="sinope-dev-range-btn ${devHours === 6 ? 'on' : ''}" data-sn="${snEsc}" data-hours="6">6h</button>
+              <button type="button" class="sinope-dev-range-btn ${devHours === 12 ? 'on' : ''}" data-sn="${snEsc}" data-hours="12">12h</button>
+              <button type="button" class="sinope-dev-range-btn ${devHours === 24 ? 'on' : ''}" data-sn="${snEsc}" data-hours="24">24h</button>
+              <button type="button" class="sinope-dev-range-btn ${devHours === 168 ? 'on' : ''}" data-sn="${snEsc}" data-hours="168">7d</button>
+            </div>
+            <button type="button" class="btn-ghost btn-tiny sinope-dev-history-close" data-sn="${snEsc}" title="Close history">✕</button>
+          </div>
+        </div>
+        <div class="sinope-chart-canvas-wrap">
+          <canvas id="chart-sinope-dev-${snEsc}" class="chart sinope-dev-chart"></canvas>
+        </div>
+        <div class="legend sinope-chart-legend">
+          <span class="legend-item"><i style="background:${d.device_type === 'thermostat' ? '#ff7a18' : '#38ef7d'}"></i> Power (W)</span>
+          ${d.device_type === 'thermostat' ? `<span class="legend-item"><i style="background:#38bdf8; border-radius:50%"></i> Room Temp</span>` : ''}
+        </div>
+      </div>
+    ` : '';
+
+    return `
+      <div class="${cardClass}" id="sinope-dev-card-${snEsc}">
+        <div class="sinope-dev-header">
+          <div>
+            <div class="sinope-dev-title" title="${devName}">${devName}</div>
+            <div class="sinope-dev-model">${devModel}${roomBadge}</div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+        ${metricsHtml}
+        ${dutyHtml}
+        <div class="sinope-dev-footer">
+          <span>${locLabel} · ${canShowHistory ? (pwr > 0 ? (pwr / 1000).toFixed(2) + ' kW' : '0 W') : (d.device_type === 'valve' ? 'Valve' : 'Sensor')}</span>
+          ${canShowHistory ? `
+            <button type="button" class="btn-sinope-history ${isExpanded ? 'active' : ''}" data-sn="${snEsc}" title="Toggle device history">
+              ${isExpanded ? '📉 Hide History' : '📈 History'}
+            </button>
+          ` : ''}
+        </div>
+        ${drawerHtml}
+      </div>
+    `;
+  }
+
+  // Helper to build grouped categories of devices within a location
+  function buildLocationDevicesHtml(locDevs) {
+    const therms = locDevs.filter(d => d.device_type === 'thermostat');
+    const ctrls = locDevs.filter(d => d.device_type === 'controller' || d.device_type === 'switch' || d.device_type === 'load');
+    const water = locDevs.filter(d => d.device_type === 'valve' || d.device_type === 'leak_sensor');
+
+    let out = '';
+    if (therms.length) {
+      out += `
+        <div class="sinope-group-title">
+          <span>🌡️ Thermostats &amp; Climate</span>
+          <span class="hint">${therms.length} device${therms.length > 1 ? 's' : ''}</span>
+        </div>
+        <div class="sinope-loads-grid">${therms.map(buildDeviceCardHtml).join('')}</div>
+      `;
+    }
+    if (ctrls.length) {
+      out += `
+        <div class="sinope-group-title">
+          <span>⚡ Electrical Controllers</span>
+          <span class="hint">${ctrls.length} device${ctrls.length > 1 ? 's' : ''}</span>
+        </div>
+        <div class="sinope-loads-grid">${ctrls.map(buildDeviceCardHtml).join('')}</div>
+      `;
+    }
+    if (water.length) {
+      out += `
+        <div class="sinope-group-title">
+          <span>💧 Water Protection &amp; Safety</span>
+          <span class="hint">${water.length} device${water.length > 1 ? 's' : ''}</span>
+        </div>
+        <div class="sinope-loads-grid">${water.map(buildDeviceCardHtml).join('')}</div>
+      `;
+    }
+    return out;
+  }
+
+  // Render grouped sections
+  const visibleLocIds = [];
+
+  if (locFilter === 'all') {
+    const grouped = {};
+    filtered.forEach(d => {
+      const lid = (d.location_id || 'other').toLowerCase();
+      if (!grouped[lid]) grouped[lid] = [];
+      grouped[lid].push(d);
+    });
+
+    let fullHtml = '';
+    const locationKeys = Object.keys(grouped);
+    locationKeys.sort((a, b) => (a === 'maison' ? -1 : (b === 'maison' ? 1 : 0)));
+
+    locationKeys.forEach(lid => {
+      visibleLocIds.push(lid);
+      const locDevs = grouped[lid];
+      const locObj = locations.find(l => l.id.toLowerCase() === lid) || {};
+      const locName = locObj.name || (lid.charAt(0).toUpperCase() + lid.slice(1));
+      const planName = locObj.plan_id === 'hq-tarif-flex-d' ? 'Hydro-Québec Tarif Flex D' : (locObj.plan_id === 'hq-tarif-d-tdt' ? 'Hydro-Québec Tarif D TDT' : (locObj.plan_id || ''));
+      const locWatts = Math.round(locDevs.reduce((sum, d) => sum + (d.power_w || 0), 0));
+
+      fullHtml += `
+        <div class="sinope-location-section">
+          <div class="sinope-location-header">
+            <div class="sinope-location-title">
+              <span>🏠 ${escapeHtml(locName)}</span>
+              ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
+            </div>
+            <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${locDevs.length} devices)</span>
+          </div>
+          ${buildLocationChartHtml(lid, locName)}
+          ${buildLocationDevicesHtml(locDevs)}
+        </div>
+      `;
+    });
+    container.innerHTML = fullHtml;
+  } else {
+    visibleLocIds.push(locFilter.toLowerCase());
+    const locObj = locations.find(l => l.id.toLowerCase() === locFilter.toLowerCase()) || {};
+    const locName = locObj.name || (locFilter.charAt(0).toUpperCase() + locFilter.slice(1));
+    const planName = locObj.plan_id === 'hq-tarif-flex-d' ? 'Hydro-Québec Tarif Flex D' : (locObj.plan_id === 'hq-tarif-d-tdt' ? 'Hydro-Québec Tarif D TDT' : (locObj.plan_id || ''));
+    const locWatts = Math.round(filtered.reduce((sum, d) => sum + (d.power_w || 0), 0));
+
+    container.innerHTML = `
+      <div class="sinope-location-section">
+        <div class="sinope-location-header">
+          <div class="sinope-location-title">
+            <span>🏠 ${escapeHtml(locName)}</span>
+            ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
+          </div>
+          <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${filtered.length} devices)</span>
+        </div>
+        ${buildLocationChartHtml(locFilter.toLowerCase(), locName)}
+        ${buildLocationDevicesHtml(filtered)}
+      </div>
+    `;
+  }
+
+  // Bind location range buttons
+  container.querySelectorAll('.sinope-loc-range-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const lid = btn.dataset.loc;
+      const hours = parseInt(btn.dataset.hours, 10);
+      _sinopeLocHours[lid] = hours;
+      container.querySelectorAll(`.sinope-loc-range-btn[data-loc="${lid}"]`).forEach(b => {
+        b.classList.toggle('on', parseInt(b.dataset.hours, 10) === hours);
+      });
+      loadAndDrawLocationChart(lid, true);
+    });
+  });
+
+  // Bind device history toggle buttons
+  container.querySelectorAll('.btn-sinope-history').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sn = btn.dataset.sn;
+      if (_sinopeOpenDeviceHistories.has(sn)) {
+        _sinopeOpenDeviceHistories.delete(sn);
+      } else {
+        _sinopeOpenDeviceHistories.add(sn);
+      }
+      renderSinopeTab();
+    });
+  });
+
+  // Bind device history range buttons
+  container.querySelectorAll('.sinope-dev-range-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sn = btn.dataset.sn;
+      const hours = parseInt(btn.dataset.hours, 10);
+      _sinopeDevHours[sn] = hours;
+      container.querySelectorAll(`.sinope-dev-range-btn[data-sn="${sn}"]`).forEach(b => {
+        b.classList.toggle('on', parseInt(b.dataset.hours, 10) === hours);
+      });
+      loadAndDrawDeviceChart(sn, true);
+    });
+  });
+
+  // Bind device history close buttons
+  container.querySelectorAll('.sinope-dev-history-close').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sn = btn.dataset.sn;
+      _sinopeOpenDeviceHistories.delete(sn);
+      renderSinopeTab();
+    });
+  });
+
+  // Trigger loading & drawing for all visible location charts
+  visibleLocIds.forEach(lid => {
+    requestAnimationFrame(() => loadAndDrawLocationChart(lid));
+  });
+
+  // Trigger loading & drawing for any open device charts
+  _sinopeOpenDeviceHistories.forEach(sn => {
+    requestAnimationFrame(() => loadAndDrawDeviceChart(sn));
+  });
+}
+
+async function loadSinopeCreds() {
+  const status = $('sinope-creds-status');
+  const emailIn = $('sinope-email');
+  if (!status) return;
+  try {
+    const r = await fetch('/api/sinope/credentials');
+    const j = await r.json();
+    if (j.saved) {
+      status.textContent = `saved · ${j.email || ''}`;
+      if (emailIn && !emailIn.value) emailIn.value = j.email || '';
+    } else {
+      status.textContent = 'not set';
+    }
+  } catch (e) {
+    status.textContent = 'failed to load';
+  }
+}
+
+function initSinopeSettings() {
+  loadSinopeCreds();
+
+  $('sinope-creds-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = ($('sinope-email')?.value || '').trim();
+    const password = $('sinope-password')?.value || '';
+    const msg = $('sinope-msg');
+    if (!email || !password) return;
+    if (msg) { msg.hidden = false; msg.textContent = 'Verifying credentials with Neviweb…'; }
+    try {
+      const r = await fetch('/api/sinope/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const j = await r.json();
+      if (r.ok && j.ok) {
+        if (msg) {
+          msg.textContent = '✓ Saved successfully! Polling devices…';
+          setTimeout(() => { msg.hidden = true; }, 4000);
+        }
+        loadSinopeCreds();
+      } else {
+        if (msg) msg.textContent = `Error: ${j.detail || j.error || 'Authentication rejected'}`;
+      }
+    } catch (err) {
+      if (msg) msg.textContent = `Network error: ${err.message}`;
+    }
+  });
+
+  $('sinope-clear-btn')?.addEventListener('click', async () => {
+    if (!confirm('Forget saved Sinopé credentials?')) return;
+    try {
+      await fetch('/api/sinope/credentials', { method: 'DELETE' });
+      const emailEl = $('sinope-email');
+      const passEl = $('sinope-password');
+      if (emailEl) emailEl.value = '';
+      if (passEl) passEl.value = '';
+      const msg = $('sinope-msg');
+      if (msg) { msg.hidden = false; msg.textContent = 'Credentials cleared.'; setTimeout(() => { msg.hidden = true; }, 3000); }
+      loadSinopeCreds();
+    } catch (e) {}
+  });
+
+  $('sinope-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('sinope-poll-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Polling…'; }
+    try {
+      const r = await fetch('/api/sinope/poll', { method: 'POST' });
+      const j = await r.json();
+      if (j.devices) {
+        renderSinopeLoads(j.devices);
+      }
+    } catch (e) {}
+    finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Poll now'; }
+    }
+  });
+}
+
+
+// ============================================================
+// DAIKIN ONE SMART THERMOSTAT & HEAT PUMP TAB
+// ============================================================
+let _daikinSelectedLocation = localStorage.getItem('daikin_selected_location') || 'all';
+let lastDaikinDevices = [];
+let _lastDaikinPollTs = null;
+const _daikinDevHours = {};
+const _daikinOpenDeviceHistories = new Set();
+const _daikinDevHistData = {};
+let _daikinResizeBound = false;
+let _daikinLastRenderedSignature = '';
+let _daikinAirCleanTimerInterval = null;
+
+function formatAirCleanRemaining(sec) {
+  if (sec == null || sec <= 0) return '0m';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function initDaikinTab() {
+  if (!_daikinAirCleanTimerInterval) {
+    _daikinAirCleanTimerInterval = setInterval(() => {
+      if (activeTab !== 'daikin') return;
+      document.querySelectorAll('.daikin-airclean-timer-text').forEach(el => {
+        const exp = parseFloat(el.dataset.expires);
+        if (!exp) return;
+        const rem = Math.max(0, Math.round(exp - Date.now() / 1000));
+        el.textContent = formatAirCleanRemaining(rem);
+      });
+    }, 5000);
+  }
+
+  document.querySelectorAll('.daikin-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _daikinSelectedLocation = pill.dataset.loc || 'all';
+      localStorage.setItem('daikin_selected_location', _daikinSelectedLocation);
+      document.querySelectorAll('.daikin-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _daikinSelectedLocation);
+      });
+      renderDaikinTab(true);
+    });
+  });
+
+  $('daikin-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('daikin-tab-poll-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;"></span> Polling…';
+    }
+    try {
+      const r = await fetch('/api/daikin/poll', { method: 'POST' });
+      const j = await r.json();
+      if (j.devices) {
+        lastDaikinDevices = j.devices;
+        if (lastStatus) lastStatus.daikin_devices = j.devices;
+        _lastDaikinPollTs = Date.now();
+      }
+    } catch (e) {
+      console.warn('Manual Daikin poll error:', e);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="poll-icon">🔄</span> Poll now';
+      }
+      renderDaikinTab(true);
+    }
+  });
+
+  if (!_daikinResizeBound) {
+    _daikinResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (activeTab === 'daikin') {
+        _daikinOpenDeviceHistories.forEach(id => {
+          const canvas = $('chart-daikin-dev-' + id);
+          if (canvas && canvas._redraw) canvas._redraw();
+        });
+      }
+    });
+  }
+}
+
+function drawDaikinDeviceChart(devId, hist, hours) {
+  const canvas = $('chart-daikin-dev-' + devId);
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 10) return;
+
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+
+  const padL = 46, padR = 24, padT = 16, padB = 26;
+
+  if (!hist || !hist.length) {
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating Daikin temperature history…', w / 2, h / 2);
+    return;
+  }
+
+  let plotHist = hist;
+  if (hist.length === 1) {
+    const single = hist[0];
+    plotHist = [{ ...single, ts: single.ts - 300 }, single];
+  }
+
+  const isF = getTempUnit() === 'F';
+  const indoorTemps = plotHist.map(r => (r.temp_c != null ? (isF ? r.temp_c * 9/5 + 32 : r.temp_c) : null));
+  const outdoorTemps = plotHist.map(r => (r.outdoor_temp_c != null ? (isF ? r.outdoor_temp_c * 9/5 + 32 : r.outdoor_temp_c) : null));
+
+  const allTemps = [...indoorTemps, ...outdoorTemps].filter(t => t != null && Number.isFinite(t));
+  let minT = 15, maxT = 25;
+  if (allTemps.length > 0) {
+    minT = Math.floor(Math.min(...allTemps) - 1);
+    maxT = Math.ceil(Math.max(...allTemps) + 1);
+    if (maxT - minT < 4) maxT = minT + 4;
+  }
+
+  const xs = (i) => padL + (i / Math.max(1, plotHist.length - 1)) * (w - padL - padR);
+  const yTemp = (t) => (h - padB) - ((t - minT) / (maxT - minT)) * (h - padT - padB);
+  const baseY = h - padB;
+
+  // Gridlines & Axes
+  ctx.strokeStyle = 'rgba(35,42,51,.7)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+  }
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // Left Y-axis labels for temperature
+  ctx.fillStyle = '#6b7280'; ctx.font = '10px Inter, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 3; i++) {
+    const v = minT + ((maxT - minT) * (3 - i)) / 3;
+    const y = padT + ((h - padT - padB) * i) / 3;
+    ctx.fillText(`${Math.round(v)}°`, padL - 5, y + 3);
+  }
+
+  // X-axis time ticks
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(4, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 7);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  // Traces: Outdoor (Sky blue line) & Indoor (Warm amber area & line)
+  const hasOutdoor = outdoorTemps.some(t => t != null && Number.isFinite(t));
+  if (hasOutdoor) {
+    drawSmoothLine(ctx, outdoorTemps, xs, yTemp, '#38bdf8', 1.8);
+  }
+
+  const hasIndoor = indoorTemps.some(t => t != null && Number.isFinite(t));
+  if (hasIndoor) {
+    drawAreaFill(ctx, indoorTemps, xs, yTemp, baseY, '#f97316', 0.15);
+    drawSmoothLine(ctx, indoorTemps, xs, yTemp, '#f97316', 2.2);
+  }
+
+  canvas._redraw = () => drawDaikinDeviceChart(devId, hist, hours);
+
+  const eqNames = { 0: 'Idle', 1: 'Cooling', 2: 'Overcooling', 3: 'Heating', 4: 'Fan Circulate', 5: 'Defrost' };
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const inT = p.temp_c != null ? formatTemp(p.temp_c, 1) : '—';
+    const outT = p.outdoor_temp_c != null ? formatTemp(p.outdoor_temp_c, 1) : '—';
+    const eqSt = p.equipment_status != null ? (eqNames[p.equipment_status] || 'Unknown') : 'Idle';
+
+    let rows = `
+      <div class="cht-ts">${escapeHtml(tsStr)}</div>
+      <div class="cht-row"><i style="background:#f97316; border-radius:50%"></i> Indoor: <b>${inT}</b></div>
+      <div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> Outdoor: <b>${outT}</b></div>
+      <div class="cht-row"><i style="background:#a855f7"></i> Equipment: <b>${escapeHtml(eqSt)}</b></div>
+    `;
+    if (p.power_w) {
+      rows += `<div class="cht-row"><i style="background:#4ade80"></i> Power est.: <b>${Math.round(p.power_w)} W</b></div>`;
+    }
+    return rows;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+async function loadAndDrawDaikinDeviceChart(devId, force = false) {
+  const hours = _daikinDevHours[devId] || 24;
+  const cacheKey = `${devId}_${hours}`;
+  const now = Date.now();
+  let hist = null;
+
+  if (!force && _daikinDevHistData[cacheKey] && (now - _daikinDevHistData[cacheKey].ts < 45000)) {
+    hist = _daikinDevHistData[cacheKey].data;
+  } else {
+    try {
+      const r = await fetch(`/api/daikin/history/device?device_sn=daikin_${encodeURIComponent(devId)}&hours=${hours}`);
+      if (r.ok) {
+        const j = await r.json();
+        hist = j.history || [];
+        _daikinDevHistData[cacheKey] = { ts: now, data: hist };
+      }
+    } catch (e) {
+      console.warn('Failed to load Daikin device history:', e);
+    }
+  }
+
+  if (hist) {
+    drawDaikinDeviceChart(devId, hist, hours);
+  }
+}
+
+function renderDaikinTab(force = false) {
+  const container = $('daikin-devices-container');
+  if (!container) return;
+
+  const devices = (lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || [];
+
+  // Update Location pill active classes
+  document.querySelectorAll('.daikin-loc-pill').forEach(p => {
+    p.classList.toggle('on', p.dataset.loc === _daikinSelectedLocation);
+  });
+
+  // Update Last poll time
+  const pollTimeEl = $('daikin-last-poll-time');
+  if (pollTimeEl) {
+    if (_lastDaikinPollTs) {
+      const elapsedM = Math.max(0, Math.round((Date.now() - _lastDaikinPollTs) / 60000));
+      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+    } else if (devices.length) {
+      pollTimeEl.textContent = 'Last update: active';
+    } else {
+      pollTimeEl.textContent = 'Last update: —';
+    }
+  }
+
+  // Filter devices based on chosen location
+  const locFilter = _daikinSelectedLocation;
+  const filtered = (locFilter === 'all')
+    ? devices
+    : devices.filter(d => (d.location_id || '').toLowerCase() === locFilter.toLowerCase());
+
+  // Update KPI card DOM
+  const isF = getTempUnit() === 'F';
+  document.querySelectorAll('#tab-daikin .temp-unit-label').forEach(el => {
+    el.textContent = '°' + getTempUnit();
+  });
+
+  const indoorTemps = filtered.map(d => d.temp_indoor_c).filter(t => t != null && Number.isFinite(t));
+  const outdoorTemps = filtered.map(d => d.temp_outdoor_c).filter(t => t != null && Number.isFinite(t));
+  const indoorHums = filtered.map(d => d.hum_indoor).filter(h => h != null && Number.isFinite(h));
+  const outdoorHums = filtered.map(d => d.hum_outdoor).filter(h => h != null && Number.isFinite(h));
+
+  const kpiInTemp = $('daikin-kpi-indoor-temp');
+  const kpiInSub = $('daikin-kpi-indoor-sub');
+  if (kpiInTemp) {
+    if (indoorTemps.length) {
+      const avg = indoorTemps.reduce((a, b) => a + b, 0) / indoorTemps.length;
+      kpiInTemp.textContent = isF ? (avg * 9/5 + 32).toFixed(1) : avg.toFixed(1);
+      if (kpiInSub) kpiInSub.textContent = `Across ${indoorTemps.length} thermostat${indoorTemps.length > 1 ? 's' : ''}`;
+    } else {
+      kpiInTemp.textContent = '—';
+      if (kpiInSub) kpiInSub.textContent = 'Living space';
+    }
+  }
+
+  const kpiOutTemp = $('daikin-kpi-outdoor-temp');
+  const kpiOutSub = $('daikin-kpi-outdoor-sub');
+  if (kpiOutTemp) {
+    if (outdoorTemps.length) {
+      const avg = outdoorTemps.reduce((a, b) => a + b, 0) / outdoorTemps.length;
+      kpiOutTemp.textContent = isF ? (avg * 9/5 + 32).toFixed(1) : avg.toFixed(1);
+      if (kpiOutSub) kpiOutSub.textContent = 'Heat pump sensor';
+    } else {
+      kpiOutTemp.textContent = '—';
+      if (kpiOutSub) kpiOutSub.textContent = 'Heat pump sensor';
+    }
+  }
+
+  const kpiHum = $('daikin-kpi-humidity');
+  const kpiHumSub = $('daikin-kpi-humidity-sub');
+  if (kpiHum) {
+    if (indoorHums.length || outdoorHums.length) {
+      const inStr = indoorHums.length ? `${Math.round(indoorHums[0])}%` : '—';
+      const outStr = outdoorHums.length ? `${Math.round(outdoorHums[0])}%` : '—';
+      kpiHum.textContent = `${inStr} / ${outStr}`;
+      if (kpiHumSub) kpiHumSub.textContent = 'Indoor / Outdoor';
+    } else {
+      kpiHum.textContent = '—';
+    }
+  }
+
+  // Equipment Status KPI
+  const kpiEquip = $('daikin-kpi-equip-status');
+  const kpiEquipSub = $('daikin-kpi-equip-sub');
+  if (kpiEquip) {
+    const isHeating = filtered.some(d => d.equipment_status === 3);
+    const isCooling = filtered.some(d => d.equipment_status === 1 || d.equipment_status === 2);
+    const isFan = filtered.some(d => d.equipment_status === 4);
+    const isOff = filtered.every(d => d.mode === 0);
+
+    if (isHeating) {
+      kpiEquip.textContent = '🔥 Heating';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Heat pump compressor active';
+    } else if (isCooling) {
+      kpiEquip.textContent = '❄️ Cooling';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Heat pump cooling cycle';
+    } else if (isFan) {
+      kpiEquip.textContent = '🔄 Fan';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Circulating indoor air';
+    } else if (isOff) {
+      kpiEquip.textContent = '○ Standby';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'HVAC mode off';
+    } else {
+      kpiEquip.textContent = '○ Idle';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Setpoints satisfied';
+    }
+  }
+
+  // System Mode KPI
+  const kpiMode = $('daikin-kpi-mode');
+  const kpiModeSub = $('daikin-kpi-mode-sub');
+  if (kpiMode) {
+    if (filtered.length) {
+      const first = filtered[0];
+      const mDesc = (first.mode_desc || 'Auto');
+      kpiMode.textContent = mDesc.charAt(0).toUpperCase() + mDesc.slice(1);
+      const setpoints = [];
+      if (first.mode === 1 && first.heat_setpoint_c != null) {
+        setpoints.push(`Heat: ${formatTemp(first.heat_setpoint_c, 1)}`);
+      } else if (first.mode === 2 && first.cool_setpoint_c != null) {
+        setpoints.push(`Cool: ${formatTemp(first.cool_setpoint_c, 1)}`);
+      } else if (first.mode === 3) {
+        if (first.heat_setpoint_c != null) setpoints.push(`H: ${formatTemp(first.heat_setpoint_c, 1)}`);
+        if (first.cool_setpoint_c != null) setpoints.push(`C: ${formatTemp(first.cool_setpoint_c, 1)}`);
+      }
+      if (kpiModeSub) kpiModeSub.textContent = setpoints.length ? setpoints.join(' · ') : 'Target setpoints';
+    } else {
+      kpiMode.textContent = '—';
+      if (kpiModeSub) kpiModeSub.textContent = 'Target setpoints';
+    }
+  }
+
+  // Compute signature of current view state to avoid wiping DOM if unchanged
+  const sig = JSON.stringify({
+    loc: _daikinSelectedLocation,
+    unit: isF,
+    hist: Array.from(_daikinOpenDeviceHistories).sort(),
+    devHours: _daikinDevHours,
+    devs: filtered.map(d => ({
+      id: d.id,
+      name: d.name,
+      mode: d.mode,
+      eq: d.equipment_status,
+      inT: d.temp_indoor_c,
+      outT: d.temp_outdoor_c,
+      hIn: d.hum_indoor,
+      hOut: d.hum_outdoor,
+      hSp: d.heat_setpoint_c,
+      cSp: d.cool_setpoint_c,
+      fan: d.fan,
+      fanCirc: d.fan_circulate,
+      fanSpd: d.fan_circulate_speed,
+      circRt: d.fan_circulate_runtime_1h_min,
+      totRt: d.fan_total_runtime_1h_min,
+      sched: d.schedule_enabled,
+      online: d.is_online,
+      airClean: d.air_clean ? d.air_clean.active : false,
+      airCleanM: d.air_clean && d.air_clean.remaining_s ? Math.floor(d.air_clean.remaining_s / 60) : 0,
+    })),
+  });
+
+  const isInteracting = container.contains(document.activeElement);
+
+  // If nothing changed in the device list and not forced, DO NOT rebuild cards!
+  if (!force && sig === _daikinLastRenderedSignature) {
+    return;
+  }
+
+  // If user is currently interacting with an element (e.g. an open select dropdown),
+  // defer re-rendering so we don't blow away their open dropdown!
+  if (!force && isInteracting) {
+    return;
+  }
+
+  _daikinLastRenderedSignature = sig;
+
+  // Render Cards or Empty State
+  if (!devices.length) {
+    container.innerHTML = `
+      <div class="daikin-empty-card">
+        <div style="font-size:36px; margin-bottom:4px">❄️🔥</div>
+        <h3>No Daikin Thermostats Found</h3>
+        <p>Connect your Daikin One account in <strong>Settings &rarr; Integrations &rarr; Daikin One account</strong> with your Integrator Token and API Key to monitor and control your heat pump.</p>
+        <button class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-daikin')?.classList.remove('collapsed'); document.getElementById('settings-card-daikin')?.scrollIntoView({behavior:'smooth'});">Go to Settings</button>
+      </div>
+    `;
+    return;
+  }
+
+  if (!filtered.length) {
+    container.innerHTML = `
+      <div class="daikin-empty-card">
+        <h3>No Thermostats at this Location</h3>
+        <p>No Daikin devices found for the <strong>${escapeHtml(locFilter)}</strong> location filter.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let cardsHtml = '<div class="daikin-thermostats-grid">';
+
+  filtered.forEach(dev => {
+    const isHeating = dev.equipment_status === 3;
+    const isCooling = dev.equipment_status === 1 || dev.equipment_status === 2;
+    const isFan = dev.equipment_status === 4;
+    const isOff = dev.mode === 0;
+
+    let cardBorderClass = '';
+    if (isHeating) cardBorderClass = 'is-heating';
+    else if (isCooling) cardBorderClass = 'is-cooling';
+
+    let badgeClass = 'idle';
+    let badgeIcon = '○';
+    let badgeText = dev.equipment_status_desc || 'Idle';
+    if (!dev.is_online) {
+      badgeClass = 'off';
+      badgeIcon = '⚠️';
+      badgeText = 'Offline';
+    } else if (isHeating) {
+      badgeClass = 'heating';
+      badgeIcon = '🔥';
+      badgeText = 'Heating';
+    } else if (isCooling) {
+      badgeClass = 'cooling';
+      badgeIcon = '❄️';
+      badgeText = 'Cooling';
+    } else if (isFan) {
+      badgeClass = 'fan';
+      badgeIcon = '🔄';
+      badgeText = 'Fan';
+    } else if (isOff) {
+      badgeClass = 'off';
+      badgeIcon = '○';
+      badgeText = 'Off';
+    }
+
+    const indoorTempDisplay = dev.temp_indoor_c != null ? formatTemp(dev.temp_indoor_c, 1) : '—';
+    const outdoorTempDisplay = dev.temp_outdoor_c != null ? formatTemp(dev.temp_outdoor_c, 1) : '—';
+
+    let targetSub = '';
+    if (dev.mode === 1 && dev.heat_setpoint_c != null) {
+      targetSub = `Target: ${formatTemp(dev.heat_setpoint_c, 1)}`;
+    } else if (dev.mode === 2 && dev.cool_setpoint_c != null) {
+      targetSub = `Target: ${formatTemp(dev.cool_setpoint_c, 1)}`;
+    } else if (dev.mode === 3) {
+      targetSub = `Auto: ${formatTemp(dev.heat_setpoint_c, 1)} – ${formatTemp(dev.cool_setpoint_c, 1)}`;
+    }
+
+    // Setpoints Controls HTML
+    const minSp = dev.setpoint_min != null ? dev.setpoint_min : 10.0;
+    const maxSp = dev.setpoint_max != null ? dev.setpoint_max : 32.0;
+    const minDisplay = formatTemp(minSp, 0);
+    const maxDisplay = formatTemp(maxSp, 0);
+    const heatDisplay = dev.heat_setpoint_c != null ? formatTemp(dev.heat_setpoint_c, 1) : '—';
+    const coolDisplay = dev.cool_setpoint_c != null ? formatTemp(dev.cool_setpoint_c, 1) : '—';
+    const deltaDisplay = dev.setpoint_delta != null ? `${dev.setpoint_delta}°C` : '2°C';
+
+    let setpointsHtml = '';
+    if (dev.mode === 1 || dev.mode === 4) {
+      // Heat / Emergency Heat mode
+      setpointsHtml = `
+        <div class="daikin-setpoint-row">
+          <div style="display:flex; flex-direction:column">
+            <span style="font-size:13px; font-weight:600; color:#fb923c">🔥 Heating Target</span>
+            <span class="hint" style="font-size:11px">Range: ${minDisplay} – ${maxDisplay}</span>
+          </div>
+          <div class="daikin-sp-controls">
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="-0.5" title="Decrease temperature">−</button>
+            <span class="daikin-sp-val" id="daikin-sp-val-heat-${dev.id}">${heatDisplay}</span>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="0.5" title="Increase temperature">+</button>
+          </div>
+        </div>
+      `;
+    } else if (dev.mode === 2) {
+      // Cool mode
+      setpointsHtml = `
+        <div class="daikin-setpoint-row">
+          <div style="display:flex; flex-direction:column">
+            <span style="font-size:13px; font-weight:600; color:#38bdf8">❄️ Cooling Target</span>
+            <span class="hint" style="font-size:11px">Range: ${minDisplay} – ${maxDisplay}</span>
+          </div>
+          <div class="daikin-sp-controls">
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="-0.5" title="Decrease temperature">−</button>
+            <span class="daikin-sp-val" id="daikin-sp-val-cool-${dev.id}">${coolDisplay}</span>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="0.5" title="Increase temperature">+</button>
+          </div>
+        </div>
+      `;
+    } else if (dev.mode === 3) {
+      // Auto mode (Dual Setpoints)
+      setpointsHtml = `
+        <div class="daikin-setpoint-row" style="margin-bottom:6px">
+          <div style="display:flex; flex-direction:column">
+            <span style="font-size:13px; font-weight:600; color:#fb923c">🔥 Heat Setpoint</span>
+            <span class="hint" style="font-size:11px">Auto mode (${deltaDisplay} deadband)</span>
+          </div>
+          <div class="daikin-sp-controls">
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="-0.5" title="Decrease heating target">−</button>
+            <span class="daikin-sp-val">${heatDisplay}</span>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="0.5" title="Increase heating target">+</button>
+          </div>
+        </div>
+        <div class="daikin-setpoint-row">
+          <div style="display:flex; flex-direction:column">
+            <span style="font-size:13px; font-weight:600; color:#38bdf8">❄️ Cool Setpoint</span>
+            <span class="hint" style="font-size:11px">Auto mode (${deltaDisplay} deadband)</span>
+          </div>
+          <div class="daikin-sp-controls">
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="-0.5" title="Decrease cooling target">−</button>
+            <span class="daikin-sp-val">${coolDisplay}</span>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="0.5" title="Increase cooling target">+</button>
+          </div>
+        </div>
+      `;
+    } else {
+      // Off mode
+      setpointsHtml = `
+        <div style="text-align:center; padding:8px 0;">
+          <span class="hint" style="font-size:12px">Thermostat mode is Off. Select Heat, Cool, or Auto above to adjust setpoints.</span>
+        </div>
+      `;
+    }
+
+    const isHistOpen = _daikinOpenDeviceHistories.has(dev.id);
+    const histHours = _daikinDevHours[dev.id] || 24;
+
+    const speedLabels = ['Low', 'Medium', 'High'];
+    const curSpeedLabel = speedLabels[dev.fan_circulate_speed || 0] || 'Low';
+    const circRuntime = dev.fan_circulate_runtime_1h_min != null ? dev.fan_circulate_runtime_1h_min : (dev.equipment_status === 4 ? 60 : 0);
+    const totalRuntime = dev.fan_total_runtime_1h_min != null ? dev.fan_total_runtime_1h_min : circRuntime;
+
+    const isAirCleanActive = Boolean(dev.air_clean && dev.air_clean.active);
+    let airCleanBannerHtml = '';
+    if (isAirCleanActive) {
+      const remSec = dev.air_clean.remaining_s != null ? dev.air_clean.remaining_s : 0;
+      const prevCircIdx = dev.air_clean.previous_fan_circulate != null ? dev.air_clean.previous_fan_circulate : 0;
+      const prevSpeedIdx = dev.air_clean.previous_fan_circulate_speed != null ? dev.air_clean.previous_fan_circulate_speed : 0;
+      const prevCircName = ['Auto', 'Always On', 'Fan Schedule'][prevCircIdx] || 'Auto';
+      const prevSpeedName = speedLabels[prevSpeedIdx] || 'Low';
+      const prevDesc = `${prevCircName} (${prevSpeedName})`;
+
+      airCleanBannerHtml = `
+        <div class="daikin-airclean-banner" id="daikin-airclean-banner-${dev.id}">
+          <div class="daikin-airclean-banner-left">
+            <span class="daikin-airclean-pulse-icon">🫧</span>
+            <div>
+              <div class="daikin-airclean-banner-title">Air Clean Active (Medium Fan)</div>
+              <div class="daikin-airclean-banner-sub">
+                ⏱️ <strong class="daikin-airclean-timer-text" data-dev="${dev.id}" data-expires="${dev.air_clean.expires_at || 0}">${formatAirCleanRemaining(remSec)}</strong> remaining &bull; Restores ${prevDesc}
+              </div>
+            </div>
+          </div>
+          <button type="button" class="daikin-airclean-cancel-btn" data-dev="${dev.id}" title="Cancel Air Clean and restore previous settings">Cancel</button>
+        </div>
+      `;
+    }
+
+    let fanSchedHtml = '';
+    if (dev.fan_circulate === 2) {
+      fanSchedHtml = `
+        <div class="daikin-fan-sched-box">
+          <div class="daikin-fan-sched-header">
+            <span class="daikin-fan-sched-title">🔄 Fan Schedule Active</span>
+            <span class="daikin-fan-runtime-badge">⏱️ ${circRuntime} min / hr active</span>
+          </div>
+          <div class="daikin-fan-sched-desc">
+            Circulating air at <strong>${curSpeedLabel}</strong> speed. Thermostat automatically cycles the fan on schedule.
+          </div>
+          <div class="daikin-fan-sched-hint">
+            💡 <em>Hourly circulation interval (5, 15, 30, or 45 min/hr) is configured on your Daikin One thermostat under Menu &rarr; Settings &rarr; Circulate Air.</em>
+          </div>
+        </div>
+      `;
+    } else if (dev.fan_circulate === 1) {
+      fanSchedHtml = `
+        <div class="daikin-fan-sched-box always-on">
+          <div class="daikin-fan-sched-header">
+            <span class="daikin-fan-sched-title">💨 Always On (Continuous Circulation)</span>
+            <span class="daikin-fan-runtime-badge">⏱️ ${totalRuntime} min / hr active</span>
+          </div>
+          <div class="daikin-fan-sched-desc">
+            Blower fan runs 24/7 at <strong>${curSpeedLabel}</strong> speed for whole-home continuous air circulation and filtration.
+          </div>
+        </div>
+      `;
+    } else {
+      fanSchedHtml = `
+        <div class="daikin-fan-sched-box auto">
+          <div class="daikin-fan-sched-header">
+            <span class="daikin-fan-sched-title">○ Auto Fan Mode</span>
+            <span class="daikin-fan-runtime-badge">⏱️ ${totalRuntime} min / hr active</span>
+          </div>
+          <div class="daikin-fan-sched-desc">
+            Blower fan only runs when heating or cooling demands are active.
+          </div>
+        </div>
+      `;
+    }
+
+    cardsHtml += `
+      <div class="daikin-card ${cardBorderClass}" id="daikin-card-${dev.id}">
+        <!-- Card Header -->
+        <div class="daikin-card-header">
+          <div>
+            <div class="daikin-card-title">
+              <span>🌡️ ${escapeHtml(dev.name)}</span>
+            </div>
+            <div class="daikin-card-meta">
+              <span>📍 ${escapeHtml(dev.location_name || dev.location_id)}</span>
+              <span>·</span>
+              <span>${escapeHtml(dev.model || 'Daikin One')}</span>
+              ${dev.firmware_version ? `<span>· fw ${escapeHtml(dev.firmware_version)}</span>` : ''}
+            </div>
+          </div>
+          <span class="daikin-badge ${badgeClass}">${badgeIcon} ${escapeHtml(badgeText)}</span>
+        </div>
+
+        <!-- Climate Hero Display -->
+        <div class="daikin-display-hero">
+          <div class="daikin-indoor-temp-block">
+            <div class="daikin-indoor-temp-val">${indoorTempDisplay}</div>
+            <div class="daikin-indoor-sub">
+              <span>💧 ${dev.hum_indoor != null ? Math.round(dev.hum_indoor) + '% humidity' : 'Indoor'}</span>
+              ${targetSub ? `<span>·</span><span>🎯 ${targetSub}</span>` : ''}
+            </div>
+          </div>
+          ${dev.temp_outdoor_c != null ? `
+            <div class="daikin-outdoor-widget">
+              <span class="daikin-outdoor-label">Outdoor Heat Pump Sensor</span>
+              <div class="daikin-outdoor-chip">
+                <span>❄️ ${outdoorTempDisplay}</span>
+                ${dev.hum_outdoor != null ? `<span style="font-size:11px; opacity:0.8">· 💧 ${Math.round(dev.hum_outdoor)}%</span>` : ''}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Mode Selector Buttons -->
+        <div class="daikin-mode-group">
+          <button type="button" class="daikin-mode-btn mode-off ${dev.mode === 0 ? 'on' : ''}" data-dev="${dev.id}" data-mode="0">○ Off</button>
+          <button type="button" class="daikin-mode-btn mode-heat ${dev.mode === 1 ? 'on' : ''}" data-dev="${dev.id}" data-mode="1">🔥 Heat</button>
+          <button type="button" class="daikin-mode-btn mode-cool ${dev.mode === 2 ? 'on' : ''}" data-dev="${dev.id}" data-mode="2">❄️ Cool</button>
+          <button type="button" class="daikin-mode-btn mode-auto ${dev.mode === 3 ? 'on' : ''}" data-dev="${dev.id}" data-mode="3">⚡ Auto</button>
+          ${dev.mode_em_heat_available ? `
+            <button type="button" class="daikin-mode-btn mode-emheat ${dev.mode === 4 ? 'on' : ''}" data-dev="${dev.id}" data-mode="4">🚨 Aux Heat</button>
+          ` : ''}
+        </div>
+
+        <!-- Setpoints Card -->
+        <div class="daikin-setpoint-card">
+          ${setpointsHtml}
+        </div>
+
+        <!-- Secondary Controls (Fan, Schedule) -->
+        <div class="daikin-secondary-controls">
+          <div class="daikin-ctrl-item">
+            <span class="daikin-ctrl-label">Fan:</span>
+            <select class="daikin-select daikin-fan-mode-select ${dev.fan_circulate > 0 ? 'on' : ''}" data-dev="${dev.id}" title="Fan Circulation Mode">
+              <option value="0" ${dev.fan_circulate === 0 ? 'selected' : ''}>Auto</option>
+              <option value="1" ${dev.fan_circulate === 1 ? 'selected' : ''}>Always On</option>
+              <option value="2" ${dev.fan_circulate === 2 ? 'selected' : ''}>Fan Schedule</option>
+            </select>
+            <select class="daikin-select daikin-fan-speed-select" data-dev="${dev.id}" title="Fan Circulation Speed">
+              <option value="0" ${dev.fan_circulate_speed === 0 ? 'selected' : ''}>Speed: Low</option>
+              <option value="1" ${dev.fan_circulate_speed === 1 ? 'selected' : ''}>Speed: Med</option>
+              <option value="2" ${dev.fan_circulate_speed === 2 ? 'selected' : ''}>Speed: High</option>
+            </select>
+          </div>
+
+          <div class="daikin-ctrl-item">
+            <span class="daikin-ctrl-label">Schedule:</span>
+            <button type="button" class="daikin-btn-subtle daikin-sched-btn ${dev.schedule_enabled ? 'on' : ''}" data-dev="${dev.id}" title="Follow Programmed Schedule">
+              ${dev.schedule_enabled ? '📅 Following' : '⏸️ Hold'}
+            </button>
+          </div>
+
+          <div class="daikin-ctrl-item">
+            <button type="button" class="daikin-btn-subtle daikin-airclean-btn ${isAirCleanActive ? 'on' : ''}" data-dev="${dev.id}" title="${isAirCleanActive ? 'Air Clean is running (Medium fan for 3h)' : 'Start Air Clean: continuous Medium fan for 3 hours, then restore previous settings'}">
+              🫧 Air Clean${isAirCleanActive ? ' (Active)' : ''}
+            </button>
+          </div>
+
+          <button type="button" class="daikin-btn-subtle daikin-hist-toggle-btn" data-dev="${dev.id}">
+            📊 ${isHistOpen ? 'Hide History' : 'History'}
+          </button>
+        </div>
+
+        <!-- Air Clean Active Banner -->
+        ${airCleanBannerHtml}
+
+        <!-- Fan Schedule & Hourly Circulation Details -->
+        ${fanSchedHtml}
+
+        <!-- History Drawer -->
+        <div class="daikin-history-drawer" id="daikin-hist-drawer-${dev.id}" ${isHistOpen ? '' : 'hidden'}>
+          <div class="daikin-history-header">
+            <span style="font-size:12px; font-weight:600; color:var(--text-dim, #94a3b8)">Indoor vs Outdoor Temperature History</span>
+            <div class="range-picker daikin-dev-range-picker" data-dev="${dev.id}">
+              <button type="button" class="sinope-loc-range-btn ${histHours === 6 ? 'on' : ''}" data-dev="${dev.id}" data-hours="6">6h</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 12 ? 'on' : ''}" data-dev="${dev.id}" data-hours="12">12h</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 24 ? 'on' : ''}" data-dev="${dev.id}" data-hours="24">24h</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 168 ? 'on' : ''}" data-dev="${dev.id}" data-hours="168">7d</button>
+            </div>
+          </div>
+          <div style="position:relative; width:100%">
+            <canvas id="chart-daikin-dev-${dev.id}" class="daikin-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  cardsHtml += '</div>';
+  container.innerHTML = cardsHtml;
+
+  // Wire up Mode button listeners
+  container.querySelectorAll('.daikin-mode-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const devId = btn.dataset.dev;
+      const targetMode = parseInt(btn.dataset.mode, 10);
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      btn.disabled = true;
+      try {
+        const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/msp`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: targetMode,
+            heat_setpoint: dev.heat_setpoint_c != null ? dev.heat_setpoint_c : 21.0,
+            cool_setpoint: dev.cool_setpoint_c != null ? dev.cool_setpoint_c : 24.0,
+          }),
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          const idx = lastDaikinDevices.findIndex(d => String(d.id) === String(devId));
+          if (idx !== -1) {
+            if (updated && updated.id) {
+              lastDaikinDevices[idx] = updated;
+            } else {
+              lastDaikinDevices[idx].mode = targetMode;
+            }
+          }
+          if (lastStatus && lastStatus.daikin_devices) {
+            const sIdx = lastStatus.daikin_devices.findIndex(d => String(d.id) === String(devId));
+            if (sIdx !== -1) {
+              if (updated && updated.id) {
+                lastStatus.daikin_devices[sIdx] = updated;
+              } else {
+                lastStatus.daikin_devices[sIdx].mode = targetMode;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to update Daikin mode:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up Setpoint Step button listeners
+  container.querySelectorAll('.daikin-btn-step').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const devId = btn.dataset.dev;
+      const type = btn.dataset.type;
+      const delta = parseFloat(btn.dataset.delta) || 0;
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      const isF = getTempUnit() === 'F';
+      const stepC = isF ? (delta > 0 ? (5/9) : (-5/9)) : (delta > 0 ? 0.5 : -0.5);
+
+      let newHeat = dev.heat_setpoint_c != null ? dev.heat_setpoint_c : 21.0;
+      let newCool = dev.cool_setpoint_c != null ? dev.cool_setpoint_c : 24.0;
+      const minSp = dev.setpoint_min != null ? dev.setpoint_min : 10.0;
+      const maxSp = dev.setpoint_max != null ? dev.setpoint_max : 32.0;
+      const deadband = dev.setpoint_delta != null ? dev.setpoint_delta : 2.0;
+
+      if (type === 'heat') {
+        newHeat = Math.round((newHeat + stepC) * 10) / 10;
+        newHeat = Math.max(minSp, Math.min(maxSp - deadband, newHeat));
+        if (newCool - newHeat < deadband) {
+          newCool = Math.round((newHeat + deadband) * 10) / 10;
+        }
+      } else {
+        newCool = Math.round((newCool + stepC) * 10) / 10;
+        newCool = Math.max(minSp + deadband, Math.min(maxSp, newCool));
+        if (newCool - newHeat < deadband) {
+          newHeat = Math.round((newCool - deadband) * 10) / 10;
+        }
+      }
+
+      btn.disabled = true;
+      try {
+        const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/msp`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: dev.mode != null ? dev.mode : 1,
+            heat_setpoint: newHeat,
+            cool_setpoint: newCool,
+          }),
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          const idx = lastDaikinDevices.findIndex(d => String(d.id) === String(devId));
+          if (idx !== -1) {
+            if (updated && updated.id) {
+              lastDaikinDevices[idx] = updated;
+            } else {
+              lastDaikinDevices[idx].heat_setpoint_c = newHeat;
+              lastDaikinDevices[idx].cool_setpoint_c = newCool;
+            }
+          }
+          if (lastStatus && lastStatus.daikin_devices) {
+            const sIdx = lastStatus.daikin_devices.findIndex(d => String(d.id) === String(devId));
+            if (sIdx !== -1) {
+              if (updated && updated.id) {
+                lastStatus.daikin_devices[sIdx] = updated;
+              } else {
+                lastStatus.daikin_devices[sIdx].heat_setpoint_c = newHeat;
+                lastStatus.daikin_devices[sIdx].cool_setpoint_c = newCool;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to update Daikin setpoint:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up Fan Mode select listener
+  container.querySelectorAll('.daikin-fan-mode-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const devId = sel.dataset.dev;
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      const newCirc = parseInt(sel.value, 10);
+      dev.fan_circulate = newCirc;
+      sel.disabled = true;
+      try {
+        const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/fan`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fan_circulate: newCirc,
+            fan_circulate_speed: dev.fan_circulate_speed != null ? dev.fan_circulate_speed : 0,
+          }),
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          dev.air_clean = { active: false };
+          const idx = lastDaikinDevices.findIndex(d => String(d.id) === String(devId));
+          if (idx !== -1) {
+            if (updated && updated.id) {
+              lastDaikinDevices[idx] = updated;
+            } else {
+              lastDaikinDevices[idx].fan_circulate = newCirc;
+            }
+            lastDaikinDevices[idx].air_clean = { active: false };
+          }
+          if (lastStatus && lastStatus.daikin_devices) {
+            const sIdx = lastStatus.daikin_devices.findIndex(d => String(d.id) === String(devId));
+            if (sIdx !== -1) {
+              if (updated && updated.id) {
+                lastStatus.daikin_devices[sIdx] = updated;
+              } else {
+                lastStatus.daikin_devices[sIdx].fan_circulate = newCirc;
+              }
+              lastStatus.daikin_devices[sIdx].air_clean = { active: false };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to update Daikin fan mode:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up Fan Speed select listener
+  container.querySelectorAll('.daikin-fan-speed-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const devId = sel.dataset.dev;
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      const newSpeed = parseInt(sel.value, 10);
+      dev.fan_circulate_speed = newSpeed;
+      sel.disabled = true;
+      try {
+        const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/fan`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fan_circulate: dev.fan_circulate != null ? dev.fan_circulate : 0,
+            fan_circulate_speed: newSpeed,
+          }),
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          dev.air_clean = { active: false };
+          const idx = lastDaikinDevices.findIndex(d => String(d.id) === String(devId));
+          if (idx !== -1) {
+            if (updated && updated.id) {
+              lastDaikinDevices[idx] = updated;
+            } else {
+              lastDaikinDevices[idx].fan_circulate_speed = newSpeed;
+            }
+            lastDaikinDevices[idx].air_clean = { active: false };
+          }
+          if (lastStatus && lastStatus.daikin_devices) {
+            const sIdx = lastStatus.daikin_devices.findIndex(d => String(d.id) === String(devId));
+            if (sIdx !== -1) {
+              if (updated && updated.id) {
+                lastStatus.daikin_devices[sIdx] = updated;
+              } else {
+                lastStatus.daikin_devices[sIdx].fan_circulate_speed = newSpeed;
+              }
+              lastStatus.daikin_devices[sIdx].air_clean = { active: false };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to update Daikin fan speed:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up Schedule button listener
+  container.querySelectorAll('.daikin-sched-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const devId = btn.dataset.dev;
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      const nextSched = !dev.schedule_enabled;
+      btn.disabled = true;
+      try {
+        const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/schedule`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schedule_enabled: nextSched }),
+        });
+        if (r.ok) {
+          const updated = await r.json();
+          const idx = lastDaikinDevices.findIndex(d => String(d.id) === String(devId));
+          if (idx !== -1) {
+            if (updated && updated.id) {
+              lastDaikinDevices[idx] = updated;
+            } else {
+              lastDaikinDevices[idx].schedule_enabled = nextSched;
+            }
+          }
+          if (lastStatus && lastStatus.daikin_devices) {
+            const sIdx = lastStatus.daikin_devices.findIndex(d => String(d.id) === String(devId));
+            if (sIdx !== -1) {
+              if (updated && updated.id) {
+                lastStatus.daikin_devices[sIdx] = updated;
+              } else {
+                lastStatus.daikin_devices[sIdx].schedule_enabled = nextSched;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to update Daikin schedule:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up Air Clean trigger button listener
+  container.querySelectorAll('.daikin-airclean-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const devId = btn.dataset.dev;
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      const isRunning = Boolean(dev.air_clean && dev.air_clean.active);
+      btn.disabled = true;
+
+      try {
+        if (!isRunning) {
+          const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/air-clean`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration_s: 10800 }),
+          });
+          if (r.ok) {
+            const data = await r.json();
+            const acState = data.air_clean || {
+              active: true,
+              duration_s: 10800,
+              remaining_s: 10800,
+              previous_fan_circulate: dev.fan_circulate || 0,
+              previous_fan_circulate_speed: dev.fan_circulate_speed || 0,
+            };
+            dev.air_clean = acState;
+            dev.fan_circulate = 1;
+            dev.fan_circulate_speed = 1;
+            if (lastStatus && lastStatus.daikin_devices) {
+              const sDev = lastStatus.daikin_devices.find(d => String(d.id) === String(devId));
+              if (sDev) {
+                sDev.air_clean = acState;
+                sDev.fan_circulate = 1;
+                sDev.fan_circulate_speed = 1;
+              }
+            }
+          }
+        } else {
+          const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/air-clean`, {
+            method: 'DELETE',
+          });
+          if (r.ok) {
+            const prevCirc = (dev.air_clean && dev.air_clean.previous_fan_circulate != null) ? dev.air_clean.previous_fan_circulate : 0;
+            const prevSpeed = (dev.air_clean && dev.air_clean.previous_fan_circulate_speed != null) ? dev.air_clean.previous_fan_circulate_speed : 0;
+            dev.air_clean = { active: false };
+            dev.fan_circulate = prevCirc;
+            dev.fan_circulate_speed = prevSpeed;
+            if (lastStatus && lastStatus.daikin_devices) {
+              const sDev = lastStatus.daikin_devices.find(d => String(d.id) === String(devId));
+              if (sDev) {
+                sDev.air_clean = { active: false };
+                sDev.fan_circulate = prevCirc;
+                sDev.fan_circulate_speed = prevSpeed;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to toggle Daikin air clean:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up Air Clean Banner Cancel button listener
+  container.querySelectorAll('.daikin-airclean-cancel-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const devId = btn.dataset.dev;
+      const dev = lastDaikinDevices.find(d => String(d.id) === String(devId));
+      if (!dev) return;
+
+      btn.disabled = true;
+      try {
+        const r = await fetch(`/api/daikin/device/${encodeURIComponent(devId)}/air-clean`, {
+          method: 'DELETE',
+        });
+        if (r.ok) {
+          const prevCirc = (dev.air_clean && dev.air_clean.previous_fan_circulate != null) ? dev.air_clean.previous_fan_circulate : 0;
+          const prevSpeed = (dev.air_clean && dev.air_clean.previous_fan_circulate_speed != null) ? dev.air_clean.previous_fan_circulate_speed : 0;
+          dev.air_clean = { active: false };
+          dev.fan_circulate = prevCirc;
+          dev.fan_circulate_speed = prevSpeed;
+          if (lastStatus && lastStatus.daikin_devices) {
+            const sDev = lastStatus.daikin_devices.find(d => String(d.id) === String(devId));
+            if (sDev) {
+              sDev.air_clean = { active: false };
+              sDev.fan_circulate = prevCirc;
+              sDev.fan_circulate_speed = prevSpeed;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to cancel Daikin air clean:', e);
+      } finally {
+        renderDaikinTab(true);
+      }
+    });
+  });
+
+  // Wire up History Drawer Toggle listener
+  container.querySelectorAll('.daikin-hist-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.dev;
+      const drawer = $('daikin-hist-drawer-' + devId);
+      if (_daikinOpenDeviceHistories.has(devId)) {
+        _daikinOpenDeviceHistories.delete(devId);
+        if (drawer) drawer.hidden = true;
+        btn.textContent = '📊 History';
+      } else {
+        _daikinOpenDeviceHistories.add(devId);
+        if (drawer) drawer.hidden = false;
+        btn.textContent = '📊 Hide History';
+        requestAnimationFrame(() => loadAndDrawDaikinDeviceChart(devId));
+      }
+    });
+  });
+
+  // Wire up History Range Picker buttons
+  container.querySelectorAll('.daikin-dev-range-picker button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.dev;
+      const hours = parseInt(btn.dataset.hours, 10) || 24;
+      _daikinDevHours[devId] = hours;
+      container.querySelectorAll(`.daikin-dev-range-picker[data-dev="${devId}"] button`).forEach(b => {
+        b.classList.toggle('on', parseInt(b.dataset.hours, 10) === hours);
+      });
+      loadAndDrawDaikinDeviceChart(devId, true);
+    });
+  });
+
+  // Render open charts
+  _daikinOpenDeviceHistories.forEach(devId => {
+    requestAnimationFrame(() => loadAndDrawDaikinDeviceChart(devId));
+  });
+}
+
+async function loadDaikinCreds() {
+  const status = $('daikin-creds-status');
+  const emailIn = $('daikin-email');
+  if (!status) return;
+  try {
+    const r = await fetch('/api/daikin/credentials');
+    const j = await r.json();
+    if (j.saved) {
+      status.textContent = `saved · ${j.email || ''}`;
+      if (emailIn && !emailIn.value) emailIn.value = j.email || '';
+    } else {
+      status.textContent = 'not set';
+    }
+  } catch (e) {
+    status.textContent = 'failed to load';
+  }
+}
+
+function initDaikinSettings() {
+  loadDaikinCreds();
+
+  $('daikin-creds-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = ($('daikin-email')?.value || '').trim();
+    const token = ($('daikin-token')?.value || '').trim();
+    const apiKey = ($('daikin-api-key')?.value || '').trim();
+    const msg = $('daikin-msg');
+    const btn = $('daikin-save-btn');
+
+    if (!email || !token || !apiKey) {
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = 'Please provide Account Email, Integrator Token, and API Key.';
+      }
+      return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (msg) {
+      msg.hidden = false;
+      msg.textContent = 'Verifying credentials with Daikin Open API…';
+    }
+
+    try {
+      const r = await fetch('/api/daikin/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, integrator_token: token, api_key: apiKey }),
+      });
+      const j = await r.json();
+      if (r.ok && j.ok) {
+        if (msg) {
+          const count = j.device_count || 0;
+          msg.textContent = `✓ Saved successfully! Discovered ${count} Daikin device(s).`;
+          setTimeout(() => { msg.hidden = true; }, 5000);
+        }
+        loadDaikinCreds();
+        renderDaikinTab(true);
+      } else {
+        if (msg) msg.textContent = `Error: ${j.detail || j.error || 'Authentication rejected'}`;
+      }
+    } catch (err) {
+      if (msg) msg.textContent = `Network error: ${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  $('daikin-clear-btn')?.addEventListener('click', async () => {
+    if (!confirm('Forget saved Daikin One credentials?')) return;
+    try {
+      await fetch('/api/daikin/credentials', { method: 'DELETE' });
+      const emailEl = $('daikin-email');
+      const tokEl = $('daikin-token');
+      const keyEl = $('daikin-api-key');
+      if (emailEl) emailEl.value = '';
+      if (tokEl) tokEl.value = '';
+      if (keyEl) keyEl.value = '';
+      const msg = $('daikin-msg');
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = 'Credentials cleared.';
+        setTimeout(() => { msg.hidden = true; }, 3000);
+      }
+      loadDaikinCreds();
+      renderDaikinTab(true);
+    } catch (e) {}
+  });
+
+  $('daikin-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('daikin-poll-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Polling…'; }
+    try {
+      const r = await fetch('/api/daikin/poll', { method: 'POST' });
+      const j = await r.json();
+      if (j.devices) {
+        lastDaikinDevices = j.devices;
+        if (lastStatus) lastStatus.daikin_devices = j.devices;
+        renderDaikinTab(true);
+      }
+    } catch (e) {}
+    finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Poll now'; }
+    }
+  });
+}
+
+
+// ============================================================
+// HILO HYDRO-QUÉBEC SMART METER & GATEWAY TAB
+// ============================================================
+let _hiloSelectedLocation = localStorage.getItem('hilo_selected_location') || 'all';
+let _hiloCredsLoc = 'maison';
+let _hiloMeterHours = 24;
+let lastHiloMeters = [];
+let lastHiloDevices = [];
+let lastHiloChallenges = [];
+let lastHiloCredsStatus = null;
+let _lastHiloPollTs = null;
+const _hiloMeterHistData = {};
+let _hiloResizeBound = false;
+
+function drawHiloMeterChart(hist, hours) {
+  const canvas = $('chart-hilo-meter');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 10) return;
+
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const padL = 52, padR = 24, padT = 16, padB = 30;
+
+  if (!hist || !hist.length) {
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating smart meter power history…', w / 2, h / 2);
+    return;
+  }
+
+  let plotHist = hist;
+  if (hist.length === 1) {
+    const single = hist[0];
+    plotHist = [{ ...single, ts: single.ts - 300 }, single];
+  }
+
+  const powerW = plotHist.map(r => r.power_w || 0);
+  const maxW = Math.max(500, Math.ceil((Math.max(...powerW, 100) * 1.15) / 100) * 100);
+  const xs = (i) => padL + (i / Math.max(1, plotHist.length - 1)) * (w - padL - padR);
+  const yWatts = (v) => (h - padB) - (v / maxW) * (h - padT - padB);
+  const baseY = h - padB;
+
+  // Gridlines & Axes
+  ctx.strokeStyle = 'rgba(35,42,51,.7)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 4; i++) {
+    const y = padT + ((h - padT - padB) * i) / 5;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+  }
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // Left Y-axis labels (Watts)
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '11px Inter, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = (maxW * (4 - i)) / 4;
+    const y = padT + ((h - padT - padB) * i) / 4;
+    ctx.fillText(`${Math.round(v)} W`, padL - 6, y + 3);
+  }
+
+  // X-axis time ticks
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(5, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 8);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  // Trace: Electric blue fill and line
+  drawAreaFill(ctx, powerW, xs, yWatts, baseY, '#38bdf8', 0.20);
+  drawSmoothLine(ctx, powerW, xs, yWatts, '#38bdf8', 2.5);
+
+  canvas._redraw = () => drawHiloMeterChart(hist, hours);
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const pwr = Math.round(p.power_w || 0);
+    const nrg = p.energy_wh != null ? (p.energy_wh >= 1000 ? (p.energy_wh / 1000).toFixed(2) + ' kWh' : Math.round(p.energy_wh) + ' Wh') : '—';
+
+    return `
+      <div class="cht-ts">${escapeHtml(tsStr)}</div>
+      <div class="cht-row"><i style="background:#38bdf8"></i> Puissance compteur: <b>${pwr.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Énergie intervalle: <b>${nrg}</b></div>
+    `;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+async function loadAndDrawHiloMeterChart(force = false) {
+  const canvas = $('chart-hilo-meter');
+  if (!canvas) return;
+
+  const meters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
+  const locFilter = _hiloSelectedLocation;
+  const filteredMeters = (locFilter === 'all')
+    ? meters
+    : meters.filter(m => (m.location_id || '').toLowerCase() === locFilter.toLowerCase());
+
+  const targetMeter = filteredMeters[0] || meters[0];
+  if (!targetMeter || !targetMeter.device_sn) {
+    const { ctx, w, h } = setCanvasSize(canvas);
+    ctx.clearRect(0, 0, w, h);
+    drawAxes(ctx, w, h, 52, 24, 16, 30);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Connectez la passerelle Hilo pour afficher la courbe du compteur', w / 2, h / 2);
+    return;
+  }
+
+  const meterSn = targetMeter.device_sn;
+  const hours = _hiloMeterHours || 24;
+  const cacheKey = `${meterSn}_${hours}`;
+  const now = Date.now();
+  let hist = null;
+
+  if (!force && _hiloMeterHistData[cacheKey] && (now - _hiloMeterHistData[cacheKey].ts < 45000)) {
+    hist = _hiloMeterHistData[cacheKey].data;
+  } else {
+    try {
+      const r = await fetch(`/api/hilo/history/meter?device_sn=${encodeURIComponent(meterSn)}&hours=${hours}`);
+      if (r.ok) {
+        const j = await r.json();
+        hist = j.history || [];
+        _hiloMeterHistData[cacheKey] = { ts: now, data: hist };
+      }
+    } catch (e) {
+      console.warn('Failed to fetch Hilo meter history:', e);
+    }
+  }
+
+  drawHiloMeterChart(hist, hours);
+}
+
+function initHiloTab() {
+  // Location selector pills
+  document.querySelectorAll('.hilo-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _hiloSelectedLocation = pill.dataset.loc || 'all';
+      try { localStorage.setItem('hilo_selected_location', _hiloSelectedLocation); } catch {}
+      document.querySelectorAll('.hilo-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _hiloSelectedLocation);
+      });
+      renderHiloTab();
+      loadAndDrawHiloMeterChart(true);
+    });
+  });
+
+  // Chart range buttons
+  document.querySelectorAll('#hilo-meter-ranges .hilo-range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _hiloMeterHours = parseInt(btn.dataset.hours || '24', 10);
+      document.querySelectorAll('#hilo-meter-ranges .hilo-range-btn').forEach(b => {
+        b.classList.toggle('on', parseInt(b.dataset.hours || '24', 10) === _hiloMeterHours);
+      });
+      loadAndDrawHiloMeterChart(true);
+    });
+  });
+
+  // Tab poll button
+  $('hilo-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('hilo-tab-poll-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="poll-icon">⏳</span> Polling…'; }
+    try {
+      const r = await fetch('/api/hilo/poll', { method: 'POST' });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.meters) lastHiloMeters = j.meters;
+        if (j.devices) lastHiloDevices = j.devices;
+        if (j.challenges) lastHiloChallenges = j.challenges;
+        if (lastStatus) {
+          lastStatus.hilo_meters = j.meters;
+          lastStatus.hilo_devices = j.devices;
+          lastStatus.hilo_challenges = j.challenges;
+        }
+        _lastHiloPollTs = Date.now();
+        renderHiloTab(true);
+      }
+    } catch (e) {
+      console.warn('Hilo poll error:', e);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<span class="poll-icon">🔄</span> Poll now'; }
+    }
+  });
+
+  // Resize redraw
+  if (!_hiloResizeBound) {
+    window.addEventListener('resize', () => {
+      if (activeTab === 'hilo') {
+        const canvas = $('chart-hilo-meter');
+        if (canvas && canvas._redraw) canvas._redraw();
+      }
+    });
+    _hiloResizeBound = true;
+  }
+}
+
+async function renderHiloTab(force = false) {
+  const container = $('hilo-devices-container');
+  if (!container) return;
+
+  // Initial fetch of devices if none cached yet
+  if ((!lastHiloMeters.length && !lastHiloDevices.length) || force) {
+    try {
+      const r = await fetch('/api/hilo/devices');
+      if (r.ok) {
+        const j = await r.json();
+        if (j.meters) lastHiloMeters = j.meters;
+        if (j.devices) lastHiloDevices = j.devices;
+        if (j.challenges) lastHiloChallenges = j.challenges;
+        if (lastStatus) {
+          lastStatus.hilo_meters = j.meters;
+          lastStatus.hilo_devices = j.devices;
+          lastStatus.hilo_challenges = j.challenges;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load Hilo devices:', e);
+    }
+  }
+
+  const meters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
+  const devices = (lastStatus && lastStatus.hilo_devices) || lastHiloDevices || [];
+  const challenges = (lastStatus && lastStatus.hilo_challenges) || lastHiloChallenges || [];
+
+  // Update Location pill active classes
+  document.querySelectorAll('.hilo-loc-pill').forEach(p => {
+    p.classList.toggle('on', p.dataset.loc === _hiloSelectedLocation);
+  });
+
+  // Update Last poll time
+  const pollTimeEl = $('hilo-last-poll-time');
+  if (pollTimeEl) {
+    if (_lastHiloPollTs) {
+      const elapsedM = Math.max(0, Math.round((Date.now() - _lastHiloPollTs) / 60000));
+      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+    } else if (meters.length) {
+      pollTimeEl.textContent = 'Last update: active';
+    } else {
+      pollTimeEl.textContent = 'Last update: —';
+    }
+  }
+
+  // Filter devices & challenges based on chosen location
+  const locFilter = _hiloSelectedLocation;
+  const filteredMeters = (locFilter === 'all')
+    ? meters
+    : meters.filter(m => (m.location_id || '').toLowerCase() === locFilter.toLowerCase());
+  const filteredDevices = (locFilter === 'all')
+    ? devices
+    : devices.filter(d => (d.location_id || '').toLowerCase() === locFilter.toLowerCase());
+  const filteredChallenges = (locFilter === 'all')
+    ? challenges
+    : challenges.filter(c => (c.location_id || '').toLowerCase() === locFilter.toLowerCase());
+
+  // Défi Hilo Challenge Banner
+  const banner = $('hilo-challenge-banner');
+  if (banner) {
+    if (filteredChallenges.length > 0) {
+      const ch = filteredChallenges[0];
+      banner.hidden = false;
+      const titleEl = $('hilo-challenge-badge-title');
+      if (titleEl) titleEl.textContent = `DÉFI HILO ${ch.period ? '— ' + ch.period : ''}`;
+
+      const tagEl = $('hilo-challenge-progress-tag');
+      if (tagEl) {
+        const prog = (ch.progress || 'scheduled').toLowerCase();
+        if (prog.includes('progress') || prog.includes('reduction')) {
+          tagEl.textContent = 'En cours';
+          tagEl.style.background = 'rgba(239,68,68,0.2)';
+          tagEl.style.color = '#ef4444';
+          tagEl.style.borderColor = 'rgba(239,68,68,0.4)';
+        } else if (prog.includes('preheat')) {
+          tagEl.textContent = 'Préchauffage';
+          tagEl.style.background = 'rgba(245,158,11,0.2)';
+          tagEl.style.color = '#f59e0b';
+          tagEl.style.borderColor = 'rgba(245,158,11,0.4)';
+        } else if (prog.includes('completed')) {
+          tagEl.textContent = 'Terminé';
+          tagEl.style.background = 'rgba(16,185,129,0.2)';
+          tagEl.style.color = '#10b981';
+          tagEl.style.borderColor = 'rgba(16,185,129,0.4)';
+        } else {
+          tagEl.textContent = 'Programmé';
+          tagEl.style.background = 'rgba(59,130,246,0.2)';
+          tagEl.style.color = '#3b82f6';
+          tagEl.style.borderColor = 'rgba(59,130,246,0.4)';
+        }
+      }
+
+      const timesEl = $('hilo-challenge-times');
+      if (timesEl) {
+        let timeStr = 'Période de réduction de la consommation';
+        if (ch.reduction_start && ch.reduction_end) {
+          try {
+            const startD = new Date(ch.reduction_start);
+            const endD = new Date(ch.reduction_end);
+            timeStr = `${startD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${endD.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+            const dateStr = startD.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            timeStr = `${dateStr} · ${timeStr}`;
+          } catch {}
+        }
+        timesEl.textContent = timeStr;
+      }
+
+      const locEl = $('hilo-challenge-loc-label');
+      if (locEl) locEl.textContent = `${ch.location_name || ch.location_id || 'Maison'} · Mode ${ch.mode || 'standard'}`;
+
+      const baseEl = $('hilo-challenge-baseline');
+      if (baseEl) baseEl.textContent = `${ch.baseline_kwh != null ? ch.baseline_kwh.toFixed(1) : '—'} kWh`;
+
+      const curEl = $('hilo-challenge-current');
+      if (curEl) curEl.textContent = `${ch.current_kwh != null ? ch.current_kwh.toFixed(1) : '—'} kWh`;
+
+      const rewEl = $('hilo-challenge-reward');
+      if (rewEl) rewEl.textContent = `${ch.reward != null ? (ch.reward > 0 ? '+' : '') + ch.reward.toFixed(2) : '0.00'} $`;
+    } else {
+      banner.hidden = true;
+    }
+  }
+
+  // KPIs
+  let totalW = 0;
+  let totalTodayKwh = 0;
+  let hasOnlineMeter = false;
+  let channel = null;
+
+  filteredMeters.forEach(m => {
+    totalW += (m.power_w || 0);
+    if (m.today_kwh != null) totalTodayKwh += m.today_kwh;
+    if (m.online) hasOnlineMeter = true;
+    if (m.zigbee_channel) channel = m.zigbee_channel;
+  });
+
+  const kpiPower = $('hilo-kpi-power');
+  if (kpiPower) kpiPower.textContent = Math.round(totalW).toLocaleString();
+
+  const liveIndicator = $('hilo-live-indicator');
+  if (liveIndicator) liveIndicator.style.display = hasOnlineMeter ? 'inline-block' : 'none';
+
+  const kpiToday = $('hilo-kpi-today');
+  if (kpiToday) kpiToday.textContent = totalTodayKwh.toFixed(2);
+
+  const kpiStatus = $('hilo-kpi-status');
+  if (kpiStatus) {
+    if (filteredMeters.length > 0) {
+      kpiStatus.textContent = hasOnlineMeter ? (channel ? `Connecté (Canal ${channel})` : 'Connecté') : 'Déconnecté';
+      kpiStatus.style.color = hasOnlineMeter ? 'var(--accent, #10b981)' : 'var(--red, #ef4444)';
+    } else {
+      kpiStatus.textContent = 'Aucun compteur';
+      kpiStatus.style.color = 'var(--text-dim, #94a3b8)';
+    }
+  }
+
+  const kpiDevicesCount = $('hilo-kpi-devices-count');
+  if (kpiDevicesCount) kpiDevicesCount.textContent = filteredDevices.length;
+
+  // Power History Chart
+  loadAndDrawHiloMeterChart(force);
+
+  // Render Devices / Meters list
+  if (filteredMeters.length === 0 && filteredDevices.length === 0) {
+    container.innerHTML = `
+      <div class="hilo-empty-card">
+        <div style="font-size:36px">⚡</div>
+        <h3>Passerelle Hilo non configurée</h3>
+        <p>Connectez votre passerelle Hilo dans l'onglet Paramètres pour suivre la puissance instantanée de votre compteur intelligent Hydro-Québec et surveiller les événements Défi Hilo.</p>
+        <button class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-hilo')?.classList.remove('collapsed'); document.getElementById('settings-card-hilo')?.scrollIntoView({behavior:'smooth'});">
+          Configurer Hilo dans les paramètres
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '<div class="hilo-devices-grid">';
+
+  // Meter cards
+  filteredMeters.forEach(m => {
+    const pwr = Math.round(m.power_w || 0);
+    const today = m.today_kwh != null ? m.today_kwh.toFixed(2) : '0.00';
+    html += `
+      <div class="hilo-meter-card">
+        <div class="hilo-meter-header">
+          <div>
+            <h3 class="hilo-meter-title">${escapeHtml(m.name || 'Compteur HQ')}</h3>
+            <span class="hilo-meter-sn">${escapeHtml(m.mac || m.device_sn)}</span>
+          </div>
+          <span class="badge ${m.online ? 'badge-ok' : 'badge-err'}">${m.online ? 'En ligne' : 'Hors ligne'}</span>
+        </div>
+        <div class="hilo-meter-metrics">
+          <div>
+            <div class="hilo-meter-power">${pwr.toLocaleString()} <small style="font-size:14px; font-weight:400; color:var(--text-dim)">W</small></div>
+            <span class="hint" style="font-size:11px">Puissance totale maison</span>
+          </div>
+          <div style="text-align:right">
+            <div class="hilo-meter-today" style="font-size:18px; font-weight:600; color:var(--text)">${today} <small style="font-size:12px; font-weight:400; color:var(--text-dim)">kWh</small></div>
+            <span class="hint" style="font-size:11px">Aujourd'hui</span>
+          </div>
+        </div>
+        <div class="hilo-meter-meta">
+          <span>Lieu: <b>${escapeHtml(m.location_name || m.location_id || 'Maison')}</b></span>
+          <span>Zigbee SEP: <b>Canal ${m.zigbee_channel || '15'}</b></span>
+        </div>
+      </div>
+    `;
+  });
+
+  // Other connected devices (thermostats, switches, etc.)
+  filteredDevices.forEach(d => {
+    const pwr = d.power_w != null ? Math.round(d.power_w) : null;
+    html += `
+      <div class="hilo-dev-card">
+        <div class="hilo-dev-header">
+          <span class="hilo-dev-name">${escapeHtml(d.name || d.device_sn)}</span>
+          <span class="hilo-dev-type">${escapeHtml(d.device_type || 'Appareil')}</span>
+        </div>
+        <div class="hilo-dev-stats">
+          ${pwr != null ? `<span>⚡ ${pwr} W</span>` : ''}
+          ${d.temp_c != null ? `<span>🌡️ ${formatTemp(d.temp_c, 1)}</span>` : ''}
+          ${d.setpoint_c != null ? `<span>🎯 ${formatTemp(d.setpoint_c, 1)}</span>` : ''}
+          ${d.mode ? `<span>⚙️ ${escapeHtml(d.mode)}</span>` : ''}
+        </div>
+        <div class="hint" style="font-size:11px; display:flex; justify-content:space-between">
+          <span>${escapeHtml(d.location_name || d.location_id || '')}</span>
+          <span style="color:${d.online ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)'}">${d.online ? 'Connecté' : 'Hors ligne'}</span>
+        </div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+async function loadHiloCreds() {
+  const statusEl = $('hilo-creds-status');
+  try {
+    const res = await fetch('/api/hilo/credentials');
+    if (!res.ok) return;
+    const j = await res.json();
+    lastHiloCredsStatus = j;
+
+    if (statusEl) {
+      if (j.saved) {
+        const configuredNames = (j.configured || []).map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(', ');
+        statusEl.textContent = `configured · ${configuredNames}`;
+        statusEl.style.color = 'var(--accent, #10b981)';
+      } else {
+        statusEl.textContent = 'not configured';
+        statusEl.style.color = 'var(--text-dim, #94a3b8)';
+      }
+    }
+
+    _syncHiloCredsForm();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'failed to load';
+  }
+}
+
+function _syncHiloCredsForm() {
+  const locIndicator = $('hilo-creds-loc-indicator');
+  const locTitle = _hiloCredsLoc.charAt(0).toUpperCase() + _hiloCredsLoc.slice(1);
+  if (locIndicator) locIndicator.textContent = `${locTitle} credentials`;
+
+  document.querySelectorAll('.hilo-creds-loc-pill').forEach(pill => {
+    pill.classList.toggle('on', pill.dataset.loc === _hiloCredsLoc);
+  });
+
+  const emailIn = $('hilo-email');
+  const passIn = $('hilo-password');
+  const locData = (lastHiloCredsStatus && lastHiloCredsStatus.locations) ? lastHiloCredsStatus.locations[_hiloCredsLoc] : null;
+
+  if (emailIn) {
+    emailIn.value = (locData && locData.email) || '';
+  }
+  if (passIn) {
+    passIn.value = '';
+    passIn.placeholder = (locData && locData.saved) ? '••••••••' : '••••••••';
+  }
+}
+
+function initHiloSettings() {
+  loadHiloCreds();
+
+  // Location pills switch in Settings
+  document.querySelectorAll('.hilo-creds-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _hiloCredsLoc = pill.dataset.loc || 'maison';
+      _syncHiloCredsForm();
+    });
+  });
+
+  const form = $('hilo-creds-form');
+  const msg = $('hilo-msg');
+  const saveBtn = $('hilo-save-btn');
+  const clearBtn = $('hilo-clear-btn');
+  const pollBtn = $('hilo-poll-btn');
+
+  function showMsg(text, isError = false, timeout = 5000) {
+    if (!msg) return;
+    msg.hidden = false;
+    msg.textContent = text;
+    msg.style.color = isError ? 'var(--red, #ef4444)' : 'var(--accent, #10b981)';
+    if (timeout > 0) {
+      setTimeout(() => { msg.hidden = true; }, timeout);
+    }
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = ($('hilo-email')?.value || '').trim();
+    const password = $('hilo-password')?.value || '';
+
+    if (!email || !password) {
+      showMsg('Please provide your Hilo account email and password.', true);
+      return;
+    }
+
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Signing in…'; }
+    showMsg('Verifying credentials with Hydro-Québec Hilo portal…', false, 0);
+
+    try {
+      const res = await fetch('/api/hilo/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location_id: _hiloCredsLoc,
+          email,
+          password,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        showMsg(`✓ Connected successfully to Hilo (${_hiloCredsLoc})! Polling smart meter…`);
+        loadHiloCreds();
+        renderHiloTab(true);
+      } else {
+        showMsg(`Error: ${data.detail || data.error || 'Authentication rejected by Hilo'}`, true, 8000);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true, 8000);
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Sign in & Save'; }
+    }
+  });
+
+  clearBtn?.addEventListener('click', async () => {
+    const locTitle = _hiloCredsLoc.charAt(0).toUpperCase() + _hiloCredsLoc.slice(1);
+    if (!confirm(`Forget saved Hilo credentials for ${locTitle}?`)) return;
+
+    try {
+      const res = await fetch(`/api/hilo/credentials?location_id=${encodeURIComponent(_hiloCredsLoc)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        showMsg(`Credentials cleared for ${locTitle}.`);
+        loadHiloCreds();
+        renderHiloTab(true);
+      }
+    } catch (err) {
+      showMsg(`Failed to clear: ${err.message}`, true);
+    }
+  });
+
+  pollBtn?.addEventListener('click', async () => {
+    if (pollBtn) { pollBtn.disabled = true; pollBtn.textContent = 'Polling…'; }
+    showMsg('Polling Hilo Cloud…', false, 0);
+
+    try {
+      const res = await fetch(`/api/hilo/poll?location_id=${encodeURIComponent(_hiloCredsLoc)}`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const count = (data.meters || []).length;
+        showMsg(`✓ Poll completed! Discovered ${count} smart meter(s).`);
+        if (data.meters) lastHiloMeters = data.meters;
+        if (data.devices) lastHiloDevices = data.devices;
+        if (data.challenges) lastHiloChallenges = data.challenges;
+        renderHiloTab(true);
+      } else {
+        showMsg(`Poll error: ${data.detail || 'Failed to poll Hilo'}`, true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    } finally {
+      if (pollBtn) { pollBtn.disabled = false; pollBtn.textContent = 'Poll now'; }
+    }
+  });
+}
+
+
+// ============================================================
+// LG THINQ SMART APPLIANCES TAB & CONTROLS
+// ============================================================
+let lastThinqDevices = [];
+let _thinqSelectedLocation = localStorage.getItem('thinq_selected_location') || 'all';
+let _thinqCredsLoc = 'maison';
+let _lastThinqPollTs = 0;
+let lastThinqCredsStatus = null;
+
+function initThinqTab() {
+  // Location filter pills
+  document.querySelectorAll('.thinq-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _thinqSelectedLocation = pill.dataset.loc || 'all';
+      try { localStorage.setItem('thinq_selected_location', _thinqSelectedLocation); } catch {}
+      document.querySelectorAll('.thinq-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _thinqSelectedLocation);
+      });
+      renderThinqTab();
+    });
+  });
+
+  // Manual Poll Button
+  $('thinq-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('thinq-tab-poll-btn');
+    if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+    try {
+      const url = _thinqSelectedLocation !== 'all'
+        ? `/api/thinq/poll?location_id=${encodeURIComponent(_thinqSelectedLocation)}`
+        : '/api/thinq/poll';
+      const r = await fetch(url, { method: 'POST' });
+      if (r.ok) {
+        const j = await r.json();
+        _lastThinqPollTs = Date.now();
+        if (j.devices) {
+          lastThinqDevices = j.devices;
+          if (lastStatus) lastStatus.thinq_devices = j.devices;
+        }
+        renderThinqTab(true);
+      }
+    } catch (e) {
+      console.warn('ThinQ poll failed:', e);
+    } finally {
+      if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+    }
+  });
+
+  // Go to Settings button from empty state
+  $('thinq-go-settings-btn')?.addEventListener('click', () => {
+    switchTab('settings');
+    selectSettingsSubtab('integrations');
+    const card = $('settings-card-thinq');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth' });
+      card.classList.remove('collapsed');
+    }
+  });
+}
+
+async function renderThinqTab(force = false) {
+  const container = $('thinq-appliances-container');
+  if (!container) return;
+
+  // Initial fetch of devices if none cached yet
+  if (!lastThinqDevices.length || force) {
+    try {
+      const r = await fetch('/api/thinq/devices');
+      if (r.ok) {
+        const j = await r.json();
+        if (j.devices) {
+          lastThinqDevices = j.devices;
+          if (lastStatus) lastStatus.thinq_devices = j.devices;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load ThinQ devices:', e);
+    }
+  }
+
+  const devices = (lastStatus && lastStatus.thinq_devices) || lastThinqDevices || [];
+
+  // Update Location pill active classes
+  document.querySelectorAll('.thinq-loc-pill').forEach(p => {
+    p.classList.toggle('on', p.dataset.loc === _thinqSelectedLocation);
+  });
+
+  // Update Last poll time
+  const pollTimeEl = $('thinq-last-poll-time');
+  if (pollTimeEl) {
+    if (_lastThinqPollTs) {
+      const elapsedM = Math.max(0, Math.round((Date.now() - _lastThinqPollTs) / 60000));
+      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+    } else if (devices.length) {
+      pollTimeEl.textContent = 'Last update: active';
+    } else {
+      pollTimeEl.textContent = 'Last update: —';
+    }
+  }
+
+  // Filter appliances based on chosen location
+  const locFilter = _thinqSelectedLocation;
+  const filtered = (locFilter === 'all')
+    ? devices
+    : devices.filter(d => (d.location_id || '').toLowerCase() === locFilter.toLowerCase());
+
+  // Update KPI counters
+  const totalEl = $('thinq-kpi-total');
+  const activeEl = $('thinq-kpi-active');
+  const refrigEl = $('thinq-kpi-refrig');
+  const cookingEl = $('thinq-kpi-cooking');
+
+  const activeCount = filtered.filter(d => d.is_running || d.is_cooking).length;
+  const refrigList = filtered.filter(d => d.category === 'refrigeration');
+  const anyDoorOpen = refrigList.some(d => d.door_opened);
+  const cookingCount = filtered.filter(d => d.category === 'cooking' || d.category === 'dishwasher').length;
+
+  if (totalEl) totalEl.textContent = String(filtered.length);
+  if (activeEl) {
+    activeEl.textContent = String(activeCount);
+    activeEl.style.color = activeCount > 0 ? '#3b82f6' : 'var(--text)';
+  }
+  if (refrigEl) {
+    if (anyDoorOpen) {
+      refrigEl.textContent = 'Door Ajar ⚠️';
+      refrigEl.style.color = '#ef4444';
+    } else if (refrigList.length > 0) {
+      refrigEl.textContent = `${refrigList.length} Unit(s) OK`;
+      refrigEl.style.color = '#10b981';
+    } else {
+      refrigEl.textContent = '—';
+      refrigEl.style.color = 'var(--text)';
+    }
+  }
+  if (cookingEl) cookingEl.textContent = String(cookingCount);
+
+  // If no appliances at all, show empty card
+  const emptyEl = $('thinq-empty');
+  if (filtered.length === 0) {
+    if (emptyEl) emptyEl.hidden = false;
+    container.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+
+  // Group appliances by category
+  const categories = [
+    { key: 'laundry', title: 'Laundry', icon: '🧺', items: filtered.filter(d => d.category === 'laundry') },
+    { key: 'refrigeration', title: 'Refrigeration', icon: '🧊', items: filtered.filter(d => d.category === 'refrigeration') },
+    { key: 'cooking', title: 'Cooking & Kitchen', icon: '🍳', items: filtered.filter(d => d.category === 'cooking') },
+    { key: 'other', title: 'Dishwashers & Climate', icon: '🍽️', items: filtered.filter(d => d.category !== 'laundry' && d.category !== 'refrigeration' && d.category !== 'cooking') },
+  ];
+
+  let html = '';
+  for (const cat of categories) {
+    if (!cat.items.length) continue;
+    html += `
+      <section class="thinq-category-section">
+        <div class="thinq-category-header">
+          <h3 class="thinq-category-title">
+            <span>${cat.icon}</span>
+            <span>${escapeHtml(cat.title)}</span>
+            <span class="thinq-category-badge">${cat.items.length}</span>
+          </h3>
+        </div>
+        <div class="thinq-devices-grid">
+    `;
+
+    for (const d of cat.items) {
+      html += renderThinqApplianceCard(d);
+    }
+
+    html += `
+        </div>
+      </section>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+function renderThinqApplianceCard(d) {
+  const isOnline = d.online !== false;
+  const isRunning = !!(d.is_running || d.is_cooking);
+  const locLabel = (d.location_name || d.location_id || 'Home').toUpperCase();
+  const cardClasses = ['thinq-card'];
+  if (isRunning) cardClasses.push('is-active');
+  if (d.door_opened) cardClasses.push('door-alert');
+
+  let bodyHtml = '';
+
+  if (d.category === 'laundry') {
+    const cycle = d.run_state || 'STANDBY';
+    const step = d.current_step || d.course || 'Ready';
+    let timeDisplay = '—';
+    if (d.remaining_min != null && d.remaining_min > 0) {
+      const h = Math.floor(d.remaining_min / 60);
+      const m = d.remaining_min % 60;
+      timeDisplay = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    bodyHtml = `
+      <div class="thinq-stats-grid">
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Cycle State</span>
+          <span class="thinq-stat-value" style="color:${isRunning ? '#3b82f6' : 'var(--text)'}">${escapeHtml(cycle)}</span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Remaining Time</span>
+          <span class="thinq-stat-value" style="color:${isRunning ? 'var(--primary)' : 'var(--text)'}">${timeDisplay}</span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Sub-process / Step</span>
+          <span class="thinq-stat-value">${escapeHtml(step)}</span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Door Status</span>
+          <span class="thinq-stat-value">${d.door_locked ? '🔒 Locked' : 'Unlocked'}</span>
+        </div>
+      </div>
+    `;
+  } else if (d.category === 'refrigeration') {
+    const isF = getTempUnit() === 'F';
+    const fridgeStr = isF && d.fridge_temp_f != null
+      ? `${d.fridge_temp_f}°F`
+      : (d.fridge_temp_c != null ? formatTemp(d.fridge_temp_c, 0) : '—');
+    const freezerStr = isF && d.freezer_temp_f != null
+      ? `${d.freezer_temp_f}°F`
+      : (d.freezer_temp_c != null ? formatTemp(d.freezer_temp_c, 0) : '—');
+
+    bodyHtml = `
+      ${d.door_opened ? `
+        <div class="thinq-door-warning">
+          <span>⚠️</span> <span>Door is currently OPEN / AJAR</span>
+        </div>
+      ` : ''}
+      <div class="thinq-stats-grid">
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Fridge Compartment</span>
+          <span class="thinq-stat-value">${fridgeStr}</span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Freezer Compartment</span>
+          <span class="thinq-stat-value">${freezerStr}</span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Express Freeze</span>
+          <span class="thinq-stat-value" style="color:${d.express_freeze ? '#3b82f6' : 'var(--text-dim)'}">
+            ${d.express_freeze ? '❄️ Active' : 'Off'}
+          </span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Eco Mode</span>
+          <span class="thinq-stat-value">${d.eco_friendly ? '🌿 Eco Active' : 'Standard'}</span>
+        </div>
+      </div>
+      <div class="thinq-controls-row">
+        <button type="button" class="btn btn-ghost btn-tiny" onclick="toggleThinqExpressFreeze('${escapeHtml(d.device_id)}', '${escapeHtml(d.location_id)}', ${!d.express_freeze})">
+          ${d.express_freeze ? 'Stop Express Freeze' : '❄️ Start Express Freeze'}
+        </button>
+      </div>
+    `;
+  } else if (d.category === 'cooking') {
+    if (d.sub_zones && d.sub_zones.length > 0) {
+      const isOven = d.sub_zones.some(z => z.zone_type === 'cavity');
+      if (isOven) {
+        // Multi-cavity oven (e.g. Upper & Lower cavities)
+        let cavitiesHtml = '<div class="thinq-oven-cavities">';
+        for (const c of d.sub_zones) {
+          const cTarget = c.target_temp_c != null ? formatTemp(c.target_temp_c, 0) : '—';
+          let cCurrent = c.current_temp_c != null ? formatTemp(c.current_temp_c, 0) : '—';
+          if (cCurrent === '—') {
+            if (c.state === 'PREHEATING') {
+              cCurrent = 'Preheating…';
+            } else if ((c.state === 'COOKING_IN_PROGRESS' || c.is_active) && c.target_temp_c != null) {
+              cCurrent = formatTemp(c.target_temp_c, 0);
+            }
+          }
+          let cTimer = '—';
+          if (c.remaining_min != null && c.remaining_min > 0) {
+            const h = Math.floor(c.remaining_min / 60);
+            const m = c.remaining_min % 60;
+            cTimer = h > 0 ? `${h}h ${m}m` : `${m}m`;
+          }
+
+          let cState = c.state || (c.is_active ? 'ON' : 'OFF');
+          if (c.cook_mode && (cState === 'COOKING_IN_PROGRESS' || cState === 'COOKING')) {
+            cState = c.cook_mode.charAt(0).toUpperCase() + c.cook_mode.slice(1).toLowerCase();
+          } else if (cState === 'COOKING_IN_PROGRESS') {
+            cState = c.target_temp_c != null ? 'Baking' : 'Active';
+          } else if (cState === 'PREHEATING') {
+            cState = 'Preheating';
+          } else if (cState === 'INITIAL') {
+            cState = 'Off';
+          }
+
+          cavitiesHtml += `
+            <div class="thinq-cavity-card ${c.is_active ? 'is-active' : ''}">
+              <div class="thinq-cavity-header">
+                <span class="thinq-cavity-title">🔲 ${escapeHtml(c.name)}</span>
+                <span class="thinq-pill ${c.is_active ? 'pill-active' : 'pill-offline'}">${c.is_active ? escapeHtml(cState) : 'OFF'}</span>
+              </div>
+              <div class="thinq-cavity-grid">
+                <div class="thinq-stat-item">
+                  <span class="thinq-stat-label">Target</span>
+                  <span class="thinq-stat-value">${cTarget}</span>
+                </div>
+                <div class="thinq-stat-item">
+                  <span class="thinq-stat-label">Current</span>
+                  <span class="thinq-stat-value" style="color:${c.is_active ? '#22c55e' : 'var(--text)'}">${cCurrent}</span>
+                </div>
+                <div class="thinq-stat-item">
+                  <span class="thinq-stat-label">Timer</span>
+                  <span class="thinq-stat-value" style="color:${c.remaining_min ? '#f59e0b' : 'var(--text)'}">${c.remaining_min ? '⏱ ' + cTimer : '—'}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        cavitiesHtml += '</div>';
+        bodyHtml = cavitiesHtml;
+      } else {
+        // Multi-zone cooktop (e.g. 5 induction burners)
+        let cooktopHtml = '<div class="thinq-cooktop-container">';
+        cooktopHtml += '<div class="thinq-cooktop-grid">';
+        for (const b of d.sub_zones) {
+          let bTimer = '';
+          if (b.remaining_min != null && b.remaining_min > 0) {
+            const h = Math.floor(b.remaining_min / 60);
+            const m = b.remaining_min % 60;
+            bTimer = h > 0 ? `${h}h ${m}m` : `${m}m`;
+          }
+          cooktopHtml += `
+            <div class="thinq-burner-card ${b.is_active ? 'is-active' : ''}">
+              <div class="thinq-burner-icon">${b.is_active ? '🔥' : '⭕'}</div>
+              <div class="thinq-burner-name">${escapeHtml(b.name)}</div>
+              <div class="thinq-burner-power" style="color:${b.is_active ? '#f97316' : 'var(--text-dim)'}">
+                ${b.power_level > 0 ? `Level ${b.power_level}` : (b.is_active ? escapeHtml(b.state) : 'Off')}
+              </div>
+              ${b.remaining_min ? `<div class="thinq-burner-timer">⏱ ${bTimer}</div>` : ''}
+            </div>
+          `;
+        }
+        cooktopHtml += '</div></div>';
+        bodyHtml = cooktopHtml;
+      }
+    } else {
+      // Single zone / fallback
+      let cookState = d.run_state || 'OFF';
+      if (cookState === 'COOKING_IN_PROGRESS') {
+        cookState = 'Cooking';
+      } else if (cookState === 'PREHEATING') {
+        cookState = 'Preheating';
+      }
+      const targetStr = d.target_temp_c != null ? formatTemp(d.target_temp_c, 0) : '—';
+      let currentStr = d.current_temp_c != null ? formatTemp(d.current_temp_c, 0) : '—';
+      if (currentStr === '—') {
+        if (d.run_state === 'PREHEATING') {
+          currentStr = 'Preheating…';
+        } else if ((d.run_state === 'COOKING_IN_PROGRESS' || d.is_cooking) && d.target_temp_c != null) {
+          currentStr = formatTemp(d.target_temp_c, 0);
+        }
+      }
+      let timeDisplay = '—';
+      if (d.remaining_min != null && d.remaining_min > 0) {
+        const h = Math.floor(d.remaining_min / 60);
+        const m = d.remaining_min % 60;
+        timeDisplay = h > 0 ? `${h}h ${m}m` : `${m}m`;
+      }
+
+      bodyHtml = `
+        <div class="thinq-stats-grid">
+          <div class="thinq-stat-item">
+            <span class="thinq-stat-label">Operation</span>
+            <span class="thinq-stat-value" style="color:${d.is_cooking ? '#f59e0b' : 'var(--text)'}">${escapeHtml(cookState)}</span>
+          </div>
+          <div class="thinq-stat-item">
+            <span class="thinq-stat-label">Target Temp</span>
+            <span class="thinq-stat-value">${targetStr}</span>
+          </div>
+          <div class="thinq-stat-item">
+            <span class="thinq-stat-label">Current Cavity</span>
+            <span class="thinq-stat-value" style="color:${d.is_cooking ? '#22c55e' : 'var(--text)'}">${currentStr}</span>
+          </div>
+          <div class="thinq-stat-item">
+            <span class="thinq-stat-label">Timer</span>
+            <span class="thinq-stat-value">${timeDisplay}</span>
+          </div>
+        </div>
+      `;
+    }
+  } else {
+    // Dishwasher / Climate / Other
+    const stateStr = d.run_state || 'STANDBY';
+    let timeDisplay = '—';
+    if (d.remaining_min != null && d.remaining_min > 0) {
+      const h = Math.floor(d.remaining_min / 60);
+      const m = d.remaining_min % 60;
+      timeDisplay = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    bodyHtml = `
+      <div class="thinq-stats-grid">
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Status</span>
+          <span class="thinq-stat-value">${escapeHtml(stateStr)}</span>
+        </div>
+        <div class="thinq-stat-item">
+          <span class="thinq-stat-label">Remaining Time</span>
+          <span class="thinq-stat-value">${timeDisplay}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="${cardClasses.join(' ')}" id="card-${escapeHtml(d.device_sn)}">
+      <div class="thinq-card-header">
+        <div class="thinq-card-title-group">
+          <h4 class="thinq-card-name">${escapeHtml(d.name || d.device_sn)}</h4>
+          <span class="thinq-card-meta">
+            <span>${escapeHtml(locLabel)}</span>
+            <span>•</span>
+            <span>${escapeHtml(d.model_name || d.raw_type || 'ThinQ')}</span>
+          </span>
+        </div>
+        <div class="thinq-card-badges">
+          ${isRunning ? '<span class="thinq-pill pill-active">Active</span>' : ''}
+          <span class="thinq-pill ${isOnline ? 'pill-online' : 'pill-offline'}">${isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+        </div>
+      </div>
+      <div class="thinq-card-body">
+        ${bodyHtml}
+      </div>
+    </div>
+  `;
+}
+
+async function toggleThinqExpressFreeze(deviceId, locationId, turnOn) {
+  try {
+    const payload = {
+      refrigeration: {
+        expressFreeze: turnOn ? 'START' : 'STOP'
+      }
+    };
+    const res = await fetch(`/api/thinq/device/${encodeURIComponent(deviceId)}/control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        location_id: locationId,
+        payload: payload,
+      }),
+    });
+    if (res.ok) {
+      setTimeout(() => renderThinqTab(true), 1500);
+    } else {
+      const err = await res.json();
+      alert(`Control failed: ${err.detail || 'Could not update Express Freeze'}`);
+    }
+  } catch (e) {
+    alert(`Network error: ${e.message}`);
+  }
+}
+
+async function loadThinqCreds() {
+  const statusEl = $('thinq-creds-status');
+  try {
+    const res = await fetch('/api/thinq/credentials');
+    if (!res.ok) return;
+    const data = await res.json();
+    lastThinqCredsStatus = data;
+
+    if (statusEl) {
+      if (data.saved) {
+        const names = (data.configured || []).map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(', ');
+        statusEl.textContent = `Configured (${names})`;
+        statusEl.style.color = 'var(--text-success,#10b981)';
+      } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.style.color = 'var(--text-dim,#94a3b8)';
+      }
+    }
+
+    syncThinqCredsForm();
+  } catch (e) {
+    console.warn('Failed to load ThinQ credentials:', e);
+  }
+}
+
+function syncThinqCredsForm() {
+  const locIndicator = $('thinq-creds-loc-indicator');
+  const locTitle = _thinqCredsLoc.charAt(0).toUpperCase() + _thinqCredsLoc.slice(1);
+  if (locIndicator) locIndicator.textContent = `${locTitle} credentials`;
+
+  document.querySelectorAll('.thinq-creds-loc-pill').forEach(pill => {
+    pill.classList.toggle('on', pill.dataset.loc === _thinqCredsLoc);
+  });
+
+  const tokenIn = $('thinq-token');
+  const countryIn = $('thinq-country');
+  const locData = (lastThinqCredsStatus && lastThinqCredsStatus.locations) ? lastThinqCredsStatus.locations[_thinqCredsLoc] : null;
+
+  if (locData && locData.saved) {
+    if (tokenIn) {
+      tokenIn.value = '';
+      tokenIn.placeholder = `Token saved (${locData.masked_token || '••••••••'})`;
+    }
+    if (countryIn && locData.country) countryIn.value = locData.country;
+  } else {
+    if (tokenIn) {
+      tokenIn.value = '';
+      tokenIn.placeholder = 'Paste your LG PAT here...';
+    }
+  }
+}
+
+function initThinqSettings() {
+  // Location selector pills in Settings
+  document.querySelectorAll('.thinq-creds-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _thinqCredsLoc = pill.dataset.loc || 'maison';
+      syncThinqCredsForm();
+    });
+  });
+
+  const form = $('thinq-creds-form');
+  const msg = $('thinq-msg');
+  const saveBtn = $('thinq-save-btn');
+  const clearBtn = $('thinq-clear-btn');
+  const pollBtn = $('thinq-poll-btn');
+
+  function showMsg(text, isError = false, timeoutMs = 6000) {
+    if (!msg) return;
+    msg.textContent = text;
+    msg.style.color = isError ? 'var(--text-danger, #ef4444)' : 'var(--text-success, #10b981)';
+    msg.hidden = false;
+    if (timeoutMs > 0) setTimeout(() => { msg.hidden = true; }, timeoutMs);
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const rawToken = ($('thinq-token')?.value || '').trim();
+    const token = rawToken.replace(/^(?:PAT_TOKEN|token|pat)\s*=\s*/i, '').replace(/^["']|["']$/g, '').trim();
+    const country = ($('thinq-country')?.value || 'CA').trim();
+
+    if (!token) {
+      showMsg('Please enter your LG Personal Access Token (PAT)', true);
+      return;
+    }
+
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Verifying…'; }
+    showMsg('Contacting LG ThinQ API to verify token…', false, 0);
+
+    try {
+      const res = await fetch('/api/thinq/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location_id: _thinqCredsLoc,
+          token: token,
+          country: country,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showMsg(`✓ Verified & saved! Found ${data.device_count || 0} appliance(s).`);
+        $('thinq-token').value = '';
+        await loadThinqCreds();
+        renderThinqTab(true);
+      } else {
+        showMsg(`Error: ${data.detail || 'Verification failed'}`, true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Verify & Save'; }
+    }
+  });
+
+  clearBtn?.addEventListener('click', async () => {
+    const locTitle = _thinqCredsLoc.charAt(0).toUpperCase() + _thinqCredsLoc.slice(1);
+    if (!confirm(`Forget ThinQ credentials for ${locTitle}?`)) return;
+
+    try {
+      const res = await fetch(`/api/thinq/credentials?location_id=${encodeURIComponent(_thinqCredsLoc)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        showMsg(`Cleared ThinQ credentials for ${locTitle}`);
+        await loadThinqCreds();
+        renderThinqTab(true);
+      } else {
+        showMsg('Failed to clear credentials', true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    }
+  });
+
+  pollBtn?.addEventListener('click', async () => {
+    if (pollBtn) { pollBtn.disabled = true; pollBtn.textContent = 'Polling…'; }
+    showMsg('Polling LG ThinQ appliances…', false, 0);
+
+    try {
+      const res = await fetch(`/api/thinq/poll?location_id=${encodeURIComponent(_thinqCredsLoc)}`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const count = (data.devices || []).length;
+        showMsg(`✓ Poll completed! Discovered ${count} appliance(s).`);
+        if (data.devices) {
+          lastThinqDevices = data.devices;
+          if (lastStatus) lastStatus.thinq_devices = data.devices;
+        }
+        renderThinqTab(true);
+      } else {
+        showMsg(`Poll error: ${data.detail || 'Failed to poll appliances'}`, true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    } finally {
+      if (pollBtn) { pollBtn.disabled = false; pollBtn.textContent = 'Poll now'; }
+    }
+  });
+}
+
+
+// ============================================================
+// DANBY / MIDEA SMART DEHUMIDIFIERS TAB & CONTROLS
+// ============================================================
+let lastMideaDevices = [];
+let _mideaSelectedLocation = localStorage.getItem('midea_selected_location') || 'all';
+let _mideaCredsLoc = 'maison';
+let _lastMideaPollTs = 0;
+let lastMideaCredsStatus = null;
+
+function initMideaTab() {
+  // Location filter pills
+  document.querySelectorAll('.midea-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _mideaSelectedLocation = pill.dataset.loc || 'all';
+      try { localStorage.setItem('midea_selected_location', _mideaSelectedLocation); } catch {}
+      document.querySelectorAll('.midea-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _mideaSelectedLocation);
+      });
+      renderMideaTab();
+    });
+  });
+
+  // Manual Poll Button
+  $('midea-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('midea-tab-poll-btn');
+    if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+    try {
+      const r = await fetch('/api/midea/poll', { method: 'POST' });
+      if (r.ok) {
+        const j = await r.json();
+        _lastMideaPollTs = Date.now();
+        if (j.devices) {
+          lastMideaDevices = j.devices;
+          if (lastStatus) lastStatus.midea_devices = j.devices;
+        }
+        renderMideaTab(true);
+      }
+    } catch (e) {
+      console.warn('Midea poll failed:', e);
+    } finally {
+      if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+    }
+  });
+
+  // Go to Settings button from empty state
+  $('midea-go-settings-btn')?.addEventListener('click', () => {
+    switchTab('settings');
+    selectSettingsSubtab('integrations');
+    const card = $('settings-card-midea');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth' });
+      card.classList.remove('collapsed');
+    }
+  });
+}
+
+let _mideaDevHours = {};              // devId -> hours (default 24)
+let _mideaDevHistData = {};           // `${devId}_${hours}` -> { ts, data, summary }
+let _mideaOpenDeviceHistories = new Set(); // devId
+let _mideaOpenDeviceSchedules = new Set(); // devId
+let _mideaDeviceSchedules = {};       // devId -> schedule
+let _mideaResizeBound = false;
+let _mideaLastRenderedSignature = null;
+
+const MIDEA_COMMON_TIMEZONES = [
+  { id: 'America/Toronto', label: 'America/Toronto (Montréal / Toronto / HNE)' },
+  { id: 'America/New_York', label: 'America/New_York (Eastern Time)' },
+  { id: 'America/Chicago', label: 'America/Chicago (Central Time)' },
+  { id: 'America/Denver', label: 'America/Denver (Mountain Time)' },
+  { id: 'America/Los_Angeles', label: 'America/Los_Angeles (Pacific Time)' },
+  { id: 'America/Vancouver', label: 'America/Vancouver (Pacific Time)' },
+  { id: 'America/Halifax', label: 'America/Halifax (Atlantic Time)' },
+  { id: 'America/St_Johns', label: 'America/St_Johns (Newfoundland Time)' },
+  { id: 'Europe/Paris', label: 'Europe/Paris (Heure de Paris)' },
+  { id: 'UTC', label: 'UTC (Temps universel)' },
+];
+
+function drawMideaDeviceChart(devId, hist, hours, summary) {
+  const canvas = $('chart-midea-dev-' + devId);
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 10) return;
+
+  const { ctx, w, h } = setCanvasSize(canvas);
+  ctx.clearRect(0, 0, w, h);
+
+  const padL = 44, padR = 24, padT = 16, padB = 26;
+
+  if (!hist || !hist.length) {
+    drawAxes(ctx, w, h, padL, padR, padT, padB);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulation de l\'historique Danby… (1 pt/min)', w / 2, h / 2);
+    return;
+  }
+
+  let plotHist = hist;
+  if (hist.length === 1) {
+    const single = hist[0];
+    plotHist = [{ ...single, ts: single.ts - 300 }, single];
+  }
+
+  const curHums = plotHist.map(r => (r.current_humidity != null ? r.current_humidity : null));
+  const tgtHums = plotHist.map(r => (r.target_humidity != null ? r.target_humidity : null));
+
+  const allHums = [...curHums, ...tgtHums].filter(v => v != null && Number.isFinite(v));
+  let minH = 20, maxH = 80;
+  if (allHums.length > 0) {
+    minH = Math.max(10, Math.floor(Math.min(...allHums) / 5) * 5 - 5);
+    maxH = Math.min(100, Math.ceil(Math.max(...allHums) / 5) * 5 + 5);
+    if (maxH - minH < 20) {
+      maxH = Math.min(100, minH + 25);
+    }
+  }
+
+  const xs = (i) => padL + (i / Math.max(1, plotHist.length - 1)) * (w - padL - padR);
+  const yHum = (v) => (h - padB) - ((v - minH) / (maxH - minH)) * (h - padT - padB);
+  const baseY = h - padB;
+
+  // 1. Draw Operational State background vertical bands
+  for (let i = 0; i < plotHist.length; i++) {
+    const p = plotHist[i];
+    const st = p.equipment_status;
+    let fillColor = null;
+    if (st === 1) {
+      fillColor = 'rgba(14, 165, 233, 0.22)'; // Blue - compressor active
+    } else if (st === 2) {
+      fillColor = 'rgba(20, 184, 166, 0.18)'; // Teal - fan only
+    } else if (st === 3) {
+      fillColor = 'rgba(245, 158, 11, 0.20)'; // Amber - defrost
+    } else if (st === 4) {
+      fillColor = 'rgba(239, 68, 68, 0.22)'; // Red - tank full
+    } else {
+      fillColor = 'rgba(15, 23, 42, 0.35)'; // Off
+    }
+
+    const x1 = (i === 0) ? padL : (xs(i - 1) + xs(i)) / 2;
+    const x2 = (i === plotHist.length - 1) ? (w - padR) : (xs(i) + xs(i + 1)) / 2;
+    ctx.fillStyle = fillColor;
+    ctx.fillRect(x1, padT, Math.max(1, x2 - x1), h - padT - padB);
+  }
+
+  // 2. Gridlines & Axes
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1;
+  const numSteps = 4;
+  for (let i = 1; i <= numSteps; i++) {
+    const y = padT + ((h - padT - padB) * i) / numSteps;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+  }
+  drawAxes(ctx, w, h, padL, padR, padT, padB);
+
+  // 3. Y-axis labels (% Humidity)
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '10px Inter, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= numSteps; i++) {
+    const v = minH + ((maxH - minH) * (numSteps - i)) / numSteps;
+    const y = padT + ((h - padT - padB) * i) / numSteps;
+    ctx.fillText(`${Math.round(v)}%`, padL - 5, y + 3);
+  }
+
+  // 4. X-axis time ticks
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(4, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 7);
+    }
+    ctx.textAlign = 'start';
+  }
+
+  // 5. Traces:
+  // Trace A: Target humidity (Emerald dashed line)
+  const hasTarget = tgtHums.some(v => v != null && Number.isFinite(v));
+  if (hasTarget) {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    drawSmoothLine(ctx, tgtHums, xs, yHum, '#10b981', 1.8);
+    ctx.restore();
+  }
+
+  // Trace B: Current ambient humidity (Sky blue area fill + line)
+  const hasCur = curHums.some(v => v != null && Number.isFinite(v));
+  if (hasCur) {
+    drawAreaFill(ctx, curHums, xs, yHum, baseY, '#38bdf8', 0.12);
+    drawSmoothLine(ctx, curHums, xs, yHum, '#38bdf8', 2.2);
+  }
+
+  canvas._redraw = () => drawMideaDeviceChart(devId, hist, hours, summary);
+
+  const statusLabels = {
+    0: 'Arrêt',
+    1: '💧 Déshumidification (Compresseur actif)',
+    2: '🌪️ Ventilation seule',
+    3: '❄️ Dégivrage',
+    4: '⚠️ Bac plein',
+  };
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const curH = p.current_humidity != null ? `${Math.round(p.current_humidity)}%` : '—';
+    const tgtH = p.target_humidity != null ? `${Math.round(p.target_humidity)}%` : '—';
+    const stLabel = statusLabels[p.equipment_status] || 'Inconnu';
+    const tempStr = p.temp_c != null ? `${p.temp_c.toFixed(1)}°C` : '';
+
+    let rows = `
+      <div class="cht-ts">${escapeHtml(tsStr)}</div>
+      <div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> Humidité ambiante: <b>${curH}</b></div>
+      <div class="cht-row"><i style="background:#10b981"></i> Consigne cible: <b>${tgtH}</b></div>
+      <div class="cht-row">État: <b>${escapeHtml(stLabel)}</b></div>
+    `;
+    if (p.power_w) {
+      rows += `<div class="cht-row"><i style="background:#fbbf24"></i> Puissance est.: <b>${Math.round(p.power_w)} W</b></div>`;
+    }
+    if (tempStr) {
+      rows += `<div class="cht-row">Température: <b>${escapeHtml(tempStr)}</b></div>`;
+    }
+    return rows;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+async function loadAndDrawMideaDeviceChart(devId, force = false) {
+  const hours = _mideaDevHours[devId] || 24;
+  const cacheKey = `${devId}_${hours}`;
+  const now = Date.now();
+  let histData = null;
+
+  if (!force && _mideaDevHistData[cacheKey] && (now - _mideaDevHistData[cacheKey].ts < 45000)) {
+    histData = _mideaDevHistData[cacheKey];
+  } else {
+    try {
+      const r = await fetch(`/api/midea/history/device?device_sn=midea_${encodeURIComponent(devId)}&hours=${hours}`);
+      if (r.ok) {
+        const j = await r.json();
+        histData = { ts: now, data: j.history || [], summary: j.summary || {} };
+        _mideaDevHistData[cacheKey] = histData;
+      }
+    } catch (e) {
+      console.warn('Failed to load Midea device history:', e);
+    }
+  }
+
+  if (histData) {
+    drawMideaDeviceChart(devId, histData.data, hours, histData.summary);
+    updateMideaRuntimeChips(devId, histData.summary);
+  }
+}
+
+function updateMideaRuntimeChips(devId, summary) {
+  const compEl = $(`midea-rt-comp-${devId}`);
+  const fanEl = $(`midea-rt-fan-${devId}`);
+  const offEl = $(`midea-rt-off-${devId}`);
+  const kwhEl = $(`midea-rt-kwh-${devId}`);
+
+  if (!summary) return;
+  const compMin = summary.compressor_min || 0;
+  const fanMin = summary.fan_only_min || 0;
+  const offMin = summary.off_min || 0;
+  const kwh = summary.energy_kwh != null ? summary.energy_kwh : 0;
+
+  const fmtMin = (m) => {
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return h > 0 ? `${h}h ${rem}m` : `${rem}m`;
+  };
+
+  if (compEl) compEl.textContent = fmtMin(compMin);
+  if (fanEl) fanEl.textContent = fmtMin(fanMin);
+  if (offEl) offEl.textContent = fmtMin(offMin);
+  if (kwhEl) kwhEl.textContent = `${kwh.toFixed(2)} kWh`;
+}
+
+async function loadMideaDeviceSchedule(devId, force = false) {
+  if (!force && _mideaDeviceSchedules[devId]) {
+    renderMideaScheduleEditor(devId, _mideaDeviceSchedules[devId]);
+    return;
+  }
+  try {
+    const r = await fetch(`/api/midea/device/${encodeURIComponent(devId)}/schedule`);
+    if (r.ok) {
+      const j = await r.json();
+      _mideaDeviceSchedules[devId] = j;
+      renderMideaScheduleEditor(devId, j);
+    }
+  } catch (e) {
+    console.warn('Failed to load Midea schedule:', e);
+  }
+}
+
+function collectMideaEventsFromDom(devId) {
+  const box = $(`midea-sched-body-${devId}`);
+  if (!box) return [];
+  const rows = box.querySelectorAll('.midea-sched-event-row');
+  const evs = [];
+  rows.forEach((row, idx) => {
+    const id = row.dataset.id || `evt_${Math.random().toString(36).substring(2, 9)}`;
+    const en = row.querySelector('.midea-ev-en-cb')?.checked ?? true;
+    const name = row.querySelector('.midea-ev-name-input')?.value?.trim() || `Horaire ${idx + 1}`;
+    const time = row.querySelector('.midea-ev-time-input')?.value?.trim() || '08:00';
+    const power = row.querySelector('.midea-ev-power-select')?.value === 'true';
+    const target_humidity = parseInt(row.querySelector('.midea-ev-hum-input')?.value, 10) || 50;
+    const fan_speed = parseInt(row.querySelector('.midea-ev-fan-select')?.value, 10) || 40;
+    const mode = parseInt(row.querySelector('.midea-ev-mode-select')?.value, 10) || 1;
+    const days = [];
+    row.querySelectorAll('.midea-day-pill.on').forEach(p => {
+      const d = parseInt(p.dataset.day, 10);
+      if (d >= 1 && d <= 7) days.push(d);
+    });
+    evs.push({
+      id,
+      name,
+      enabled: en,
+      days: days.length ? days : [1, 2, 3, 4, 5, 6, 7],
+      time,
+      power,
+      target_humidity: Math.max(30, Math.min(80, target_humidity)),
+      fan_speed: fan_speed >= 70 ? 80 : 40,
+      mode: mode === 2 ? 2 : 1,
+    });
+  });
+  return evs;
+}
+
+async function saveMideaDeviceSchedule(devId, btn = null) {
+  const box = $(`midea-sched-body-${devId}`);
+  if (!box) return;
+
+  const enCb = $(`midea-sched-en-${devId}`);
+  const tzSel = $(`midea-sched-tz-${devId}`);
+  const isEnabled = enCb ? enCb.checked : false;
+  const timezone = tzSel ? tzSel.value : 'America/Toronto';
+  const events = collectMideaEventsFromDom(devId);
+
+  const payload = {
+    timezone: timezone,
+    schedule_enabled: isEnabled,
+    events: events,
+  };
+
+  const origText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement…';
+  }
+
+  try {
+    const res = await fetch(`/api/midea/device/${encodeURIComponent(devId)}/schedule`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const saved = await res.json();
+      _mideaDeviceSchedules[devId] = saved;
+
+      for (const d of lastMideaDevices) {
+        if (String(d.device_id) === String(devId)) {
+          d.schedule_enabled = isEnabled;
+          d.schedule_events_count = events.length;
+          break;
+        }
+      }
+
+      if (btn) {
+        btn.textContent = '✓ Enregistré !';
+        btn.style.background = 'var(--accent, #10b981)';
+        setTimeout(() => {
+          btn.textContent = origText || '💾 Enregistrer la planification';
+          btn.style.background = '';
+          btn.disabled = false;
+        }, 2000);
+      }
+
+      const badgeEl = $(`midea-sched-badge-${devId}`);
+      if (badgeEl) {
+        badgeEl.textContent = isEnabled ? `✓ Actif (${events.length} horaire${events.length > 1 ? 's' : ''})` : 'Désactivé';
+        badgeEl.style.color = isEnabled ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
+      }
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert(`Erreur d'enregistrement: ${err.detail || 'Échec de la sauvegarde'}`);
+      if (btn) {
+        btn.textContent = origText;
+        btn.disabled = false;
+      }
+    }
+  } catch (e) {
+    alert(`Erreur réseau: ${e.message}`);
+    if (btn) {
+      btn.textContent = origText;
+      btn.disabled = false;
+    }
+  }
+}
+
+function renderMideaScheduleEditor(devId, sched) {
+  const box = $(`midea-sched-body-${devId}`);
+  if (!box) return;
+
+  const timezone = sched.timezone || 'America/Toronto';
+  const isEnabled = !!sched.schedule_enabled;
+  const events = sched.events || [];
+
+  const tzOptions = MIDEA_COMMON_TIMEZONES.map(t =>
+    `<option value="${escapeHtml(t.id)}" ${t.id === timezone ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
+  ).join('');
+
+  const badgeEl = $(`midea-sched-badge-${devId}`);
+  if (badgeEl) {
+    badgeEl.textContent = isEnabled ? `✓ Actif (${events.length} horaire${events.length > 1 ? 's' : ''})` : 'Désactivé';
+    badgeEl.style.color = isEnabled ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
+  }
+
+  box.innerHTML = `
+    <div class="midea-sched-top-row">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:600;">
+        <input type="checkbox" id="midea-sched-en-${escapeHtml(devId)}" ${isEnabled ? 'checked' : ''} style="width:16px; height:16px; cursor:pointer;" />
+        <span>Activer la planification</span>
+      </label>
+
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span style="font-size:12px; color:var(--text-dim,#94a3b8);">Fuseau horaire:</span>
+        <select id="midea-sched-tz-${escapeHtml(devId)}" class="midea-tz-select">
+          ${tzOptions}
+        </select>
+      </div>
+    </div>
+
+    <div class="midea-sched-events-list" id="midea-events-list-${escapeHtml(devId)}">
+      <!-- Event rows rendered below -->
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px;">
+      <button type="button" class="btn btn-ghost btn-tiny midea-add-ev-btn" data-id="${escapeHtml(devId)}">
+        ➕ Ajouter un horaire
+      </button>
+
+      <button type="button" class="btn btn-primary btn-small midea-save-sched-btn" data-id="${escapeHtml(devId)}">
+        💾 Enregistrer la planification
+      </button>
+    </div>
+  `;
+
+  renderMideaEventsList(devId, events);
+
+  // Wire up top controls
+  const enCb = $(`midea-sched-en-${devId}`);
+  if (enCb) {
+    enCb.addEventListener('change', () => {
+      const curEvents = collectMideaEventsFromDom(devId);
+      if (badgeEl) {
+        badgeEl.textContent = enCb.checked ? `✓ Actif (${curEvents.length} horaire${curEvents.length > 1 ? 's' : ''})` : 'Désactivé';
+        badgeEl.style.color = enCb.checked ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
+      }
+    });
+  }
+
+  box.querySelector('.midea-add-ev-btn')?.addEventListener('click', () => {
+    const curEvents = collectMideaEventsFromDom(devId);
+    curEvents.push({
+      id: 'evt_' + Math.random().toString(36).substring(2, 9),
+      name: `Horaire ${curEvents.length + 1}`,
+      enabled: true,
+      days: [1, 2, 3, 4, 5, 6, 7],
+      time: '08:00',
+      power: true,
+      target_humidity: 45,
+      fan_speed: 40,
+      mode: 1,
+    });
+    renderMideaEventsList(devId, curEvents);
+  });
+
+  box.querySelector('.midea-save-sched-btn')?.addEventListener('click', (e) => {
+    saveMideaDeviceSchedule(devId, e.currentTarget);
+  });
+}
+
+function renderMideaEventsList(devId, events) {
+  const listEl = $(`midea-events-list-${devId}`);
+  if (!listEl) return;
+
+  const dayLabels = [
+    { num: 1, label: 'Lun' },
+    { num: 2, label: 'Mar' },
+    { num: 3, label: 'Mer' },
+    { num: 4, label: 'Jeu' },
+    { num: 5, label: 'Ven' },
+    { num: 6, label: 'Sam' },
+    { num: 7, label: 'Dim' },
+  ];
+
+  if (!events.length) {
+    listEl.innerHTML = `<div style="font-size:12px; color:var(--text-dim,#94a3b8); text-align:center; padding:12px; border:1px dashed rgba(255,255,255,0.1); border-radius:6px;">Aucun horaire configuré. Cliquez sur "+ Ajouter un horaire" pour démarrer.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = events.map((ev, idx) => {
+    const isEn = !!ev.enabled;
+    const isPwr = !!ev.power;
+    const evDays = ev.days || [1, 2, 3, 4, 5, 6, 7];
+
+    const dayPillsHtml = dayLabels.map(d =>
+      `<span class="midea-day-pill ${evDays.includes(d.num) ? 'on' : ''}" data-day="${d.num}">${d.label}</span>`
+    ).join('');
+
+    return `
+      <div class="midea-sched-event-row ${isEn ? '' : 'disabled'}" data-id="${escapeHtml(ev.id)}" data-idx="${idx}">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" class="midea-ev-en-cb" ${isEn ? 'checked' : ''} title="Activer cet horaire" style="cursor:pointer;" />
+            <input type="text" class="midea-ev-name-input" value="${escapeHtml(ev.name || `Horaire ${idx + 1}`)}" placeholder="Nom de l'horaire" style="background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 4px; width:130px;" />
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="time" class="midea-ev-time-input" value="${escapeHtml(ev.time || '08:00')}" style="background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 6px; border-radius:4px;" />
+            <button type="button" class="btn btn-ghost btn-tiny midea-del-ev-btn" data-idx="${idx}" title="Supprimer cet horaire" style="color:var(--red,#ef4444); padding:2px 6px;">🗑️</button>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-top:4px;">
+          <!-- Days pills -->
+          <div class="midea-day-pills">
+            ${dayPillsHtml}
+          </div>
+
+          <!-- Action details -->
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <select class="midea-ev-power-select" style="font-size:11px; padding:2px 6px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
+              <option value="true" ${isPwr ? 'selected' : ''}>▶️ Allumer</option>
+              <option value="false" ${!isPwr ? 'selected' : ''}>⏹️ Arrêter</option>
+            </select>
+
+            <span class="midea-ev-settings-group" style="${isPwr ? 'display:inline-flex;' : 'display:none;'} align-items:center; gap:6px;">
+              <span style="font-size:11px; color:var(--text-dim,#94a3b8);">Cible:</span>
+              <input type="number" class="midea-ev-hum-input" min="30" max="80" step="5" value="${ev.target_humidity || 45}" style="width:48px; font-size:11px; padding:2px 4px; text-align:center; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); border-radius:4px;" />%
+
+              <select class="midea-ev-fan-select" style="font-size:11px; padding:2px 4px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
+                <option value="40" ${ev.fan_speed < 70 ? 'selected' : ''}>Vent. Faible</option>
+                <option value="80" ${ev.fan_speed >= 70 ? 'selected' : ''}>Vent. Élevée</option>
+              </select>
+
+              <select class="midea-ev-mode-select" style="font-size:11px; padding:2px 4px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
+                <option value="1" ${ev.mode !== 2 ? 'selected' : ''}>Normal</option>
+                <option value="2" ${ev.mode === 2 ? 'selected' : ''}>Continu</option>
+              </select>
+            </span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire row listeners
+  listEl.querySelectorAll('.midea-sched-event-row').forEach(row => {
+    const idx = parseInt(row.dataset.idx, 10);
+
+    row.querySelector('.midea-ev-en-cb')?.addEventListener('change', (e) => {
+      row.classList.toggle('disabled', !e.target.checked);
+    });
+
+    row.querySelectorAll('.midea-day-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        pill.classList.toggle('on');
+      });
+    });
+
+    const pwrSel = row.querySelector('.midea-ev-power-select');
+    const settingsGroup = row.querySelector('.midea-ev-settings-group');
+    if (pwrSel && settingsGroup) {
+      pwrSel.addEventListener('change', () => {
+        const isTurnOn = pwrSel.value === 'true';
+        settingsGroup.style.display = isTurnOn ? 'inline-flex' : 'none';
+      });
+    }
+
+    row.querySelector('.midea-del-ev-btn')?.addEventListener('click', () => {
+      const curEvents = collectMideaEventsFromDom(devId);
+      curEvents.splice(idx, 1);
+      renderMideaEventsList(devId, curEvents);
+    });
+  });
+}
+
+async function renderMideaTab(force = false) {
+  const container = $('midea-devices-container');
+  if (!container) return;
+
+  // Initial fetch of devices if none cached yet
+  if (!lastMideaDevices.length || force) {
+    try {
+      const r = await fetch('/api/midea/devices');
+      if (r.ok) {
+        const j = await r.json();
+        if (j.devices) {
+          lastMideaDevices = j.devices;
+          if (lastStatus) lastStatus.midea_devices = j.devices;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load Midea devices:', e);
+    }
+  }
+
+  const devices = (lastMideaDevices && lastMideaDevices.length) ? lastMideaDevices : ((lastStatus && lastStatus.midea_devices) || []);
+
+  // Update Location pill active classes
+  document.querySelectorAll('.midea-loc-pill').forEach(p => {
+    p.classList.toggle('on', p.dataset.loc === _mideaSelectedLocation);
+  });
+
+  // Update Last poll time
+  const pollTimeEl = $('midea-last-poll-time');
+  if (pollTimeEl) {
+    if (_lastMideaPollTs) {
+      const elapsedM = Math.max(0, Math.round((Date.now() - _lastMideaPollTs) / 60000));
+      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+    } else if (devices.length) {
+      pollTimeEl.textContent = 'Last update: active';
+    } else {
+      pollTimeEl.textContent = 'Last update: —';
+    }
+  }
+
+  // Filter devices based on chosen location
+  const locFilter = _mideaSelectedLocation;
+  const filtered = (locFilter === 'all')
+    ? devices
+    : devices.filter(d => (d.location_id || '').toLowerCase() === locFilter.toLowerCase());
+
+  // Update KPI counters
+  const totalEl = $('midea-kpi-total');
+  const activeEl = $('midea-kpi-active');
+  const activeSubEl = $('midea-kpi-active-sub');
+  const avgHumEl = $('midea-kpi-avg-humidity');
+  const tankCard = $('midea-kpi-tank-card');
+  const tankStatusEl = $('midea-kpi-tanks-status');
+  const tankSubEl = $('midea-kpi-tanks-sub');
+
+  const runningCount = filtered.filter(d => d.power).length;
+  const compressorCount = filtered.filter(d => d.power && d.compressor_running).length;
+  const fanOnlyCount = filtered.filter(d => d.power && !d.compressor_running && !d.tank_full).length;
+  const tanksFull = filtered.filter(d => d.tank_full).length;
+  const hums = filtered.map(d => d.current_humidity).filter(h => h > 0);
+  const avgHum = hums.length ? Math.round(hums.reduce((a, b) => a + b, 0) / hums.length) : null;
+
+  if (totalEl) totalEl.textContent = String(filtered.length);
+  if (activeEl) activeEl.textContent = String(runningCount);
+  if (activeSubEl) {
+    if (runningCount === 0) {
+      activeSubEl.textContent = 'Tous à l\'arrêt';
+    } else if (compressorCount > 0 && fanOnlyCount > 0) {
+      activeSubEl.textContent = `${compressorCount} compresseur · ${fanOnlyCount} ventilation`;
+    } else if (compressorCount > 0) {
+      activeSubEl.textContent = `${compressorCount} compresseur${compressorCount > 1 ? 's' : ''} actif${compressorCount > 1 ? 's' : ''}`;
+    } else {
+      activeSubEl.textContent = `${fanOnlyCount} en ventilation seule`;
+    }
+  }
+  if (avgHumEl) avgHumEl.textContent = avgHum !== null ? `${avgHum}%` : '—';
+
+  if (tankCard && tankStatusEl && tankSubEl) {
+    if (tanksFull > 0) {
+      tankStatusEl.textContent = `⚠️ ${tanksFull} PLEIN`;
+      tankStatusEl.style.color = 'var(--red, #ef4444)';
+      tankSubEl.textContent = 'Vidange requise';
+      tankCard.style.borderColor = 'var(--red, #ef4444)';
+    } else {
+      tankStatusEl.textContent = 'OK';
+      tankStatusEl.style.color = 'var(--accent, #10b981)';
+      tankSubEl.textContent = 'Bacs normaux';
+      tankCard.style.borderColor = '';
+    }
+  }
+
+  // Empty state handling
+  const emptyEl = $('midea-empty');
+  if (filtered.length === 0) {
+    if (emptyEl) emptyEl.hidden = false;
+    container.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+
+  // Compute signature of current view state to avoid wiping DOM if unchanged
+  const sig = JSON.stringify({
+    loc: _mideaSelectedLocation,
+    hist: Array.from(_mideaOpenDeviceHistories).sort(),
+    sched: Array.from(_mideaOpenDeviceSchedules).sort(),
+    devHours: _mideaDevHours,
+    devs: filtered.map(d => ({
+      id: d.device_id,
+      name: d.name,
+      pwr: d.power,
+      cr: d.compressor_running,
+      fo: d.fan_only,
+      st: d.operational_status,
+      hum: d.current_humidity,
+      tgt: d.target_humidity,
+      temp: d.current_temperature,
+      tank: d.tank_full,
+      spd: d.fan_speed,
+      mode: d.mode,
+      loc: d.location_id,
+      online: d.online,
+      schedEn: d.schedule_enabled,
+      schedCount: d.schedule_events_count,
+    })),
+  });
+
+  const isInteracting = container.contains(document.activeElement);
+
+  // If nothing changed in the device list and not forced, DO NOT rebuild cards!
+  if (!force && sig === _mideaLastRenderedSignature) {
+    return;
+  }
+
+  // If user is currently interacting with an element (e.g. typing in an input or selecting dropdown),
+  // defer re-rendering so we don't blow away their input!
+  if (!force && isInteracting) {
+    return;
+  }
+
+  _mideaLastRenderedSignature = sig;
+
+  // Render cards
+  const allLocations = (lastStatus && lastStatus.locations) || [
+    { id: 'maison', name: 'Maison' },
+    { id: 'chalet', name: 'Chalet' },
+  ];
+
+  // Default all devices to open graph on first render
+  if (_mideaOpenDeviceHistories.size === 0 && filtered.length > 0) {
+    filtered.forEach(d => _mideaOpenDeviceHistories.add(String(d.device_id)));
+  }
+
+  container.innerHTML = filtered.map(d => {
+    const isFull = !!d.tank_full;
+    const isRunning = !!d.power;
+    const curHum = Math.round(d.current_humidity || 0);
+    const targetHum = Math.round(d.target_humidity || 50);
+    const tempC = d.current_temperature > 0 ? `${d.current_temperature.toFixed(1)}°C` : '';
+    const fanSpeed = d.fan_speed || 40;
+    const isHighFan = fanSpeed >= 70;
+    const mode = d.mode || 1;
+    const devId = String(d.device_id);
+    const isHistOpen = _mideaOpenDeviceHistories.has(devId);
+    const isSchedOpen = _mideaOpenDeviceSchedules.has(devId);
+    const histHours = _mideaDevHours[devId] || 24;
+
+    const cachedSched = _mideaDeviceSchedules[devId];
+    const hasSchedInfo = cachedSched || (d.schedule_enabled != null);
+    const schedEn = cachedSched ? !!cachedSched.schedule_enabled : !!d.schedule_enabled;
+    const schedCount = cachedSched ? (cachedSched.events || []).length : (d.schedule_events_count || 0);
+    const badgeText = hasSchedInfo
+      ? (schedEn ? `✓ Actif (${schedCount} horaire${schedCount > 1 ? 's' : ''})` : 'Désactivé')
+      : '';
+    const badgeColor = schedEn ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
+
+    let statusBadgeHtml = '';
+    if (!isRunning) {
+      statusBadgeHtml = '<span class="midea-badge off">Arrêt</span>';
+    } else if (isFull) {
+      statusBadgeHtml = '<span class="midea-badge tank-full pulse">⚠️ Bac plein</span>';
+    } else if (d.defrosting) {
+      statusBadgeHtml = '<span class="midea-badge defrosting">❄️ Dégivrage</span>';
+    } else if (d.compressor_running) {
+      statusBadgeHtml = '<span class="midea-badge dehumidifying"><span class="midea-water-pulse">💧</span> Compresseur actif</span>';
+    } else {
+      statusBadgeHtml = '<span class="midea-badge fan-only"><span class="midea-fan-spin">🌪️</span> Ventilation seule</span>';
+    }
+
+    let targetSubtext = 'Humidité sous contrôle';
+    if (!isRunning) {
+      targetSubtext = 'Appareil à l\'arrêt';
+    } else if (isFull) {
+      targetSubtext = 'Arrêt sécurité (bac plein)';
+    } else if (d.defrosting) {
+      targetSubtext = 'Dégivrage du compresseur';
+    } else if (mode === 2) {
+      targetSubtext = 'Mode continu — Compresseur actif';
+    } else if (curHum > targetHum) {
+      targetSubtext = `${curHum}% > ${targetHum}% — Compresseur actif`;
+    } else {
+      targetSubtext = `${curHum}% ≤ ${targetHum}% — Consigne atteinte (ventilation)`;
+    }
+
+    const locOptions = allLocations.map(l =>
+      `<option value="${escapeHtml(l.id)}" ${(d.location_id || '').toLowerCase() === l.id.toLowerCase() ? 'selected' : ''}>${escapeHtml(l.name || l.id)}</option>`
+    ).join('');
+
+    return `
+      <div class="card device-card midea-device-card ${isFull ? 'midea-tank-full-card' : ''}" data-device-id="${escapeHtml(d.device_id)}">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h3 style="margin:0 0 4px 0; font-size:17px; display:flex; align-items:center; gap:6px;">
+              <span>💧</span> ${escapeHtml(d.name || 'Danby Dehumidifier')}
+            </h3>
+            <span class="hint" style="font-size:12px;">${escapeHtml(d.model || 'Danby')} • IP: ${escapeHtml(d.ip || 'LAN')}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <select class="midea-device-loc-select device-select" data-id="${escapeHtml(d.device_id)}" style="font-size:11px; padding:2px 6px;">
+              ${locOptions}
+            </select>
+            <span class="midea-badge ${d.online ? 'online' : 'offline'}">${d.online ? 'En ligne' : 'Hors ligne'}</span>
+            ${statusBadgeHtml}
+          </div>
+        </div>
+
+        ${isFull ? `
+          <div class="midea-tank-banner" style="margin:12px 0 6px; padding:10px 14px; background:rgba(239, 68, 68, 0.15); border:1px solid var(--red, #ef4444); border-radius:8px; display:flex; align-items:center; gap:10px;">
+            <span style="font-size:22px;">⚠️</span>
+            <div style="font-size:13px; color:var(--red, #ef4444); font-weight:600;">
+              Le réservoir d'eau est plein. Le compresseur est arrêté. Videz le bac d'eau pour relancer l'appareil.
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Center humidity readout -->
+        <div class="midea-readout-center" style="display:flex; align-items:center; justify-content:space-around; padding:16px 8px; margin:12px 0; background:rgba(255,255,255,0.02); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+          <div style="text-align:center;">
+            <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:2px;">Humidité ambiante</div>
+            <div style="font-size:38px; font-weight:700; line-height:1; color:${curHum > targetHum + 5 ? 'var(--blue, #38bdf8)' : 'var(--text-bright, #fff)'};">
+              ${curHum > 0 ? curHum + '%' : '—'}
+            </div>
+            ${tempC ? `<div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-top:4px;">🌡️ ${tempC}</div>` : ''}
+          </div>
+
+          <div style="width:1px; height:50px; background:rgba(255,255,255,0.1);"></div>
+
+          <div style="text-align:center;">
+            <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:2px;">Consigne cible</div>
+            <div style="font-size:32px; font-weight:700; line-height:1; color:var(--accent, #10b981);">
+              ${targetHum}%
+            </div>
+            <div style="font-size:11px; color:var(--text-dim,#94a3b8); margin-top:4px;">
+              ${targetSubtext}
+            </div>
+          </div>
+        </div>
+
+        <!-- Controls section -->
+        <div class="midea-controls-grid" style="display:flex; flex-direction:column; gap:12px; margin-top:14px;">
+          <!-- Power & Humidity Stepper Row -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <button class="btn ${isRunning ? 'btn-danger' : 'btn-primary'} midea-pwr-btn" data-id="${escapeHtml(d.device_id)}" data-power="${!isRunning}" style="min-width:110px;">
+              ${isRunning ? '⏹️ Arrêter' : '▶️ Allumer'}
+            </button>
+
+            <!-- Target Humidity Stepper -->
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:12px; color:var(--text-dim,#94a3b8);">Cible:</span>
+              <button class="btn btn-ghost btn-tiny midea-step-btn" data-id="${escapeHtml(d.device_id)}" data-val="${Math.max(30, targetHum - 5)}" title="Baisser la consigne (-5%)">➖</button>
+              <span style="font-weight:600; font-size:14px; min-width:36px; text-align:center;">${targetHum}%</span>
+              <button class="btn btn-ghost btn-tiny midea-step-btn" data-id="${escapeHtml(d.device_id)}" data-val="${Math.min(80, targetHum + 5)}" title="Augmenter la consigne (+5%)">➕</button>
+            </div>
+          </div>
+
+          <!-- Fan Speed & Mode Row -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06);">
+            <!-- Fan Speed -->
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:12px; color:var(--text-dim,#94a3b8);">Ventilation:</span>
+              <div class="button-group" style="display:flex; gap:4px;">
+                <button class="btn btn-tiny ${!isHighFan ? 'btn-primary' : 'btn-ghost'} midea-fan-btn" data-id="${escapeHtml(d.device_id)}" data-speed="40">Faible</button>
+                <button class="btn btn-tiny ${isHighFan ? 'btn-primary' : 'btn-ghost'} midea-fan-btn" data-id="${escapeHtml(d.device_id)}" data-speed="80">Élevée</button>
+              </div>
+            </div>
+
+            <!-- Mode -->
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:12px; color:var(--text-dim,#94a3b8);">Mode:</span>
+              <div class="button-group" style="display:flex; gap:4px;">
+                <button class="btn btn-tiny ${mode === 1 ? 'btn-primary' : 'btn-ghost'} midea-mode-btn" data-id="${escapeHtml(d.device_id)}" data-mode="1" title="Mode normal avec consigne">Normal</button>
+                <button class="btn btn-tiny ${mode === 2 ? 'btn-primary' : 'btn-ghost'} midea-mode-btn" data-id="${escapeHtml(d.device_id)}" data-mode="2" title="Fonctionnement continu">Continu</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- History & Operating States Graph Section -->
+        <div class="midea-card-section midea-hist-section">
+          <div class="midea-section-header">
+            <button type="button" class="midea-section-title-btn midea-toggle-hist-btn" data-id="${escapeHtml(d.device_id)}">
+              <span>${isHistOpen ? '▼' : '▶'}</span>
+              <span>📈 Graphique d'utilisation (on/off/vent./comp.)</span>
+            </button>
+            <div class="range-picker midea-dev-range-picker" data-dev="${escapeHtml(d.device_id)}" style="${isHistOpen ? 'display:flex;' : 'display:none;'}">
+              <button type="button" class="sinope-loc-range-btn ${histHours === 6 ? 'on' : ''}" data-dev="${escapeHtml(d.device_id)}" data-hours="6">6h</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 12 ? 'on' : ''}" data-dev="${escapeHtml(d.device_id)}" data-hours="12">12h</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 24 ? 'on' : ''}" data-dev="${escapeHtml(d.device_id)}" data-hours="24">24h</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 168 ? 'on' : ''}" data-dev="${escapeHtml(d.device_id)}" data-hours="168">7d</button>
+            </div>
+          </div>
+
+          <div id="midea-hist-body-${escapeHtml(d.device_id)}" style="${isHistOpen ? 'display:block;' : 'display:none;'}">
+            <!-- Runtime breakdown chips -->
+            <div class="midea-runtime-chips">
+              <span class="midea-chip midea-chip-blue" title="Durée compresseur actif">💧 Compresseur: <b id="midea-rt-comp-${escapeHtml(d.device_id)}">—</b></span>
+              <span class="midea-chip midea-chip-teal" title="Durée ventilation seule">🌪️ Ventilation: <b id="midea-rt-fan-${escapeHtml(d.device_id)}">—</b></span>
+              <span class="midea-chip midea-chip-slate" title="Durée à l'arrêt">⏹️ Arrêt: <b id="midea-rt-off-${escapeHtml(d.device_id)}">—</b></span>
+              <span class="midea-chip midea-chip-green" title="Énergie électrique estimée consommée">⚡ Énergie: <b id="midea-rt-kwh-${escapeHtml(d.device_id)}">—</b></span>
+            </div>
+
+            <div class="midea-chart-box">
+              <canvas id="chart-midea-dev-${escapeHtml(d.device_id)}" class="midea-chart"></canvas>
+              <div class="midea-chart-legend">
+                <span class="midea-chart-legend-item"><span style="display:inline-block; width:10px; height:10px; background:rgba(14, 165, 233, 0.45); border-radius:2px;"></span> Compresseur</span>
+                <span class="midea-chart-legend-item"><span style="display:inline-block; width:10px; height:10px; background:rgba(20, 184, 166, 0.45); border-radius:2px;"></span> Ventilation</span>
+                <span class="midea-chart-legend-item"><span style="display:inline-block; width:12px; height:2px; background:#38bdf8;"></span> Humidité ambiante</span>
+                <span class="midea-chart-legend-item"><span style="display:inline-block; width:12px; height:0; border-top:2px dashed #10b981;"></span> Consigne</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Schedule & Timezone Section -->
+        <div class="midea-card-section midea-sched-section">
+          <div class="midea-section-header">
+            <button type="button" class="midea-section-title-btn midea-toggle-sched-btn" data-id="${escapeHtml(d.device_id)}">
+              <span>${isSchedOpen ? '▼' : '▶'}</span>
+              <span>📅 Planification & Fuseau horaire</span>
+            </button>
+            <span class="hint" style="font-size:11px; color:${badgeColor};" id="midea-sched-badge-${escapeHtml(d.device_id)}">${escapeHtml(badgeText)}</span>
+          </div>
+
+          <div id="midea-sched-body-${escapeHtml(d.device_id)}" class="midea-schedule-box" style="${isSchedOpen ? 'display:flex;' : 'display:none;'}">
+            ${_mideaDeviceSchedules[devId] ? '' : '<div style="font-size:12px; color:var(--text-dim,#94a3b8); text-align:center; padding:12px;">Chargement de la planification…</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire up card action listeners
+  container.querySelectorAll('.midea-pwr-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.id;
+      const power = btn.dataset.power === 'true';
+      sendMideaControl(devId, { power }, btn);
+    });
+  });
+
+  container.querySelectorAll('.midea-step-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.id;
+      const val = parseInt(btn.dataset.val, 10);
+      sendMideaControl(devId, { target_humidity: val }, btn);
+    });
+  });
+
+  container.querySelectorAll('.midea-fan-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.id;
+      const speed = parseInt(btn.dataset.speed, 10);
+      sendMideaControl(devId, { fan_speed: speed }, btn);
+    });
+  });
+
+  container.querySelectorAll('.midea-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.id;
+      const mode = parseInt(btn.dataset.mode, 10);
+      sendMideaControl(devId, { mode: mode }, btn);
+    });
+  });
+
+  container.querySelectorAll('.midea-device-loc-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const devId = sel.dataset.id;
+      const locId = sel.value;
+      setMideaDeviceLocation(devId, locId);
+    });
+  });
+
+  // Wire up Toggle History buttons
+  container.querySelectorAll('.midea-toggle-hist-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.id;
+      const body = $(`midea-hist-body-${devId}`);
+      const picker = container.querySelector(`.midea-dev-range-picker[data-dev="${devId}"]`);
+      if (_mideaOpenDeviceHistories.has(devId)) {
+        _mideaOpenDeviceHistories.delete(devId);
+        if (body) body.style.display = 'none';
+        if (picker) picker.style.display = 'none';
+        btn.querySelector('span').textContent = '▶';
+      } else {
+        _mideaOpenDeviceHistories.add(devId);
+        if (body) body.style.display = 'block';
+        if (picker) picker.style.display = 'flex';
+        btn.querySelector('span').textContent = '▼';
+        loadAndDrawMideaDeviceChart(devId);
+      }
+    });
+  });
+
+  // Wire up Range picker buttons
+  container.querySelectorAll('.midea-dev-range-picker button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.dev;
+      const hours = parseInt(btn.dataset.hours, 10);
+      _mideaDevHours[devId] = hours;
+      const picker = container.querySelector(`.midea-dev-range-picker[data-dev="${devId}"]`);
+      if (picker) {
+        picker.querySelectorAll('button').forEach(b => b.classList.toggle('on', parseInt(b.dataset.hours, 10) === hours));
+      }
+      loadAndDrawMideaDeviceChart(devId, true);
+    });
+  });
+
+  // Wire up Toggle Schedule buttons
+  container.querySelectorAll('.midea-toggle-sched-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const devId = btn.dataset.id;
+      const body = $(`midea-sched-body-${devId}`);
+      if (_mideaOpenDeviceSchedules.has(devId)) {
+        _mideaOpenDeviceSchedules.delete(devId);
+        if (body) body.style.display = 'none';
+        btn.querySelector('span').textContent = '▶';
+      } else {
+        _mideaOpenDeviceSchedules.add(devId);
+        if (body) body.style.display = 'flex';
+        btn.querySelector('span').textContent = '▼';
+        if (_mideaDeviceSchedules[devId]) {
+          renderMideaScheduleEditor(devId, _mideaDeviceSchedules[devId]);
+        } else {
+          loadMideaDeviceSchedule(devId);
+        }
+      }
+    });
+  });
+
+  // Auto-load charts & schedules for open items, and prefetch schedules if needed
+  filtered.forEach(d => {
+    const devId = String(d.device_id);
+    if (_mideaOpenDeviceHistories.has(devId)) {
+      loadAndDrawMideaDeviceChart(devId);
+    }
+    if (_mideaOpenDeviceSchedules.has(devId)) {
+      if (_mideaDeviceSchedules[devId]) {
+        renderMideaScheduleEditor(devId, _mideaDeviceSchedules[devId]);
+      } else {
+        loadMideaDeviceSchedule(devId);
+      }
+    }
+    // Prefetch schedule if not yet cached so badge and future expands are instant
+    if (!_mideaDeviceSchedules[devId]) {
+      fetch(`/api/midea/device/${encodeURIComponent(devId)}/schedule`)
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          if (j) {
+            _mideaDeviceSchedules[devId] = j;
+            const b = $(`midea-sched-badge-${devId}`);
+            if (b) {
+              const isEn = !!j.schedule_enabled;
+              const c = (j.events || []).length;
+              b.textContent = isEn ? `✓ Actif (${c} horaire${c > 1 ? 's' : ''})` : 'Désactivé';
+              b.style.color = isEn ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
+            }
+            if (_mideaOpenDeviceSchedules.has(devId)) {
+              renderMideaScheduleEditor(devId, j);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  });
+
+  // Window resize hook
+  if (!_mideaResizeBound) {
+    _mideaResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (activeTab === 'midea') {
+        _mideaOpenDeviceHistories.forEach(id => {
+          const canvas = $('chart-midea-dev-' + id);
+          if (canvas && canvas._redraw) canvas._redraw();
+        });
+      }
+    });
+  }
+}
+
+async function sendMideaControl(deviceId, payload, btn = null) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/api/midea/device/${encodeURIComponent(deviceId)}/control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      // Update local state and re-render
+      for (const d of lastMideaDevices) {
+        if (d.device_id === deviceId) {
+          Object.assign(d, updated);
+          break;
+        }
+      }
+      renderMideaTab();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert(`Erreur de commande: ${err.detail || 'Échec de la commande'}`);
+    }
+  } catch (e) {
+    alert(`Erreur réseau: ${e.message}`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function setMideaDeviceLocation(deviceId, locationId) {
+  try {
+    const res = await fetch(`/api/midea/device/${encodeURIComponent(deviceId)}/location`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_id: locationId }),
+    });
+    if (res.ok) {
+      for (const d of lastMideaDevices) {
+        if (d.device_id === deviceId) {
+          d.location_id = locationId;
+          break;
+        }
+      }
+      renderMideaTab();
+    }
+  } catch (e) {
+    console.warn('Failed to set device location:', e);
+  }
+}
+
+// ============================================================
+// DANBY / MIDEA SETTINGS
+// ============================================================
+async function loadMideaCreds() {
+  const statusEl = $('midea-creds-status');
+  const locIndicator = $('midea-creds-loc-indicator');
+  const emailInput = $('midea-email');
+  const pwdInput = $('midea-password');
+  const appSelect = $('midea-app-name');
+
+  try {
+    const res = await fetch('/api/midea/credentials');
+    if (!res.ok) return;
+    const data = await res.json();
+    lastMideaCredsStatus = data;
+
+    const locData = (data.locations && data.locations[_mideaCredsLoc]) || {};
+    const isConfigured = !!locData.configured;
+
+    if (statusEl) {
+      if (data.has_credentials) {
+        statusEl.textContent = 'Configured';
+        statusEl.style.color = 'var(--accent, #10b981)';
+      } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.style.color = 'var(--text-dim, #94a3b8)';
+      }
+    }
+
+    if (locIndicator) {
+      locIndicator.textContent = `${_mideaCredsLoc.charAt(0).toUpperCase() + _mideaCredsLoc.slice(1)} credentials`;
+    }
+
+    if (emailInput) {
+      emailInput.value = locData.email || '';
+    }
+    if (pwdInput) {
+      pwdInput.value = '';
+      pwdInput.placeholder = isConfigured ? 'Password saved (••••••••)' : 'Enter password';
+    }
+    if (appSelect) {
+      appSelect.value = locData.app_name || 'MSmartHome';
+    }
+  } catch (e) {
+    console.warn('Failed to load Midea creds:', e);
+  }
+}
+
+function initMideaSettings() {
+  const form = $('midea-creds-form');
+  const msg = $('midea-msg');
+  const saveBtn = $('midea-save-btn');
+  const clearBtn = $('midea-clear-btn');
+  const pollBtn = $('midea-poll-btn');
+
+  function showMsg(text, isError = false, timeout = 5000) {
+    if (!msg) return;
+    msg.hidden = false;
+    msg.textContent = text;
+    msg.style.color = isError ? 'var(--red, #ef4444)' : 'var(--accent, #10b981)';
+    if (timeout > 0) {
+      setTimeout(() => { msg.hidden = true; }, timeout);
+    }
+  }
+
+  // Location selector pills in settings
+  document.querySelectorAll('.midea-creds-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _mideaCredsLoc = pill.dataset.loc || 'maison';
+      document.querySelectorAll('.midea-creds-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _mideaCredsLoc);
+      });
+      loadMideaCreds();
+    });
+  });
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    showMsg('Verifying credentials with MSmartHome cloud…', false, 0);
+
+    const email = ($('midea-email')?.value || '').trim();
+    let password = $('midea-password')?.value || '';
+    const appName = $('midea-app-name')?.value || 'MSmartHome';
+
+    const locData = (lastMideaCredsStatus && lastMideaCredsStatus.locations && lastMideaCredsStatus.locations[_mideaCredsLoc]) || {};
+    const isConfigured = !!locData.configured;
+
+    if (!password && isConfigured) {
+      password = '••••••••';
+    } else if (!password) {
+      showMsg('Please enter your MSmartHome account password', true);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Verify & Save'; }
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/midea/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location_id: _mideaCredsLoc,
+          email: email,
+          password: password,
+          app_name: appName,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const appLabel = data.app_name || appName;
+        showMsg(`✓ Connected to ${appLabel}! Found ${data.device_count || 0} appliance(s). Discovering on LAN…`, false, 8000);
+        await loadMideaCreds();
+        renderMideaTab(true);
+      } else {
+        showMsg(`Authentication Error: ${data.detail || 'Failed to authenticate with Midea cloud'}`, true, 8000);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true, 8000);
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Verify & Save'; }
+    }
+  });
+
+  clearBtn?.addEventListener('click', async () => {
+    const locTitle = _mideaCredsLoc.charAt(0).toUpperCase() + _mideaCredsLoc.slice(1);
+    if (!confirm(`Are you sure you want to forget MSmartHome credentials for ${locTitle}?`)) return;
+
+    try {
+      const res = await fetch(`/api/midea/credentials?location_id=${encodeURIComponent(_mideaCredsLoc)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        showMsg(`Cleared MSmartHome credentials for ${locTitle}`);
+        await loadMideaCreds();
+        renderMideaTab(true);
+      } else {
+        showMsg('Failed to clear credentials', true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    }
+  });
+
+  pollBtn?.addEventListener('click', async () => {
+    if (pollBtn) { pollBtn.disabled = true; pollBtn.textContent = 'Polling…'; }
+    showMsg('Polling Danby / Midea dehumidifiers…', false, 0);
+
+    try {
+      const res = await fetch('/api/midea/poll', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const count = (data.devices || []).length;
+        showMsg(`✓ Poll completed! Discovered ${count} dehumidifier(s).`);
+        if (data.devices) {
+          lastMideaDevices = data.devices;
+          if (lastStatus) lastStatus.midea_devices = data.devices;
+        }
+        renderMideaTab(true);
+      } else {
+        showMsg(`Poll error: ${data.detail || 'Failed to poll appliances'}`, true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    } finally {
+      if (pollBtn) { pollBtn.disabled = false; pollBtn.textContent = 'Poll now'; }
+    }
+  });
+}
+
+
+// ============================================================
+// TESLA & EV CHARGERS TAB & SETTINGS
+// ============================================================
+let _teslaLocFilter = 'all';
+let lastTeslaDevices = { wall_connectors: [], vehicles: [] };
+let lastTeslaCredsStatus = null;
+let _lastTeslaPollTs = null;
+let _teslaClosedDeviceHistories = new Set();
+let _teslaDevHours = {};
+let _teslaDevHistData = {};
+let _teslaResizeBound = false;
+
+async function loadTeslaCreds() {
+  const statusEl = $('tesla-creds-status');
+  try {
+    const res = await fetch('/api/tesla/credentials');
+    if (!res.ok) return;
+    const cfg = await res.json();
+    lastTeslaCredsStatus = cfg;
+
+    if (statusEl) {
+      if (cfg.saved) {
+        const parts = [];
+        if (cfg.maison_twc_ip) parts.push('Wall Connector');
+        if (cfg.has_tesla_auth) parts.push('Tesla API Connected');
+        statusEl.textContent = `✓ Configured (${parts.join(', ') || 'Active'})`;
+        statusEl.style.color = 'var(--accent, #10b981)';
+      } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.style.color = 'var(--text-dim, #94a3b8)';
+      }
+    }
+
+    const maisonIpInput = $('tesla-maison-ip');
+    if (maisonIpInput && cfg.maison_twc_ip) maisonIpInput.value = cfg.maison_twc_ip;
+
+    const chaletIpInput = $('tesla-chalet-ip');
+    if (chaletIpInput && cfg.chalet_twc_ip) chaletIpInput.value = cfg.chalet_twc_ip;
+
+    const chaletLatInput = $('tesla-chalet-lat');
+    if (chaletLatInput && cfg.chalet_lat != null) chaletLatInput.value = cfg.chalet_lat;
+
+    const chaletLonInput = $('tesla-chalet-lon');
+    if (chaletLonInput && cfg.chalet_lon != null) chaletLonInput.value = cfg.chalet_lon;
+
+    const accessInput = $('tesla-access-token');
+    if (accessInput) {
+      if (cfg.has_access_token) {
+        accessInput.placeholder = '•••••••• (saved)';
+      } else {
+        accessInput.placeholder = 'Paste Tesla access token…';
+      }
+    }
+
+    const refreshInput = $('tesla-refresh-token');
+    if (refreshInput) {
+      if (cfg.has_refresh_token) {
+        refreshInput.placeholder = '•••••••• (saved)';
+      } else {
+        refreshInput.placeholder = 'Paste Tesla refresh token…';
+      }
+    }
+
+    const clientIdInput = $('tesla-client-id');
+    if (clientIdInput && cfg.client_id) {
+      clientIdInput.value = cfg.client_id;
+    }
+
+    const clientSecretInput = $('tesla-client-secret');
+    if (clientSecretInput) {
+      if (cfg.has_client_secret) {
+        clientSecretInput.placeholder = '•••••••• (saved)';
+      } else {
+        clientSecretInput.placeholder = 'Leave blank if using ownerapi';
+      }
+    }
+
+    const regionSelect = $('tesla-region');
+    if (regionSelect && cfg.region) {
+      regionSelect.value = cfg.region;
+    }
+  } catch (err) {
+    console.warn('Failed to load Tesla credentials status:', err);
+  }
+}
+
+function initTeslaSettings() {
+  const form = $('tesla-creds-form');
+  const msg = $('tesla-msg');
+  const saveBtn = $('tesla-save-btn');
+  const clearBtn = $('tesla-clear-btn');
+  const pollBtn = $('tesla-poll-btn');
+
+  function showMsg(text, isError = false, timeout = 5000) {
+    if (!msg) return;
+    msg.hidden = false;
+    msg.textContent = text;
+    msg.style.color = isError ? 'var(--red, #ef4444)' : 'var(--accent, #10b981)';
+    if (timeout > 0) {
+      setTimeout(() => { msg.hidden = true; }, timeout);
+    }
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    showMsg('Validating Wall Connector and official Tesla API credentials…', false, 0);
+
+    const accessToken = ($('tesla-access-token')?.value || '').trim();
+    const refreshToken = ($('tesla-refresh-token')?.value || '').trim();
+    const clientId = ($('tesla-client-id')?.value || '').trim() || 'ownerapi';
+    const clientSecret = ($('tesla-client-secret')?.value || '').trim();
+    const region = $('tesla-region')?.value || 'na';
+    const maisonIp = ($('tesla-maison-ip')?.value || '').trim();
+    const chaletIp = ($('tesla-chalet-ip')?.value || '').trim();
+    const chaletLat = parseFloat($('tesla-chalet-lat')?.value) || null;
+    const chaletLon = parseFloat($('tesla-chalet-lon')?.value) || null;
+
+    try {
+      const res = await fetch('/api/tesla/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: accessToken || (lastTeslaCredsStatus?.has_access_token ? '••••••••' : ''),
+          refresh_token: refreshToken || (lastTeslaCredsStatus?.has_refresh_token ? '••••••••' : ''),
+          client_id: clientId,
+          client_secret: clientSecret || (lastTeslaCredsStatus?.has_client_secret ? '••••••••' : ''),
+          region: region,
+          maison_twc_ip: maisonIp || '192.168.86.41',
+          chalet_twc_ip: chaletIp,
+          chalet_lat: chaletLat,
+          chalet_lon: chaletLon,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const testRes = data.test || {};
+        const twcOk = testRes.wall_connector?.ok ? '✓ Wall Connector OK' : (testRes.wall_connector?.message ? `TWC: ${testRes.wall_connector.message}` : '');
+        const apiOk = testRes.tesla_api?.ok ? `✓ Tesla API (${testRes.tesla_api.vehicle_count} vehicle(s))` : (testRes.tesla_api?.message ? `Tesla API: ${testRes.tesla_api.message}` : '');
+        const summary = [twcOk, apiOk].filter(Boolean).join(' · ') || 'Credentials saved';
+        showMsg(`✓ Saved! ${summary}`, false, 7000);
+        await loadTeslaCreds();
+        renderTeslaTab(true);
+      } else {
+        showMsg(`Error: ${data.detail || 'Failed to save Tesla credentials'}`, true, 8000);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true, 8000);
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Verify & Save'; }
+    }
+  });
+
+  clearBtn?.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to forget Tesla & EV charger credentials?')) return;
+    try {
+      const res = await fetch('/api/tesla/credentials', { method: 'DELETE' });
+      if (res.ok) {
+        showMsg('Cleared Tesla credentials.');
+        if ($('tesla-access-token')) $('tesla-access-token').value = '';
+        if ($('tesla-refresh-token')) $('tesla-refresh-token').value = '';
+        if ($('tesla-client-secret')) $('tesla-client-secret').value = '';
+        if ($('tesla-chalet-ip')) $('tesla-chalet-ip').value = '';
+        if ($('tesla-chalet-lat')) $('tesla-chalet-lat').value = '';
+        if ($('tesla-chalet-lon')) $('tesla-chalet-lon').value = '';
+        await loadTeslaCreds();
+        renderTeslaTab(true);
+      } else {
+        showMsg('Failed to clear credentials', true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    }
+  });
+
+  pollBtn?.addEventListener('click', async () => {
+    if (pollBtn) { pollBtn.disabled = true; pollBtn.textContent = 'Polling…'; }
+    showMsg('Polling Tesla Wall Connectors and official Tesla API…', false, 0);
+
+    try {
+      const res = await fetch('/api/tesla/poll', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const devs = Array.isArray(data) ? data : (data.devices || []);
+        showMsg(`✓ Poll completed! Discovered ${devs.length} device(s).`);
+        lastTeslaDevices = data;
+        _lastTeslaPollTs = Date.now();
+        renderTeslaTab(true);
+      } else {
+        showMsg(`Poll error: ${data.detail || 'Failed to poll Tesla devices'}`, true);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true);
+    } finally {
+      if (pollBtn) { pollBtn.disabled = false; pollBtn.textContent = 'Poll now'; }
+    }
+  });
+}
+
+function initTeslaTab() {
+  // Location filter pills
+  document.querySelectorAll('.tesla-loc-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      _teslaLocFilter = pill.dataset.loc || 'all';
+      document.querySelectorAll('.tesla-loc-pill').forEach(p => {
+        p.classList.toggle('on', p.dataset.loc === _teslaLocFilter);
+      });
+      renderTeslaTab();
+    });
+  });
+
+  // Tab poll button
+  $('tesla-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('tesla-tab-poll-btn');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/tesla/poll', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        lastTeslaDevices = data;
+        _lastTeslaPollTs = Date.now();
+        renderTeslaTab();
+      }
+    } catch (err) {
+      console.warn('Failed to poll Tesla devices:', err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  // Empty state button
+  $('tesla-go-settings-btn')?.addEventListener('click', () => {
+    switchTab('settings');
+    selectSettingsSubtab('integrations');
+    const card = $('settings-card-tesla');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth' });
+      card.classList.remove('collapsed');
+    }
+  });
+}
+
+async function renderTeslaTab(forceRefresh = false) {
+  const container = $('tesla-devices-container');
+  if (!container) return;
+
+  const devList = Array.isArray(lastTeslaDevices)
+    ? lastTeslaDevices
+    : (lastTeslaDevices?.devices || [
+        ...(lastTeslaDevices?.wall_connectors || []),
+        ...(lastTeslaDevices?.vehicles || []),
+      ]);
+  const hasCachedDevs = devList.length > 0;
+  const needsFetch = forceRefresh || !hasCachedDevs || (devList.length <= 1 && lastTeslaCredsStatus?.has_tesla_auth);
+
+  if (needsFetch) {
+    try {
+      const res = await fetch('/api/tesla/devices');
+      if (res.ok) {
+        lastTeslaDevices = await res.json();
+        _lastTeslaPollTs = Date.now();
+      }
+    } catch (e) {
+      console.warn('Failed to load Tesla devices:', e);
+    }
+  }
+
+  // Update Last poll time
+  const pollTimeEl = $('tesla-last-poll-time');
+  if (pollTimeEl) {
+    if (_lastTeslaPollTs) {
+      const elapsedM = Math.max(0, Math.round((Date.now() - _lastTeslaPollTs) / 60000));
+      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+    } else {
+      pollTimeEl.textContent = 'Last update: active';
+    }
+  }
+
+  const allDevs = Array.isArray(lastTeslaDevices)
+    ? lastTeslaDevices
+    : (lastTeslaDevices?.devices || [
+        ...(lastTeslaDevices?.wall_connectors || []),
+        ...(lastTeslaDevices?.vehicles || []),
+      ]);
+
+  const wcs = allDevs.filter(d => d.device_type === 'ev_charger' || d.charger_type === 'wall_connector');
+  const vehs = allDevs.filter(d => d.device_type === 'ev_vehicle' || d.device_type === 'vehicle');
+
+  // Location filter
+  const filterLoc = _teslaLocFilter;
+  const filteredWcs = (filterLoc === 'all')
+    ? wcs
+    : wcs.filter(w => (w.location_id || '').toLowerCase() === filterLoc.toLowerCase());
+
+  const filteredVehs = (filterLoc === 'all')
+    ? vehs
+    : vehs.filter(v => (v.location_id || '').toLowerCase() === filterLoc.toLowerCase() || (v.inferred_charger && v.inferred_charger.location === filterLoc));
+
+  // Empty state toggle
+  const isEmpty = (wcs.length === 0 && vehs.length === 0);
+  const emptyEl = $('tesla-empty');
+  if (emptyEl) emptyEl.hidden = !isEmpty;
+
+  // Compute KPIs
+  let totalPowerW = 0;
+  for (const w of filteredWcs) {
+    const isChg = w.is_charging ?? w.charging;
+    if (isChg && w.power_w) totalPowerW += w.power_w;
+  }
+  for (const v of filteredVehs) {
+    const isCharging = v.is_charging ?? (v.charging_state === 'Charging' || (v.power_w && v.power_w > 100));
+    const isMobileOrAway = v.charger_type?.startsWith('mobile') || v.inferred_charger?.is_mobile || v.charger_type === 'supercharger' || v.inferred_charger?.type === 'supercharger';
+    if (isCharging && (isMobileOrAway || filteredWcs.length === 0)) {
+      totalPowerW += (v.power_w || 0);
+    }
+  }
+
+  const kpiPowerEl = $('tesla-kpi-power');
+  const kpiPowerSubEl = $('tesla-kpi-power-sub');
+  if (kpiPowerEl) {
+    if (totalPowerW >= 1000) {
+      kpiPowerEl.textContent = `${(totalPowerW / 1000).toFixed(1)} kW`;
+    } else {
+      kpiPowerEl.textContent = `${Math.round(totalPowerW)} W`;
+    }
+  }
+  if (kpiPowerSubEl) {
+    const activeCount = filteredWcs.filter(w => (w.is_charging ?? w.charging)).length +
+                        filteredVehs.filter(v => (v.is_charging ?? (v.charging_state === 'Charging'))).length;
+    kpiPowerSubEl.textContent = activeCount > 0 ? `${activeCount} session(s) active` : 'EVSE idle';
+  }
+
+  // Model Y Battery SOC%
+  const kpiBattEl = $('tesla-kpi-battery');
+  const kpiBattSubEl = $('tesla-kpi-battery-sub');
+  const primaryVeh = vehs[0];
+  if (kpiBattEl) {
+    const batt = primaryVeh ? (primaryVeh.battery_level ?? primaryVeh.battery_soc) : null;
+    if (batt != null) {
+      kpiBattEl.textContent = `${batt}%`;
+    } else {
+      kpiBattEl.textContent = '—';
+    }
+  }
+  if (kpiBattSubEl) {
+    if (primaryVeh && primaryVeh.battery_range_km != null) {
+      kpiBattSubEl.textContent = `~${Math.round(primaryVeh.battery_range_km)} km range`;
+    } else {
+      kpiBattSubEl.textContent = 'State of Charge';
+    }
+  }
+
+  // Vehicle Location
+  const kpiLocEl = $('tesla-kpi-location');
+  const kpiLocSubEl = $('tesla-kpi-location-sub');
+  if (kpiLocEl) {
+    if (primaryVeh) {
+      kpiLocEl.textContent = primaryVeh.location_name || primaryVeh.geofence_name || 'Away';
+    } else {
+      kpiLocEl.textContent = '—';
+    }
+  }
+  if (kpiLocSubEl) {
+    if (primaryVeh && primaryVeh.latitude && primaryVeh.longitude) {
+      kpiLocSubEl.textContent = `${primaryVeh.latitude.toFixed(3)}°, ${primaryVeh.longitude.toFixed(3)}°`;
+    } else {
+      kpiLocSubEl.textContent = 'GPS Geofence';
+    }
+  }
+
+  // Active Charger
+  const kpiChgEl = $('tesla-kpi-charger');
+  const kpiChgSubEl = $('tesla-kpi-charger-sub');
+  if (kpiChgEl) {
+    const isVehChg = primaryVeh && (primaryVeh.is_charging ?? (primaryVeh.charging_state === 'Charging'));
+    if (isVehChg) {
+      kpiChgEl.textContent = primaryVeh.charger_name || primaryVeh.inferred_charger?.name || 'Charging';
+    } else {
+      const activeWc = filteredWcs.find(w => (w.is_charging ?? w.charging));
+      if (activeWc) {
+        kpiChgEl.textContent = activeWc.name || activeWc.device_name;
+      } else {
+        kpiChgEl.textContent = (primaryVeh?.charging_state === 'Disconnected') ? 'Disconnected' : 'Idle';
+      }
+    }
+  }
+  if (kpiChgSubEl) {
+    const isVehChg = primaryVeh && (primaryVeh.is_charging ?? (primaryVeh.charging_state === 'Charging'));
+    if (isVehChg) {
+      const v = primaryVeh.charger_voltage || 0;
+      const a = primaryVeh.charger_actual_current || 0;
+      kpiChgSubEl.textContent = `${v}V @ ${a}A · ${((primaryVeh.power_w || 0) / 1000).toFixed(1)} kW`;
+    } else {
+      kpiChgSubEl.textContent = 'EVSE in use';
+    }
+  }
+
+  // Render cards
+  let html = '';
+  for (const wc of filteredWcs) {
+    html += renderTeslaWallConnectorCard(wc);
+  }
+  for (const veh of filteredVehs) {
+    html += renderTeslaVehicleCard(veh);
+  }
+  container.innerHTML = html;
+
+  wireTeslaCardListeners(container);
+
+  // Trigger loading & drawing for all open device charts
+  for (const d of [...filteredWcs, ...filteredVehs]) {
+    if (!_teslaClosedDeviceHistories.has(d.device_sn)) {
+      requestAnimationFrame(() => loadAndDrawTeslaDeviceChart(d.device_sn));
+    }
+  }
+
+  // Bind window resize listener once to keep canvas crisp
+  if (!_teslaResizeBound) {
+    _teslaResizeBound = true;
+    window.addEventListener('resize', () => {
+      if (activeTab === 'tesla') {
+        container.querySelectorAll('canvas[id^="chart-tesla-dev-"]').forEach(canvas => {
+          if (canvas._redraw) canvas._redraw();
+        });
+      }
+    });
+  }
+}
+
+function renderTeslaWallConnectorCard(wc) {
+  const isCharging = wc.is_charging ?? wc.charging ?? false;
+  const isConn = wc.vehicle_connected ?? false;
+  const isHistOpen = !_teslaClosedDeviceHistories.has(wc.device_sn);
+  const curHours = _teslaDevHours[wc.device_sn] || 24;
+  const devName = wc.name || wc.device_name || 'Tesla Wall Connector';
+  const volt = wc.grid_v ?? wc.voltage_v ?? 0;
+  const curr = wc.current_a ?? 0;
+  const pwr = wc.power_w ?? 0;
+  const sessionKwh = wc.session_kwh ?? ((wc.session_energy_wh || 0) / 1000);
+  const lifetimeKwh = wc.lifetime_kwh ?? ((wc.lifetime_energy_wh || 0) / 1000);
+
+  const isCloudOnly = !wc.ip || wc.is_cloud;
+
+  let voltCurrHtml = `${volt}<small>V</small> · ${curr}<small>A</small>`;
+  if (isCloudOnly && wc.grid_v == null) {
+    if (isCharging && pwr > 0) {
+      voltCurrHtml = `~240<small>V</small> · ${Math.round(pwr / 240)}<small>A</small>`;
+    } else {
+      voltCurrHtml = `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(Cloud)</small></span>`;
+    }
+  }
+
+  let lifetimeHtml = `${lifetimeKwh.toLocaleString([], { maximumFractionDigits: 1 })}<small>kWh</small>`;
+  if (isCloudOnly && (wc.lifetime_energy_wh == null && wc.lifetime_kwh == null)) {
+    lifetimeHtml = `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(LAN only)</small></span>`;
+  }
+
+  let sessionHtml = `${sessionKwh.toFixed(2)}<small>kWh</small>`;
+  if (isCloudOnly && (wc.session_energy_wh == null && wc.session_kwh == null)) {
+    sessionHtml = isCharging ? `${sessionKwh.toFixed(2)}<small>kWh</small>` : `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(Standby)</small></span>`;
+  }
+
+  let contactorText = wc.contactor_closed ? 'Closed (Engaged)' : (isCloudOnly ? 'Standby (Cloud)' : 'Open');
+  let contactorColor = wc.contactor_closed ? '#38bdf8' : 'inherit';
+
+  let badgeClass = 'tesla-badge-idle';
+  let badgeText = 'Idle';
+  if (isCharging) {
+    badgeClass = 'tesla-badge-charging';
+    badgeText = `⚡ Charging (${(pwr / 1000).toFixed(1)} kW)`;
+  } else if (isConn) {
+    badgeClass = 'tesla-badge-connected';
+    badgeText = 'Vehicle Connected';
+  }
+
+  return `
+    <div class="card tesla-card ${isCharging ? 'is-charging' : ''}" id="card-${escapeHtml(wc.device_sn)}">
+      <div class="tesla-card-header">
+        <div class="tesla-card-title-group">
+          <div class="tesla-card-icon">⚡</div>
+          <div>
+            <h3 class="tesla-card-name">${escapeHtml(devName)}</h3>
+            <div class="tesla-card-meta">
+              <span class="tesla-loc-tag">${escapeHtml((wc.location_id || 'home').toUpperCase())}</span>
+              <span>· ${wc.ip ? `IP: ${escapeHtml(wc.ip)}` : 'Tesla Cloud'}</span>
+            </div>
+          </div>
+        </div>
+        <span class="tesla-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+      </div>
+
+      <div class="tesla-card-body">
+        <div class="tesla-metrics-grid">
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Active Power</div>
+            <div class="tesla-metric-val">${pwr >= 1000 ? (pwr / 1000).toFixed(2) + '<small>kW</small>' : Math.round(pwr) + '<small>W</small>'}</div>
+          </div>
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Voltage & Current</div>
+            <div class="tesla-metric-val">${voltCurrHtml}</div>
+          </div>
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Session Energy</div>
+            <div class="tesla-metric-val">${sessionHtml}</div>
+          </div>
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Lifetime Energy</div>
+            <div class="tesla-metric-val">${lifetimeHtml}</div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-dim, #94a3b8); margin-top:2px;">
+          <span>Contactor: <b style="color:${contactorColor}">${contactorText}</b></span>
+          ${wc.handle_temp_c != null ? `<span>Handle: <b>${Math.round(wc.handle_temp_c)}°C</b></span>` : ''}
+        </div>
+
+        <!-- History Chart Section -->
+        <div style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-ghost btn-tiny tesla-toggle-hist-btn" data-sn="${escapeHtml(wc.device_sn)}" style="font-size:12px;">
+              <span>${isHistOpen ? '▼' : '▶'}</span> History
+            </button>
+            <div class="tesla-dev-range-picker" data-sn="${escapeHtml(wc.device_sn)}" style="${isHistOpen ? 'display:flex; gap:4px;' : 'display:none;'}">
+              <button class="btn btn-ghost btn-tiny ${curHours === 6 ? 'active' : ''}" data-hours="6" data-sn="${escapeHtml(wc.device_sn)}">6h</button>
+              <button class="btn btn-ghost btn-tiny ${curHours === 24 ? 'active' : ''}" data-hours="24" data-sn="${escapeHtml(wc.device_sn)}">24h</button>
+              <button class="btn btn-ghost btn-tiny ${curHours === 168 ? 'active' : ''}" data-hours="168" data-sn="${escapeHtml(wc.device_sn)}">7d</button>
+            </div>
+          </div>
+
+          <div id="tesla-hist-body-${escapeHtml(wc.device_sn)}" style="${isHistOpen ? 'display:block;' : 'display:none;'} margin-top:8px;">
+            <canvas id="chart-tesla-dev-${escapeHtml(wc.device_sn)}" style="width:100%; height:160px; display:block;"></canvas>
+            <div style="display:flex; justify-content:flex-end; gap:12px; font-size:11px; color:var(--text-dim, #94a3b8); margin-top:4px;">
+              <span><span style="display:inline-block; width:10px; height:2px; background:#38bdf8; vertical-align:middle;"></span> Power (kW)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTeslaVehicleCard(veh) {
+  const isCharging = veh.is_charging ?? (veh.charging_state === 'Charging' || (veh.power_w && veh.power_w > 100));
+  const soc = veh.battery_level != null ? Math.round(veh.battery_level) : (veh.battery_soc != null ? Math.round(veh.battery_soc) : null);
+  const rangeKm = veh.battery_range_km != null ? Math.round(veh.battery_range_km) : null;
+  const isHistOpen = !_teslaClosedDeviceHistories.has(veh.device_sn);
+  const curHours = _teslaDevHours[veh.device_sn] || 24;
+  const devName = veh.name || veh.device_name || 'Tesla Model Y';
+  const pwrW = veh.power_w || (veh.charger_power_kw ? veh.charger_power_kw * 1000 : 0);
+  const chgName = veh.charger_name || veh.inferred_charger?.name || (isCharging ? 'Charging' : 'Idle');
+  const isMobile = veh.charger_type?.startsWith('mobile') || veh.inferred_charger?.is_mobile;
+  const locName = veh.location_name || veh.geofence_name || 'Away';
+  const timeRem = veh.time_to_full_charge_hours ?? veh.time_to_full_charge_hrs ?? 0;
+
+  let inferChipHtml = '';
+  if (isCharging) {
+    inferChipHtml = `
+      <div class="tesla-charger-infer-chip">
+        <span style="font-size:18px;">🔌</span>
+        <div style="flex:1;">
+          <div style="font-weight:600; font-size:13px; color:#38bdf8;">${escapeHtml(chgName)}</div>
+          <div style="font-size:11px; color:var(--text-dim, #94a3b8); margin-top:1px;">
+            ${escapeHtml(isMobile ? 'Mobile Connector inferred via GPS & demand pattern' : 'EVSE session')}
+          </div>
+        </div>
+        <span class="tesla-badge tesla-badge-charging">${(pwrW / 1000).toFixed(1)} kW</span>
+      </div>
+    `;
+  }
+
+  let badgeClass = 'tesla-badge-idle';
+  let badgeText = veh.charging_state || 'Standby';
+  if (veh.is_asleep) {
+    badgeClass = 'tesla-badge-idle';
+    badgeText = '💤 Asleep';
+  } else if (isCharging) {
+    badgeClass = 'tesla-badge-charging';
+    badgeText = `⚡ ${(pwrW / 1000).toFixed(1)} kW`;
+  } else if (veh.charging_state === 'Complete') {
+    badgeClass = 'tesla-badge-connected';
+    badgeText = 'Charge Complete';
+  }
+
+  const wakeBtnHtml = veh.is_asleep && veh.vin ? `
+    <button type="button" class="btn btn-ghost btn-tiny tesla-wake-vehicle-btn" data-vin="${escapeHtml(veh.vin)}" style="font-size:11px; padding:2px 8px; border-color:rgba(56,189,248,0.3); color:#38bdf8;" title="Wake car from sleep">
+      ⚡ Wake Up
+    </button>
+  ` : '';
+
+  return `
+    <div class="card tesla-card ${isCharging ? 'is-charging' : ''}" id="card-${escapeHtml(veh.device_sn)}">
+      <div class="tesla-card-header">
+        <div class="tesla-card-title-group">
+          <div class="tesla-card-icon">🚗</div>
+          <div>
+            <h3 class="tesla-card-name">${escapeHtml(devName)}</h3>
+            <div class="tesla-card-meta">
+              <span class="tesla-loc-tag">${escapeHtml(locName.toUpperCase())}</span>
+              <span>· VIN: …${escapeHtml((veh.vin || '').slice(-6))}</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          ${wakeBtnHtml}
+          <span class="tesla-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+        </div>
+      </div>
+
+      <div class="tesla-card-body">
+        <!-- Battery Gauge -->
+        <div class="tesla-battery-gauge">
+          <div style="display:flex; justify-content:space-between; align-items:baseline;">
+            <div>
+              <span style="font-size:24px; font-weight:700; color:var(--text, #f8fafc);">${soc != null ? `${soc}%` : '—%'}</span>
+              <span style="font-size:13px; color:var(--text-dim, #94a3b8); margin-left:6px;">${rangeKm != null ? `${rangeKm} km est.` : '—'}</span>
+            </div>
+            <div style="font-size:12px; color:var(--text-dim, #94a3b8);">
+              Limit: <b>${veh.charge_limit_soc != null ? veh.charge_limit_soc + '%' : '—'}</b>
+            </div>
+          </div>
+          <div class="tesla-battery-bar-track">
+            <div class="tesla-battery-bar-fill ${isCharging ? 'charging' : ''}" style="width:${soc != null ? Math.min(100, Math.max(0, soc)) : 0}%;"></div>
+          </div>
+          ${isCharging && timeRem > 0 ? `
+            <div style="font-size:11px; color:#38bdf8; text-align:right; margin-top:2px;">
+              ~${timeRem.toFixed(1)}h remaining until full
+            </div>
+          ` : ''}
+        </div>
+
+        ${inferChipHtml}
+
+        <div class="tesla-metrics-grid">
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Charge Rate</div>
+            <div class="tesla-metric-val">${veh.charger_voltage || 0}<small>V</small> @ ${veh.charger_actual_current || 0}<small>A</small></div>
+          </div>
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Power Draw</div>
+            <div class="tesla-metric-val">${(pwrW / 1000).toFixed(1)}<small>kW</small></div>
+          </div>
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Energy Added</div>
+            <div class="tesla-metric-val">${(veh.charge_energy_added_kwh || 0).toFixed(1)}<small>kWh</small></div>
+          </div>
+          <div class="tesla-metric">
+            <div class="tesla-metric-label">Location / Geofence</div>
+            <div class="tesla-metric-val" style="font-size:14px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(locName)}</div>
+          </div>
+        </div>
+
+        <!-- History Chart Section -->
+        <div style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn btn-ghost btn-tiny tesla-toggle-hist-btn" data-sn="${escapeHtml(veh.device_sn)}" style="font-size:12px;">
+              <span>${isHistOpen ? '▼' : '▶'}</span> History
+            </button>
+            <div class="tesla-dev-range-picker" data-sn="${escapeHtml(veh.device_sn)}" style="${isHistOpen ? 'display:flex; gap:4px;' : 'display:none;'}">
+              <button class="btn btn-ghost btn-tiny ${curHours === 6 ? 'active' : ''}" data-hours="6" data-sn="${escapeHtml(veh.device_sn)}">6h</button>
+              <button class="btn btn-ghost btn-tiny ${curHours === 24 ? 'active' : ''}" data-hours="24" data-sn="${escapeHtml(veh.device_sn)}">24h</button>
+              <button class="btn btn-ghost btn-tiny ${curHours === 168 ? 'active' : ''}" data-hours="168" data-sn="${escapeHtml(veh.device_sn)}">7d</button>
+            </div>
+          </div>
+
+          <div id="tesla-hist-body-${escapeHtml(veh.device_sn)}" style="${isHistOpen ? 'display:block;' : 'display:none;'} margin-top:8px;">
+            <canvas id="chart-tesla-dev-${escapeHtml(veh.device_sn)}" style="width:100%; height:160px; display:block;"></canvas>
+            <div style="display:flex; justify-content:flex-end; gap:12px; font-size:11px; color:var(--text-dim, #94a3b8); margin-top:4px;">
+              <span><span style="display:inline-block; width:10px; height:2px; background:#10b981; vertical-align:middle;"></span> SOC (%)</span>
+              <span><span style="display:inline-block; width:10px; height:2px; background:#38bdf8; vertical-align:middle;"></span> Power (kW)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function wireTeslaCardListeners(container) {
+  container.querySelectorAll('.tesla-wake-vehicle-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const vin = btn.dataset.vin;
+      if (!vin) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ Waking...';
+      try {
+        const res = await fetch(`/api/tesla/vehicle/${encodeURIComponent(vin)}/wake`, { method: 'POST' });
+        if (res.ok) {
+          const rDevs = await fetch('/api/tesla/devices');
+          if (rDevs.ok) {
+            lastTeslaDevices = await rDevs.json();
+            _lastTeslaPollTs = Date.now();
+            renderTeslaTab();
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(`Wake command failed: ${err.detail || res.statusText}`);
+          btn.disabled = false;
+          btn.textContent = '⚡ Wake Up';
+        }
+      } catch (err) {
+        console.warn('Wake request error:', err);
+        btn.disabled = false;
+        btn.textContent = '⚡ Wake Up';
+      }
+    });
+  });
+
+  container.querySelectorAll('.tesla-toggle-hist-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sn = btn.dataset.sn;
+      const body = $(`tesla-hist-body-${sn}`);
+      const picker = container.querySelector(`.tesla-dev-range-picker[data-sn="${sn}"]`);
+      const arrow = btn.querySelector('span');
+      if (!_teslaClosedDeviceHistories.has(sn)) {
+        // Was open -> collapse it
+        _teslaClosedDeviceHistories.add(sn);
+        if (body) body.style.display = 'none';
+        if (picker) picker.style.display = 'none';
+        if (arrow) arrow.textContent = '▶';
+      } else {
+        // Was closed -> expand it
+        _teslaClosedDeviceHistories.delete(sn);
+        if (body) body.style.display = 'block';
+        if (picker) picker.style.display = 'flex';
+        if (arrow) arrow.textContent = '▼';
+        loadAndDrawTeslaDeviceChart(sn);
+      }
+    });
+  });
+
+  container.querySelectorAll('.tesla-dev-range-picker button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sn = btn.dataset.sn;
+      const hours = parseInt(btn.dataset.hours, 10);
+      _teslaDevHours[sn] = hours;
+      const parent = btn.closest('.tesla-dev-range-picker');
+      if (parent) {
+        parent.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      }
+      loadAndDrawTeslaDeviceChart(sn, true);
+    });
+  });
+}
+
+async function loadAndDrawTeslaDeviceChart(sn, force = false) {
+  const hours = _teslaDevHours[sn] || 24;
+  const cacheKey = `${sn}_${hours}`;
+  const now = Date.now();
+  const cached = _teslaDevHistData[cacheKey];
+
+  // Draw cached data immediately to prevent blank canvas on periodic re-renders
+  if (cached?.data) {
+    drawTeslaDeviceChart(sn, cached.data, hours);
+  }
+
+  const needsFetch = force || !cached || (now - cached.ts >= 45000);
+  if (needsFetch) {
+    try {
+      const r = await fetch(`/api/tesla/history/device?device_sn=${encodeURIComponent(sn)}&hours=${hours}`);
+      if (r.ok) {
+        const j = await r.json();
+        const hist = j.history || [];
+        _teslaDevHistData[cacheKey] = { ts: Date.now(), data: hist };
+        drawTeslaDeviceChart(sn, hist, hours);
+      }
+    } catch (e) {
+      console.warn('Failed to load Tesla device history:', e);
+    }
+  }
+}
+
+function drawTeslaDeviceChart(sn, hist, hours) {
+  const canvas = $(`chart-tesla-dev-${sn}`);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 50 && canvas.isConnected) {
+    requestAnimationFrame(() => {
+      const r = canvas.getBoundingClientRect();
+      if (r.width >= 50) {
+        drawTeslaDeviceChart(sn, hist, hours);
+      }
+    });
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(100, Math.floor(rect.width));
+  const h = Math.max(80, Math.floor(rect.height || 160));
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  ctx.resetTransform?.();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const padL = 40, padR = 35, padT = 16, padB = 24;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const baseY = h - padB;
+
+  if (!hist || hist.length === 0) {
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No history data recorded yet', w / 2, h / 2);
+    return;
+  }
+
+  const step = Math.max(1, Math.floor(hist.length / 180));
+  const plotHist = [];
+  for (let i = 0; i < hist.length; i += step) {
+    plotHist.push(hist[i]);
+  }
+
+  const powersKw = plotHist.map(p => (p.power_w || 0) / 1000);
+  const maxKw = Math.max(12, Math.ceil(Math.max(...powersKw, 1) / 2) * 2);
+  const xs = (idx) => padL + (plotW * idx) / Math.max(1, plotHist.length - 1);
+  const yPower = (kw) => baseY - (plotH * Math.max(0, Math.min(maxKw, kw))) / maxKw;
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = padT + (plotH * i) / 3;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+
+    const kwVal = maxKw * (3 - i) / 3;
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${kwVal.toFixed(0)}k`, padL - 5, y + 3);
+  }
+
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(4, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 7);
+    }
+  }
+
+  drawAreaFill(ctx, powersKw, xs, yPower, baseY, '#38bdf8', 0.15);
+  drawSmoothLine(ctx, powersKw, xs, yPower, '#38bdf8', 2.0);
+
+  const hasSoc = plotHist.some(p => p.battery_soc != null && Number.isFinite(p.battery_soc));
+  if (hasSoc) {
+    const socs = plotHist.map(p => p.battery_soc);
+    const ySoc = (val) => baseY - (plotH * Math.max(0, Math.min(100, val || 0))) / 100;
+    drawSmoothLine(ctx, socs, xs, ySoc, '#10b981', 1.8);
+
+    ctx.fillStyle = '#10b981';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('100%', w - padR + 5, padT + 3);
+    ctx.fillText('50%', w - padR + 5, padT + plotH / 2 + 3);
+    ctx.fillText('0%', w - padR + 5, baseY + 3);
+  }
+
+  canvas._redraw = () => drawTeslaDeviceChart(sn, hist, hours);
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const kw = (p.power_w || 0) / 1000;
+    let rows = `
+      <div class="cht-ts">${escapeHtml(tsStr)}</div>
+      <div class="cht-row"><i style="background:#38bdf8"></i> Power: <b>${kw.toFixed(2)} kW</b></div>
+    `;
+    if (p.battery_soc != null) {
+      rows += `<div class="cht-row"><i style="background:#10b981"></i> SOC: <b>${Math.round(p.battery_soc)}%</b></div>`;
+    }
+    return rows;
+  }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
+}
+
+
+// ============================================================
+// KASA SMART DEVICES TAB (Plugs, Switches, Interruptors)
+// ============================================================
+let lastKasaDevices = [];
+let _lastKasaPollTs = 0;
+let _kasaLocFilter = 'all';
+let _kasaTypeFilter = 'all';
+let _kasaAutoDiscovered = false;
+let _kasaDevHours = {};
+let _kasaDevHistData = {};
+let _kasaExpandedDrawers = new Set();
+
+function initKasaTab() {
+  // Location filter pills
+  document.querySelectorAll('#kasa-loc-pills .kasa-loc-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#kasa-loc-pills .kasa-loc-pill').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      _kasaLocFilter = btn.dataset.loc || 'all';
+      renderKasaTab();
+    });
+  });
+
+  // Type filter pills
+  document.querySelectorAll('#kasa-type-pills .kasa-type-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#kasa-type-pills .kasa-type-pill').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      _kasaTypeFilter = btn.dataset.type || 'all';
+      renderKasaTab();
+    });
+  });
+
+  // Poll button
+  $('kasa-tab-poll-btn')?.addEventListener('click', async () => {
+    const btn = $('kasa-tab-poll-btn');
+    if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+    try {
+      const res = await fetch('/api/kasa/poll', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        lastKasaDevices = data.devices || [];
+        _lastKasaPollTs = Date.now();
+        renderKasaTab();
+      }
+    } catch (e) {
+      console.warn('Kasa poll failed:', e);
+    } finally {
+      if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+    }
+  });
+
+  // Empty state scan button
+  $('kasa-empty-scan-btn')?.addEventListener('click', () => {
+    $('kasa-tab-poll-btn')?.click();
+  });
+
+  // Add Device button & Go to Settings button
+  const goToSettings = () => {
+    switchTab('settings');
+    selectSettingsSubtab('integrations');
+    const card = $('settings-card-kasa');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth' });
+      card.classList.remove('collapsed');
+    }
+  };
+  $('kasa-tab-add-btn')?.addEventListener('click', goToSettings);
+  $('kasa-go-settings-btn')?.addEventListener('click', goToSettings);
+}
+
+function _isKasaSwitch(dev) {
+  const t = (dev.type || '').toLowerCase();
+  const m = (dev.model || '').toUpperCase();
+  return t.includes('switch') || t.includes('dimmer') || t.includes('wall') ||
+         m.startsWith('HS2') || m.startsWith('KS2') || m.startsWith('ES2');
+}
+
+function _isKasaPlug(dev) {
+  const t = (dev.type || '').toLowerCase();
+  const m = (dev.model || '').toUpperCase();
+  return t.includes('plug') || t.includes('outlet') ||
+         m.startsWith('KP') || m.startsWith('EP') || m.startsWith('HS1');
+}
+
+async function renderKasaTab(forceRefresh = false) {
+  const container = $('kasa-devices-container');
+  if (!container) return;
+
+  if (forceRefresh || !lastKasaDevices.length) {
+    try {
+      const res = await fetch('/api/kasa/saved?refresh=false');
+      if (res.ok) {
+        const j = await res.json();
+        lastKasaDevices = j.devices || [];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch saved Kasa devices:', e);
+    }
+  }
+
+  // Auto-discover in background if we only have <= 1 device or haven't auto-discovered yet in this session
+  if (!_kasaAutoDiscovered || lastKasaDevices.length <= 1) {
+    _kasaAutoDiscovered = true;
+    (async () => {
+      try {
+        const pRes = await fetch('/api/kasa/poll', { method: 'POST' });
+        if (pRes.ok) {
+          const pj = await pRes.json();
+          if (pj.devices && pj.devices.length) {
+            lastKasaDevices = pj.devices;
+            _lastKasaPollTs = Date.now();
+            if (activeTab === 'kasa') renderKasaTab();
+          }
+        }
+      } catch (err) {
+        console.warn('Background Kasa auto-discovery error:', err);
+      }
+    })();
+  }
+
+  // Update last poll time
+  if ($('kasa-last-poll-time')) {
+    if (_lastKasaPollTs > 0) {
+      const d = new Date(_lastKasaPollTs);
+      $('kasa-last-poll-time').textContent = `Last update: ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    } else {
+      $('kasa-last-poll-time').textContent = 'Last update: active';
+    }
+  }
+
+  const allDevs = lastKasaDevices || [];
+  const emptyEl = $('kasa-empty');
+
+  // KPI Calculations across all devices
+  let totalCount = allDevs.length;
+  let activeCount = 0;
+  let switchCount = 0;
+  let plugCount = 0;
+
+  allDevs.forEach(d => {
+    if (d.is_on) activeCount++;
+    if (_isKasaSwitch(d)) switchCount++;
+    else if (_isKasaPlug(d)) plugCount++;
+    else plugCount++; // default to plug if unspecified
+  });
+
+  if ($('kasa-kpi-total')) $('kasa-kpi-total').textContent = totalCount;
+  if ($('kasa-kpi-active')) $('kasa-kpi-active').textContent = activeCount;
+  if ($('kasa-kpi-switches')) $('kasa-kpi-switches').textContent = switchCount;
+  if ($('kasa-kpi-plugs')) $('kasa-kpi-plugs').textContent = plugCount;
+
+  if (totalCount === 0) {
+    if (emptyEl) emptyEl.hidden = false;
+    container.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.hidden = true;
+
+  // Filter devices
+  let filtered = allDevs.filter(d => {
+    // Location filter
+    if (_kasaLocFilter !== 'all') {
+      const dLoc = (d.location_id || 'maison').toLowerCase();
+      if (dLoc !== _kasaLocFilter.toLowerCase()) return false;
+    }
+    // Type filter
+    if (_kasaTypeFilter === 'switch') {
+      return _isKasaSwitch(d);
+    } else if (_kasaTypeFilter === 'plug') {
+      return _isKasaPlug(d) || !_isKasaSwitch(d);
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 36px 20px;">
+        <div style="font-size: 32px; margin-bottom: 8px;">🔍</div>
+        <h3 style="margin: 0 0 6px 0; font-size: 16px;">No devices match the selected filters</h3>
+        <p class="hint" style="margin: 0;">Try selecting "All Locations" or "All Types".</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Render cards
+  container.innerHTML = filtered.map(d => {
+    const isSw = _isKasaSwitch(d);
+    const isOn = !!d.is_on;
+    const isOnline = d.online !== false && d.status !== 'offline';
+    const icon = isSw ? (isOn ? '💡' : '🔘') : '🔌';
+    const typeLabel = isSw ? 'Switch' : 'Plug';
+    const typeClass = isSw ? 'switch' : 'plug';
+    const alias = escapeHtml(d.alias || d.host);
+    const model = escapeHtml(d.model || 'Kasa Device');
+    const host = escapeHtml(d.host);
+    const locName = d.location_id ? (d.location_id.charAt(0).toUpperCase() + d.location_id.slice(1)) : 'Maison';
+    const sn = d.device_sn || `kasa_${host.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const snEsc = escapeHtml(sn);
+    const isExpanded = _kasaExpandedDrawers.has(sn);
+    const devHours = _kasaDevHours[sn] || 24;
+
+    let powerText = '—';
+    if (d.power_w != null) {
+      powerText = `${d.power_w.toFixed(1)} W`;
+    } else if (isSw) {
+      powerText = 'Switch only';
+    } else {
+      powerText = 'No power meter';
+    }
+
+    let runtimeText = '—';
+    if (d.today_runtime_min != null && d.today_runtime_min > 0) {
+      const rh = Math.floor(d.today_runtime_min / 60);
+      const rm = d.today_runtime_min % 60;
+      runtimeText = rh > 0 ? `${rh}h ${rm}m` : `${rm}m`;
+    }
+
+    let energyText = '—';
+    if (d.today_kwh != null && d.today_kwh > 0) {
+      energyText = `${d.today_kwh.toFixed(2)} kWh`;
+    } else if (runtimeText !== '—') {
+      energyText = runtimeText;
+    }
+
+    return `
+      <div class="kasa-card ${isOn ? 'is-on' : ''}" id="kasa-card-${snEsc}">
+        <div class="kasa-card-header">
+          <div class="kasa-card-title-group">
+            <span class="kasa-card-icon">${icon}</span>
+            <div>
+              <h3 class="kasa-card-name">${alias}</h3>
+              <div class="kasa-card-meta">${model} · ${host}</div>
+            </div>
+          </div>
+          <div class="kasa-card-badges">
+            <span class="kasa-type-badge ${typeClass}">${typeLabel}</span>
+            <span class="pill ${isOnline ? 'pill-online' : 'pill-offline'}" style="font-size:10px; padding:2px 6px;">
+              ${isOnline ? '● Online' : '○ Offline'}
+            </span>
+          </div>
+        </div>
+
+        <div class="kasa-card-body">
+          <div class="kasa-metrics-grid">
+            <div class="kasa-metric">
+              <div class="kasa-metric-label">Status</div>
+              <div class="kasa-metric-val" style="color:${isOn ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)'}">
+                ${isOn ? '● Turned ON' : '○ Turned OFF'}
+              </div>
+            </div>
+            <div class="kasa-metric">
+              <div class="kasa-metric-label">Power Draw</div>
+              <div class="kasa-metric-val">${powerText}</div>
+            </div>
+            <div class="kasa-metric">
+              <div class="kasa-metric-label">Today's Usage</div>
+              <div class="kasa-metric-val" style="color:${energyText !== '—' ? 'var(--accent, #10b981)' : 'inherit'}">${energyText}</div>
+            </div>
+            <div class="kasa-metric">
+              <div class="kasa-metric-label">Location</div>
+              <div class="kasa-metric-val">${escapeHtml(locName)}</div>
+            </div>
+          </div>
+
+          <div class="kasa-card-actions">
+            <button type="button" class="kasa-toggle-btn ${isOn ? 'is-on' : 'is-off'}"
+                    data-host="${host}" data-on="${isOn ? 'true' : 'false'}"
+                    onclick="toggleKasaDevice('${host}', ${!isOn}, this)">
+              <span>${isOn ? '⚡ Turn OFF' : '○ Turn ON'}</span>
+            </button>
+            <button type="button" class="btn btn-ghost btn-tiny ${isExpanded ? 'active' : ''}"
+                    onclick="toggleKasaDeviceHistory('${snEsc}', '${host}')" title="Toggle device history">
+              ${isExpanded ? '📉 Hide' : '📈 History'}
+            </button>
+            <button type="button" class="btn btn-ghost btn-tiny" title="Configure in Settings"
+                    onclick="switchTab('settings'); selectSettingsSubtab('integrations'); $('settings-card-kasa')?.classList.remove('collapsed'); $('settings-card-kasa')?.scrollIntoView({behavior:'smooth'});">
+              ⚙️
+            </button>
+          </div>
+
+          ${isExpanded ? `
+            <div class="kasa-dev-history-drawer" id="kasa-history-drawer-${snEsc}">
+              <div class="kasa-dev-history-header">
+                <div class="kasa-dev-history-title-row">
+                  <span class="kasa-dev-history-title">📈 ${alias} History</span>
+                  <div class="kasa-dev-history-stats" id="kasa-dev-stats-${snEsc}">
+                    <span><span class="lbl">Energy:</span> <b id="kasa-dev-energy-${snEsc}">—</b></span>
+                    <span><span class="lbl">Peak:</span> <b id="kasa-dev-peak-${snEsc}">—</b></span>
+                    <span><span class="lbl">Runtime:</span> <b id="kasa-dev-runtime-${snEsc}">—</b></span>
+                  </div>
+                </div>
+                <div class="kasa-dev-history-controls">
+                  <div class="kasa-dev-range-picker">
+                    <button type="button" class="kasa-dev-range-btn ${devHours === 6 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 6)">6h</button>
+                    <button type="button" class="kasa-dev-range-btn ${devHours === 12 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 12)">12h</button>
+                    <button type="button" class="kasa-dev-range-btn ${devHours === 24 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 24)">24h</button>
+                    <button type="button" class="kasa-dev-range-btn ${devHours === 168 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 168)">7d</button>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-tiny" onclick="toggleKasaDeviceHistory('${snEsc}', '${host}')" title="Close history">✕</button>
+                </div>
+              </div>
+              <div class="kasa-chart-canvas-wrap">
+                <canvas id="chart-kasa-dev-${snEsc}" class="kasa-dev-chart"></canvas>
+              </div>
+              <div class="kasa-chart-legend">
+                <span><i style="display:inline-block;width:8px;height:8px;background:#10b981;border-radius:2px;margin-right:4px;"></i> ${d.power_w != null ? 'Power (W)' : 'Active State (ON)'}</span>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Draw charts for any open drawers
+  filtered.forEach(d => {
+    const sn = d.device_sn || `kasa_${d.host.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    if (_kasaExpandedDrawers.has(sn)) {
+      loadKasaDeviceHistory(sn, d.host);
+    }
+  });
+}
+
+async function toggleKasaDeviceHistory(sn, host) {
+  if (_kasaExpandedDrawers.has(sn)) {
+    _kasaExpandedDrawers.delete(sn);
+    renderKasaTab();
+    return;
+  }
+  _kasaExpandedDrawers.add(sn);
+  renderKasaTab();
+  await loadKasaDeviceHistory(sn, host);
+}
+
+async function setKasaDevHistoryHours(sn, host, hours) {
+  _kasaDevHours[sn] = hours;
+  renderKasaTab();
+  await loadKasaDeviceHistory(sn, host, true);
+}
+
+async function loadKasaDeviceHistory(sn, host, force = false) {
+  const hours = _kasaDevHours[sn] || 24;
+  const cacheKey = `${sn}_${hours}`;
+  const now = Date.now();
+  let hist = null;
+
+  if (!force && _kasaDevHistData[cacheKey] && (now - _kasaDevHistData[cacheKey].ts < 45000)) {
+    hist = _kasaDevHistData[cacheKey].data;
+  } else {
+    try {
+      const res = await fetch(`/api/kasa/history/device?device_sn=${encodeURIComponent(sn)}&hours=${hours}`);
+      if (res.ok) {
+        const j = await res.json();
+        hist = j.history || [];
+        _kasaDevHistData[cacheKey] = { ts: now, data: hist };
+      }
+    } catch (e) {
+      console.warn('Failed to load Kasa device history:', e);
+    }
+  }
+
+  if (hist) {
+    drawKasaDeviceChart(sn, host, hist, hours);
+
+    const energyEl = $(`kasa-dev-energy-${sn}`);
+    const peakEl = $(`kasa-dev-peak-${sn}`);
+    const runtimeEl = $(`kasa-dev-runtime-${sn}`);
+
+    if (energyEl) {
+      const sumWh = hist.reduce((sum, r) => sum + (r.energy_wh || 0), 0);
+      energyEl.textContent = sumWh >= 1000 ? `${(sumWh / 1000).toFixed(2)} kWh` : `${Math.round(sumWh)} Wh`;
+    }
+    if (peakEl) {
+      const maxW = hist.length ? Math.max(...hist.map(r => r.power_w || 0)) : 0;
+      peakEl.textContent = maxW > 0 ? `${Math.round(maxW).toLocaleString()} W` : '—';
+    }
+    if (runtimeEl) {
+      const activeMin = hist.filter(r => (r.equipment_status || 0) === 1).length;
+      const h = Math.floor(activeMin / 60);
+      const m = activeMin % 60;
+      runtimeEl.textContent = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+  }
+}
+
+function drawKasaDeviceChart(sn, host, hist, hours) {
+  const canvas = $(`chart-kasa-dev-${sn}`);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 50 && canvas.isConnected) {
+    requestAnimationFrame(() => {
+      const r = canvas.getBoundingClientRect();
+      if (r.width >= 50) {
+        drawKasaDeviceChart(sn, host, hist, hours);
+      }
+    });
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(100, Math.floor(rect.width));
+  const h = Math.max(80, Math.floor(rect.height || 160));
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  ctx.resetTransform?.();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const padL = 44, padR = 24, padT = 16, padB = 24;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const baseY = h - padB;
+
+  if (!hist || hist.length === 0) {
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Accumulating samples for this device…', w / 2, h / 2);
+    return;
+  }
+
+  let plotHist = hist;
+  if (hist.length === 1) {
+    const s = hist[0];
+    plotHist = [{ ...s, ts: s.ts - 300 }, s];
+  }
+
+  const xs = (idx) => padL + (plotW * idx) / Math.max(1, plotHist.length - 1);
+
+  // Check if this device has power measurement
+  const maxRecordedW = Math.max(...plotHist.map(r => r.power_w || 0), 0);
+  const hasPowerMeter = maxRecordedW > 0;
+
+  if (hasPowerMeter) {
+    // Continuous power curve
+    const powers = plotHist.map(p => Math.max(0, p.power_w || 0));
+    const maxW = Math.max(25, Math.ceil((Math.max(...powers) * 1.15) / 10) * 10);
+    const yVal = (wVal) => baseY - (plotH * Math.max(0, Math.min(maxW, wVal))) / maxW;
+
+    // Gridlines & labels
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 3; i++) {
+      const y = padT + (plotH * i) / 3;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(w - padR, y);
+      ctx.stroke();
+
+      const labelVal = maxW * (3 - i) / 3;
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${Math.round(labelVal)}W`, padL - 5, y + 3);
+    }
+
+    drawAreaFill(ctx, powers, xs, yVal, baseY, '#10b981', 0.18);
+    drawSmoothLine(ctx, powers, xs, yVal, '#10b981', 2.0);
+  } else {
+    // Stepped ON / OFF status
+    const yVal = (st) => baseY - (plotH * (st ? 0.85 : 0.05));
+
+    // Gridlines: ON / OFF
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
+    [0.85, 0.05].forEach((pct, idx) => {
+      const y = baseY - (plotH * pct);
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(w - padR, y);
+      ctx.stroke();
+
+      ctx.fillStyle = idx === 0 ? '#10b981' : '#6b7280';
+      ctx.font = '10px Inter, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(idx === 0 ? 'ON' : 'OFF', padL - 5, y + 3);
+    });
+
+    // Draw stepped status line
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    for (let i = 0; i < plotHist.length; i++) {
+      const x = xs(i);
+      const isStOn = (plotHist[i].equipment_status || 0) === 1;
+      const y = yVal(isStOn);
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        const prevSt = (plotHist[i - 1].equipment_status || 0) === 1;
+        ctx.lineTo(x, yVal(prevSt));
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // Time X-axis labels
+  if (plotHist.length >= 2) {
+    const first = plotHist[0].ts || 0, last = plotHist[plotHist.length - 1].ts || 0;
+    const spanH = (last - first) / 3600;
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    const ticks = Math.min(4, plotHist.length - 1);
+    for (let i = 0; i <= ticks; i++) {
+      const idx = Math.round((plotHist.length - 1) * (i / ticks));
+      const ts = plotHist[idx].ts || (first + (last - first) * (i / ticks));
+      const d = new Date(ts * 1000);
+      const str = (spanH > 24)
+        ? (d.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      ctx.fillText(str, xs(idx), h - 7);
+    }
+  }
+
+  canvas._redraw = () => drawKasaDeviceChart(sn, host, hist, hours);
+
+  _attachChartHover(canvas, plotHist, (idx) => {
+    const p = plotHist[idx];
+    if (!p) return '';
+    const d = new Date(p.ts * 1000);
+    const tsStr = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' ' +
+                  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const isStOn = (p.equipment_status || 0) === 1;
+    const stLabel = isStOn ? '<span style="color:#10b981;font-weight:700">● ON</span>' : '<span style="color:#94a3b8">○ OFF</span>';
+    const pwrStr = p.power_w != null && p.power_w > 0 ? `<br><b>Power:</b> ${p.power_w.toFixed(1)} W` : '';
+    return `<b>${tsStr}</b><br><b>State:</b> ${stLabel}${pwrStr}`;
+  });
+}
+
+async function toggleKasaDevice(host, targetOn, btnEl) {
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = `<span class="spinner" aria-hidden="true" style="width:14px; height:14px; margin-right:6px;"></span> Switching…`;
+  }
+  try {
+    const res = await fetch(`/api/kasa/device/${encodeURIComponent(host)}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: targetOn }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.device) {
+        const idx = lastKasaDevices.findIndex(d => d.host === host);
+        if (idx !== -1) {
+          lastKasaDevices[idx] = { ...lastKasaDevices[idx], ...data.device };
+        }
+      }
+      renderKasaTab();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert(`Failed to toggle device: ${err.detail || 'Network error'}`);
+      renderKasaTab();
+    }
+  } catch (e) {
+    console.warn('Failed to toggle Kasa device:', e);
+    alert(`Failed to toggle device: ${e.message || e}`);
+    renderKasaTab();
+  }
+}
+
+
+// ============================================================
+// NOTIFICATIONS / EMAIL SETTINGS
+// ============================================================
+async function loadNotificationsSettings() {
+  const statusEl = $('notif-status');
+  try {
+    const res = await fetch('/api/notifications/config');
+    if (!res.ok) return;
+    const cfg = await res.json();
+
+    if ($('notif-enabled')) $('notif-enabled').checked = !!cfg.enabled;
+    if ($('notif-username')) $('notif-username').value = cfg.username || '';
+    if ($('notif-password')) $('notif-password').value = cfg.has_password ? '••••••••' : '';
+    if ($('notif-recipient')) $('notif-recipient').value = cfg.recipient || '';
+    if ($('notif-sender-name')) $('notif-sender-name').value = cfg.sender_name || 'Jackery Monitor';
+    if ($('notif-cooldown')) $('notif-cooldown').value = cfg.cooldown_minutes || 60;
+    if ($('notif-host')) $('notif-host').value = cfg.smtp_host || 'smtp.gmail.com';
+    if ($('notif-port')) $('notif-port').value = cfg.smtp_port || 587;
+
+    if ($('notif-trigger-battery')) $('notif-trigger-battery').checked = cfg.alert_on_low_battery !== false;
+    if ($('notif-trigger-stall')) $('notif-trigger-stall').checked = cfg.alert_on_cloud_stall !== false;
+    if ($('notif-trigger-leak')) $('notif-trigger-leak').checked = cfg.alert_on_water_leak !== false;
+    if ($('notif-trigger-freeze')) $('notif-trigger-freeze').checked = cfg.alert_on_freeze !== false;
+    if ($('notif-freeze-temp')) $('notif-freeze-temp').value = cfg.freeze_threshold_c != null ? cfg.freeze_threshold_c : 5.0;
+
+    if (statusEl) {
+      if (cfg.enabled && cfg.is_configured) {
+        statusEl.textContent = 'Active (Enabled)';
+        statusEl.style.color = 'var(--accent, #10b981)';
+      } else if (cfg.is_configured) {
+        statusEl.textContent = 'Configured (Disabled)';
+        statusEl.style.color = 'var(--text-dim, #94a3b8)';
+      } else {
+        statusEl.textContent = 'Not configured';
+        statusEl.style.color = 'var(--text-dim, #94a3b8)';
+      }
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Error loading settings';
+  }
+}
+
+function initNotificationsSettings() {
+  loadNotificationsSettings();
+
+  const form = $('notif-form');
+  const msg = $('notif-msg');
+  const saveBtn = $('notif-save-btn');
+  const testBtn = $('notif-test-btn');
+  const clearBtn = $('notif-clear-btn');
+
+  function showMsg(text, isError = false, timeout = 5000) {
+    if (!msg) return;
+    msg.hidden = false;
+    msg.textContent = text;
+    msg.style.color = isError ? 'var(--red, #ef4444)' : 'var(--accent, #10b981)';
+    if (timeout > 0) {
+      setTimeout(() => { msg.hidden = true; }, timeout);
+    }
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+    const payload = {
+      enabled: $('notif-enabled')?.checked || false,
+      username: ($('notif-username')?.value || '').trim(),
+      password: $('notif-password')?.value || '',
+      recipient: ($('notif-recipient')?.value || '').trim(),
+      sender_name: ($('notif-sender-name')?.value || '').trim(),
+      cooldown_minutes: parseInt($('notif-cooldown')?.value || '60', 10),
+      smtp_host: ($('notif-host')?.value || 'smtp.gmail.com').trim(),
+      smtp_port: parseInt($('notif-port')?.value || '587', 10),
+      alert_on_low_battery: $('notif-trigger-battery')?.checked || false,
+      alert_on_cloud_stall: $('notif-trigger-stall')?.checked || false,
+      alert_on_water_leak: $('notif-trigger-leak')?.checked || false,
+      alert_on_freeze: $('notif-trigger-freeze')?.checked || false,
+      freeze_threshold_c: parseFloat($('notif-freeze-temp')?.value || '5.0'),
+    };
+
+    try {
+      const res = await fetch('/api/notifications/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        showMsg('✓ Notification settings saved successfully!');
+        loadNotificationsSettings();
+      } else {
+        showMsg(`Error: ${data.detail || 'Failed to save settings'}`, true, 8000);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true, 8000);
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save settings'; }
+    }
+  });
+
+  testBtn?.addEventListener('click', async () => {
+    if (testBtn) { testBtn.disabled = true; testBtn.textContent = 'Sending test email…'; }
+    showMsg('Attempting to connect to SMTP server and send test email…', false, 0);
+
+    const payload = {
+      username: ($('notif-username')?.value || '').trim(),
+      password: $('notif-password')?.value || '',
+      recipient: ($('notif-recipient')?.value || '').trim(),
+      sender_name: ($('notif-sender-name')?.value || '').trim(),
+      smtp_host: ($('notif-host')?.value || 'smtp.gmail.com').trim(),
+      smtp_port: parseInt($('notif-port')?.value || '587', 10),
+    };
+
+    try {
+      const res = await fetch('/api/notifications/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        showMsg(`✓ ${data.message || 'Test email delivered successfully!'}`, false, 8000);
+      } else {
+        showMsg(`❌ ${data.detail || data.message || 'Test email failed'}`, true, 10000);
+      }
+    } catch (err) {
+      showMsg(`Network error: ${err.message}`, true, 10000);
+    } finally {
+      if (testBtn) { testBtn.disabled = false; testBtn.textContent = 'Send test email'; }
+    }
+  });
+
+  clearBtn?.addEventListener('click', async () => {
+    if (!confirm('Clear all saved email notification settings?')) return;
+    try {
+      await fetch('/api/notifications/config', { method: 'DELETE' });
+      showMsg('Notification settings cleared.');
+      loadNotificationsSettings();
+    } catch (err) {
+      showMsg(`Error: ${err.message}`, true);
+    }
+  });
+}
+
 
 // ============================================================
 // RECONNECT
@@ -4663,15 +11258,54 @@ function applyStatus(s) {
     window._cachedNoPacks = s.battery_packs.length === 0;
   }
 
-  // Connection pill
+  // Connection pill & offline detection
   const pill = $('conn-pill');
   const txt = $('conn-text');
-  pill.classList.remove('is-connected', 'is-connecting', 'is-error');
+  pill.classList.remove('is-connected', 'is-connecting', 'is-offline', 'is-error');
+  pill.removeAttribute('title');
+
+  const isDeviceOffline = (s.device_online === false)
+    || (s.telemetry?.device_online === false)
+    || (s.device?.online === false);
+  const offTs = s.telemetry?.device_offline_ts
+    || s.telemetry?.device_last_update_ts
+    || s.device?.offline_ts
+    || s.device?.last_update_ts;
+  const offAgo = offTs ? fmtDurationAgo(Math.max(0, Date.now() / 1000 - offTs)) : '';
+
   let label = s.connection_status || 'unknown';
-  if (s.connection_status === 'connected') { pill.classList.add('is-connected'); label = 'connected'; }
+  if (s.connection_status === 'connected') {
+    if (isDeviceOffline) {
+      pill.classList.add('is-offline');
+      label = offAgo ? `device offline (${offAgo})` : 'device offline';
+      pill.title = offTs ? `Device disconnected from Wi-Fi at ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo})` : 'Device is offline (Wi-Fi disconnected)';
+    } else {
+      pill.classList.add('is-connected');
+      label = 'connected';
+    }
+  }
   else if (['scanning', 'connecting'].includes(s.connection_status)) { pill.classList.add('is-connecting'); }
   else if (s.connection_status === 'error') { pill.classList.add('is-error'); label = s.connection_error || 'error'; }
   txt.textContent = label;
+
+  // Offline banner on Live tab
+  const offlineBanner = $('device-offline-banner');
+  if (offlineBanner) {
+    if (isDeviceOffline && s.connection_status === 'connected') {
+      show(offlineBanner, true);
+      const titleEl = $('device-offline-title');
+      const detailEl = $('device-offline-detail');
+      const devName = s.device?.name || 'Battery';
+      if (titleEl) titleEl.textContent = `${devName} Disconnected from Wi-Fi`;
+      if (detailEl) {
+        detailEl.textContent = offTs
+          ? `Last reported fresh telemetry at ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo}). Values shown below reflect the last known snapshot.`
+          : 'This device is currently offline and not pushing updates. Values shown below reflect the last known snapshot.';
+      }
+    } else {
+      show(offlineBanner, false);
+    }
+  }
 
   // Devices dropdown (cloud meta)
   const devices = s.cloud?.devices || [];
@@ -4680,9 +11314,13 @@ function applyStatus(s) {
   renderDevicePicker(devices, selectedId);
 
   // Source badges
-  const srcLabel = s.source ? s.source.toUpperCase() : '—';
+  let srcLabel = s.source ? s.source.toUpperCase() : '—';
+  if (isDeviceOffline) {
+    srcLabel = `${srcLabel} · OFFLINE`;
+  }
   if ($('source-badge'))   $('source-badge').textContent = srcLabel;
   if ($('source-badge-2')) $('source-badge-2').textContent = srcLabel;
+
 
   // Telemetry
   const t = s.telemetry || {};
@@ -4864,10 +11502,25 @@ function applyStatus(s) {
   $('dev-name').textContent  = dev.name  || '—';
   $('dev-model').textContent = dev.model_code != null ? `model ${dev.model_code}` : '—';
   $('dev-sn').textContent    = dev.device_sn || '—';
+  if ($('dev-wifi-status')) {
+    if (isDeviceOffline) {
+      const offDetail = offTs ? `since ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo})` : '';
+      $('dev-wifi-status').innerHTML = `<span style="color:#fbbf24">● Disconnected / Offline ${offDetail}</span>`;
+    } else {
+      $('dev-wifi-status').innerHTML = '<span style="color:var(--accent)">● Connected (Online)</span>';
+    }
+  }
   $('src-cloud').textContent = describeSrc(s.cloud);
   _lastCloudMeta = s.cloud || null;
   renderPausePill();
-  $('dev-updated').textContent = s.last_update_ts ? new Date(s.last_update_ts * 1000).toLocaleString() : '—';
+  const trueUpdateTs = s.telemetry?.device_last_update_ts || s.last_update_ts;
+  if (trueUpdateTs) {
+    const updAgo = fmtDurationAgo(Math.max(0, Date.now() / 1000 - trueUpdateTs));
+    $('dev-updated').textContent = `${new Date(trueUpdateTs * 1000).toLocaleString()}${updAgo ? ` (${updAgo})` : ''}`;
+  } else {
+    $('dev-updated').textContent = '—';
+  }
+
   const devModelCode = dev.model_code;
   const devOverrides = devModelCode != null ? MODEL_FEATURE_OVERRIDES[devModelCode] : null;
   const upsSupported = !devOverrides || devOverrides.ups_mode !== false;
@@ -4897,6 +11550,50 @@ function applyStatus(s) {
 
   // Energy KPIs (cards on Energy tab)
   if (s.energy) renderEnergyKpis(s.energy);
+
+  // Sinopé connected devices
+  if (s.sinope_devices) {
+    lastSinopeDevices = s.sinope_devices;
+    if (activeTab === 'sinope') renderSinopeTab();
+  }
+
+  // Daikin connected devices
+  if (s.daikin_devices) {
+    lastDaikinDevices = s.daikin_devices;
+    if (activeTab === 'daikin') renderDaikinTab();
+  }
+
+  // Hilo smart meter, devices & challenges
+  if (s.hilo_meters || s.hilo_devices || s.hilo_challenges) {
+    if (s.hilo_meters) lastHiloMeters = s.hilo_meters;
+    if (s.hilo_devices) lastHiloDevices = s.hilo_devices;
+    if (s.hilo_challenges) lastHiloChallenges = s.hilo_challenges;
+    if (activeTab === 'hilo') renderHiloTab();
+  }
+
+  // LG ThinQ smart appliances
+  if (s.thinq_devices) {
+    lastThinqDevices = s.thinq_devices;
+    if (activeTab === 'thinq') renderThinqTab();
+  }
+
+  // Danby / Midea smart dehumidifiers
+  if (s.midea_devices) {
+    lastMideaDevices = s.midea_devices;
+    if (activeTab === 'midea') renderMideaTab();
+  }
+
+  // Tesla EV & Wall Connectors
+  if (s.tesla_devices) {
+    lastTeslaDevices = s.tesla_devices;
+    if (activeTab === 'tesla') renderTeslaTab();
+  }
+
+  // Kasa smart devices (plugs & wall switches)
+  if (s.kasa_devices) {
+    lastKasaDevices = s.kasa_devices;
+    if (activeTab === 'kasa') renderKasaTab();
+  }
 
   // Live chart
   if (activeTab === 'live') {
@@ -5575,24 +12272,112 @@ function drawAxes(ctx, w, h, padL, padR, padT, padB) {
   ctx.stroke();
 }
 
-// Build a smooth Catmull-Rom path through `pts` (array of [x,y]) and trace
-// it onto ctx. Tension 0.5 = classic Catmull-Rom, gentle curves, no
-// overshoot. Skips null entries cleanly (lifts pen + restarts).
-function _smoothPath(ctx, pts) {
-  let i = 0, started = false;
-  while (i < pts.length) {
-    if (!pts[i]) { started = false; i++; continue; }
-    const p0 = pts[i - 1] && pts[i - 1] || pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i + 1] || p1;
-    const p3 = pts[i + 2] || p2;
-    if (!started) { ctx.moveTo(p1[0], p1[1]); started = true; i++; continue; }
-    const cp1x = p0[0] + (p2[0] - p0[0]) / 6;
-    const cp1y = p0[1] + (p2[1] - p0[1]) / 6;
-    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
-    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+// Monotone cubic spline (Fritsch-Carlson / PCHIP) for time-series charts.
+// Guarantees:
+// 1. Strictly monotonic in X (dx/dt > 0, mathematically impossible to curve backward in time).
+// 2. Monotonicity-preserving in Y: local extrema and flat regions (e.g. 0 W plateaus) have zero slope
+//    and zero overshoot/undershoot, eliminating loops, shark-fin spikes, and negative dipping.
+function _drawMonotoneRun(ctx, run, isFreshPath = true) {
+  const n = run.length;
+  if (n === 0) return;
+
+  if (isFreshPath) {
+    ctx.moveTo(run[0][0], run[0][1]);
+  } else {
+    ctx.lineTo(run[0][0], run[0][1]);
+  }
+
+  if (n === 1) return;
+  if (n === 2) {
+    ctx.lineTo(run[1][0], run[1][1]);
+    return;
+  }
+
+  // 1. Calculate secants (slopes between adjacent points)
+  const dx = new Array(n - 1);
+  const delta = new Array(n - 1);
+  for (let i = 0; i < n - 1; i++) {
+    const h = run[i + 1][0] - run[i][0];
+    dx[i] = h;
+    const dy = run[i + 1][1] - run[i][1];
+    delta[i] = (h > 1e-6) ? (dy / h) : 0;
+  }
+
+  // 2. Calculate tangents m at each point (PCHIP weighted harmonic mean)
+  const m = new Array(n);
+  for (let i = 1; i < n - 1; i++) {
+    if (Math.abs(delta[i - 1]) < 1e-9 || Math.abs(delta[i]) < 1e-9 || (delta[i - 1] * delta[i] <= 0)) {
+      m[i] = 0;
+    } else {
+      const h0 = dx[i - 1];
+      const h1 = dx[i];
+      const w1 = 2 * h1 + h0;
+      const w2 = h1 + 2 * h0;
+      m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+    }
+  }
+
+  // Boundary tangents
+  m[0] = delta[0];
+  if (n > 2 && (delta[0] * delta[1] <= 0)) {
+    m[0] = 0;
+  }
+
+  m[n - 1] = delta[n - 2];
+  if (n > 2 && (delta[n - 2] * delta[n - 3] <= 0)) {
+    m[n - 1] = 0;
+  }
+
+  // 3. Fritsch-Carlson limiter to guarantee monotonicity
+  for (let i = 0; i < n - 1; i++) {
+    if (Math.abs(delta[i]) < 1e-9) {
+      m[i] = 0;
+      m[i + 1] = 0;
+    } else {
+      const alpha = m[i] / delta[i];
+      const beta = m[i + 1] / delta[i];
+      if (alpha < 0) m[i] = 0;
+      if (beta < 0) m[i + 1] = 0;
+      const sumSq = alpha * alpha + beta * beta;
+      if (sumSq > 9) {
+        const tau = 3 / Math.sqrt(sumSq);
+        m[i] = tau * alpha * delta[i];
+        m[i + 1] = tau * beta * delta[i];
+      }
+    }
+  }
+
+  // 4. Convert Hermite tangents to Cubic Bezier control points and trace
+  for (let i = 0; i < n - 1; i++) {
+    const p1 = run[i];
+    const p2 = run[i + 1];
+    const h = dx[i];
+    const thirdH = h / 3;
+
+    const cp1x = p1[0] + thirdH;
+    const cp1y = p1[1] + m[i] * thirdH;
+    const cp2x = p2[0] - thirdH;
+    const cp2y = p2[1] - m[i + 1] * thirdH;
+
     ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2[0], p2[1]);
-    i++;
+  }
+}
+
+// Build a smooth monotone path through `pts` (array of [x,y]). Skips null entries cleanly (lifts pen + restarts).
+function _smoothPath(ctx, pts, isFreshPath = true) {
+  if (!pts || !pts.length) return;
+  let run = [];
+  for (let i = 0; i <= pts.length; i++) {
+    const pt = pts[i];
+    if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) {
+      run.push(pt);
+    } else {
+      if (run.length > 0) {
+        _drawMonotoneRun(ctx, run, isFreshPath);
+        run = [];
+        isFreshPath = true;
+      }
+    }
   }
 }
 
@@ -5631,8 +12416,7 @@ function drawAreaFill(ctx, points, xs, ys, baseY, color, alphaTop = 0.25) {
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.moveTo(run[0][0], baseY);
-        ctx.lineTo(run[0][0], run[0][1]);
-        _smoothPath(ctx, run);
+        _drawMonotoneRun(ctx, run, false);
         ctx.lineTo(run[run.length - 1][0], baseY);
         ctx.closePath();
         ctx.fill();
@@ -8550,6 +15334,9 @@ function setTempUnit(unit) {
     try { drawEnergyTempChart(energyHistoryCache); } catch { /* ignore */ }
   }
   try { renderBatteryPacks(); } catch { /* ignore */ }
+  if (activeTab === 'daikin') { try { renderDaikinTab(true); } catch { /* ignore */ } }
+  if (activeTab === 'hilo') { try { renderHiloTab(true); } catch { /* ignore */ } }
+  if (activeTab === 'thinq') { try { renderThinqTab(true); } catch { /* ignore */ } }
 }
 
 function syncTempUnitPills() {
@@ -8566,7 +15353,8 @@ function formatTemp(celsius, decimals = 0) {
   if (celsius == null || Number.isNaN(Number(celsius))) return '—';
   const c = Number(celsius);
   if (getTempUnit() === 'F') {
-    const f = c * 9 / 5 + 32;
+    let f = c * 9 / 5 + 32;
+    if (Math.abs(f) < 0.05) f = 0;
     return `${f.toFixed(decimals)}°F`;
   }
   return `${c.toFixed(decimals)}°C`;
@@ -9560,6 +16348,20 @@ function initHeroSortable() {
   fetchEnergyHistory();
   fetchEnergyAllDevices();
   initCostTab();
+  initSinopeTab();
+  initSinopeSettings();
+  initDaikinTab();
+  initDaikinSettings();
+  initHiloTab();
+  initHiloSettings();
+  initThinqTab();
+  initThinqSettings();
+  initMideaTab();
+  initMideaSettings();
+  initNotificationsSettings();
+  initTeslaTab();
+  initTeslaSettings();
+  initKasaTab();
 
   // Once-per-app-load geolocation prompt for the forecast feature. Skipped
   // if location is already saved or the user previously denied.

@@ -81,7 +81,11 @@ CREATE TABLE IF NOT EXISTS devices (
     model_name  TEXT,
     first_seen  INTEGER,
     last_seen   INTEGER,
-    capacity_wh_override INTEGER  -- user-set total capacity (e.g. with extension batteries); NULL = use model default
+    capacity_wh_override INTEGER,  -- user-set total capacity (e.g. with extension batteries); NULL = use model default
+    brand       TEXT NOT NULL DEFAULT 'jackery',
+    device_type TEXT NOT NULL DEFAULT 'battery',
+    location_id TEXT,
+    metadata_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS samples (
@@ -97,6 +101,9 @@ CREATE TABLE IF NOT EXISTS samples (
     last_ac_input_w INTEGER,
     last_battery_pct INTEGER,
     battery_temp_c REAL,
+    outdoor_temp_c REAL,
+    equipment_status INTEGER,
+    state_json  TEXT,
     sample_count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (device_sn, bucket)
 );
@@ -417,12 +424,26 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                           "solar_charge_diverted_wh REAL NOT NULL DEFAULT 0")
             if "battery_temp_c" not in existing:
                 c.execute("ALTER TABLE samples ADD COLUMN battery_temp_c REAL")
+            if "outdoor_temp_c" not in existing:
+                c.execute("ALTER TABLE samples ADD COLUMN outdoor_temp_c REAL")
+            if "equipment_status" not in existing:
+                c.execute("ALTER TABLE samples ADD COLUMN equipment_status INTEGER")
+            if "state_json" not in existing:
+                c.execute("ALTER TABLE samples ADD COLUMN state_json TEXT")
             # devices table: capacity override (added in v0.2.0+ for users with
             # extension batteries stacked on the 5000 Plus / etc.).
             existing_dev = {row[1] for row in c.execute(
                 "PRAGMA table_info(devices)").fetchall()}
             if "capacity_wh_override" not in existing_dev:
                 c.execute("ALTER TABLE devices ADD COLUMN capacity_wh_override INTEGER")
+            if "brand" not in existing_dev:
+                c.execute("ALTER TABLE devices ADD COLUMN brand TEXT NOT NULL DEFAULT 'jackery'")
+            if "device_type" not in existing_dev:
+                c.execute("ALTER TABLE devices ADD COLUMN device_type TEXT NOT NULL DEFAULT 'battery'")
+            if "location_id" not in existing_dev:
+                c.execute("ALTER TABLE devices ADD COLUMN location_id TEXT")
+            if "metadata_json" not in existing_dev:
+                c.execute("ALTER TABLE devices ADD COLUMN metadata_json TEXT")
             # smart_charge_decisions: baseline_predicted_sunrise_soc_pct added
             # so we can distinguish floor-clamp (predicted == target) from
             # structural pessimism (baseline well under target) on historic
@@ -459,23 +480,33 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
 
     # ---------- ingestion ----------
     def upsert_device(self, device_sn: str, name: str | None,
-                      model_code: int | None,
-                      model_name: str | None) -> None:
+                      model_code: int | None = None,
+                      model_name: str | None = None,
+                      brand: str = "jackery",
+                      device_type: str = "battery",
+                      location_id: str | None = None,
+                      metadata_json: str | None = None) -> None:
         if not device_sn:
             return
         now = int(time.time())
         with self._conn() as c:
             c.execute(
                 """INSERT INTO devices (device_sn, name, model_code, model_name,
-                                        first_seen, last_seen)
-                   VALUES (?, ?, ?, ?, ?, ?)
+                                        first_seen, last_seen, brand, device_type,
+                                        location_id, metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(device_sn) DO UPDATE SET
                      name = COALESCE(excluded.name, devices.name),
                      model_code = COALESCE(excluded.model_code, devices.model_code),
                      model_name = COALESCE(excluded.model_name, devices.model_name),
+                     brand = COALESCE(excluded.brand, devices.brand),
+                     device_type = COALESCE(excluded.device_type, devices.device_type),
+                     location_id = COALESCE(excluded.location_id, devices.location_id),
+                     metadata_json = COALESCE(excluded.metadata_json, devices.metadata_json),
                      last_seen = excluded.last_seen
                 """,
-                (device_sn, name, model_code, model_name, now, now),
+                (device_sn, name, model_code, model_name, now, now,
+                 brand, device_type, location_id, metadata_json),
             )
 
     def record(self, device_sn: str, ts: float,
@@ -484,7 +515,10 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                solar_w: float = 0.0,
                ac_input_w: float = 0.0,
                solar_charge_diverted_w: float = 0.0,
-               battery_temp_c: float | None = None) -> None:
+                battery_temp_c: float | None = None,
+                outdoor_temp_c: float | None = None,
+                equipment_status: int | None = None,
+                state_json: str | None = None) -> None:
         """Integrate (input_w, output_w, solar_w, ac_input_w, diverted_w)
         since last reading for this device.
 
@@ -509,7 +543,30 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                                   float(solar_w), float(ac_input_w),
                                   float(solar_charge_diverted_w))
         if prev is None:
-            return  # need two samples to integrate
+            bucket = int(ts // BUCKET_S) * BUCKET_S
+            with self._conn() as c:
+                c.execute(
+                    """INSERT INTO samples
+                           (device_sn, bucket, input_wh, output_wh, solar_wh, ac_input_wh,
+                            solar_charge_diverted_wh,
+                            last_input_w, last_output_w, last_solar_w, last_ac_input_w,
+                            last_battery_pct, battery_temp_c, outdoor_temp_c, equipment_status, state_json, sample_count)
+                       VALUES (?, ?, 0, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                       ON CONFLICT(device_sn, bucket) DO UPDATE SET
+                         last_input_w = excluded.last_input_w,
+                         last_output_w = excluded.last_output_w,
+                         last_solar_w = excluded.last_solar_w,
+                         last_ac_input_w = excluded.last_ac_input_w,
+                         last_battery_pct = COALESCE(excluded.last_battery_pct, last_battery_pct),
+                         battery_temp_c = COALESCE(excluded.battery_temp_c, battery_temp_c),
+                         outdoor_temp_c = COALESCE(excluded.outdoor_temp_c, outdoor_temp_c),
+                         equipment_status = COALESCE(excluded.equipment_status, equipment_status),
+                         state_json = COALESCE(excluded.state_json, state_json)
+                    """,
+                    (device_sn, bucket, int(input_w), int(output_w), int(solar_w), int(ac_input_w),
+                     battery_pct, battery_temp_c, outdoor_temp_c, equipment_status, state_json),
+                )
+            return  # need two samples to integrate Wh
         # Back-compat: pre-feature ticks stored a 5-tuple. Defensively
         # unpack as 6 with a 0 default.
         if len(prev) == 5:
@@ -546,8 +603,8 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                        (device_sn, bucket, input_wh, output_wh, solar_wh, ac_input_wh,
                         solar_charge_diverted_wh,
                         last_input_w, last_output_w, last_solar_w, last_ac_input_w,
-                        last_battery_pct, battery_temp_c, sample_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        last_battery_pct, battery_temp_c, outdoor_temp_c, equipment_status, state_json, sample_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                    ON CONFLICT(device_sn, bucket) DO UPDATE SET
                      input_wh = input_wh + excluded.input_wh,
                      output_wh = output_wh + excluded.output_wh,
@@ -563,22 +620,666 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                                                  last_battery_pct),
                      battery_temp_c = COALESCE(excluded.battery_temp_c,
                                                battery_temp_c),
+                     outdoor_temp_c = COALESCE(excluded.outdoor_temp_c,
+                                               outdoor_temp_c),
+                     equipment_status = COALESCE(excluded.equipment_status,
+                                                 equipment_status),
+                     state_json = COALESCE(excluded.state_json, state_json),
                      sample_count = sample_count + 1
                 """,
                 (device_sn, bucket, in_wh, out_wh, solar_wh, ac_wh, div_wh,
                  int(input_w), int(output_w), int(solar_w), int(ac_input_w),
-                 battery_pct, battery_temp_c),
+                 battery_pct, battery_temp_c, outdoor_temp_c, equipment_status, state_json),
             )
 
-    # ---------- queries ----------
-    def list_devices(self) -> list[dict]:
+
+    def record_load(self, device_sn: str, ts: float,
+                    power_w: float,
+                    temp_c: float | None = None,
+                    outdoor_temp_c: float | None = None,
+                    equipment_status: int | None = None,
+                    state_json: str | None = None) -> None:
+        """Record sample for a load-only device (Sinopé thermostat, water heater, controller, smart plug)."""
+        self.record(
+            device_sn=device_sn,
+            ts=ts,
+            input_w=0.0,
+            output_w=max(0.0, float(power_w)),
+            battery_pct=None,
+            solar_w=0.0,
+            ac_input_w=0.0,
+            battery_temp_c=temp_c,
+            outdoor_temp_c=outdoor_temp_c,
+            equipment_status=equipment_status,
+            state_json=state_json,
+        )
+
+    def record_thermostat(self, device_sn: str, ts: float,
+                          power_w: float,
+                          temp_c: float | None = None,
+                          outdoor_temp_c: float | None = None,
+                          equipment_status: int | None = None,
+                          state_json: str | None = None) -> None:
+        """Record sample for a thermostat (Daikin, Sinopé) with indoor/outdoor temperatures and status."""
+        self.record(
+            device_sn=device_sn,
+            ts=ts,
+            input_w=0.0,
+            output_w=max(0.0, float(power_w)),
+            battery_pct=None,
+            solar_w=0.0,
+            ac_input_w=0.0,
+            battery_temp_c=temp_c,
+            outdoor_temp_c=outdoor_temp_c,
+            equipment_status=equipment_status,
+            state_json=state_json,
+        )
+
+    def fan_runtime_summary(self, device_sn: str, hours: int = 1) -> dict[str, int]:
+        """Return circulating and total blower fan run time in minutes over the last `hours` hours."""
+        since = int(time.time()) - max(1, int(hours)) * 3600
+        with self._conn() as c:
+            circ = c.execute(
+                "SELECT COUNT(*) FROM samples WHERE device_sn = ? AND bucket >= ? AND equipment_status = 4",
+                (device_sn, since),
+            ).fetchone()[0]
+            total = c.execute(
+                "SELECT COUNT(*) FROM samples WHERE device_sn = ? AND bucket >= ? AND equipment_status IN (1, 2, 3, 4)",
+                (device_sn, since),
+            ).fetchone()[0]
+        return {
+            "circulating_min": int(circ or 0),
+            "total_fan_min": int(total or 0),
+            "window_hours": int(hours),
+        }
+
+    def active_runtime_min(self, device_sn: str, hours: int = 24) -> int:
+        """Return active on-state runtime in minutes over the last `hours` hours (equipment_status = 1)."""
+        since = int(time.time()) - max(1, int(hours)) * 3600
+        with self._conn() as c:
+            r = c.execute(
+                "SELECT COUNT(*) FROM samples WHERE device_sn = ? AND bucket >= ? AND equipment_status = 1",
+                (device_sn, since),
+            ).fetchone()
+            return int(r[0] or 0)
+
+    def record_dehumidifier(
+        self,
+        device_sn: str,
+        ts: float,
+        current_humidity: float,
+        target_humidity: float,
+        operational_status: str,
+        temp_c: float | None = None,
+        fan_speed: int = 40,
+    ) -> None:
+        """Record sample for a dehumidifier (Danby/Midea).
+        equipment_status mapping:
+          0 = off
+          1 = dehumidifying (compressor running)
+          2 = fan_only
+          3 = defrosting
+          4 = tank_full
+        """
+        status_map = {
+            "off": 0,
+            "dehumidifying": 1,
+            "fan_only": 2,
+            "defrosting": 3,
+            "tank_full": 4,
+        }
+        eq_status = status_map.get(operational_status, 0)
+        if eq_status == 1:
+            power_w = 430.0 if int(fan_speed or 40) >= 70 else 380.0
+        elif eq_status == 2:
+            power_w = 48.0 if int(fan_speed or 40) >= 70 else 35.0
+        elif eq_status == 3:
+            power_w = 38.0
+        else:
+            power_w = 1.0
+
+        self.record(
+            device_sn=device_sn,
+            ts=ts,
+            input_w=0.0,
+            output_w=power_w,
+            battery_pct=int(round(current_humidity)),
+            solar_w=0.0,
+            ac_input_w=0.0,
+            battery_temp_c=float(target_humidity),
+            outdoor_temp_c=temp_c,
+            equipment_status=eq_status,
+        )
+
+    def dehumidifier_runtime_summary(self, device_sn: str, hours: int = 24) -> dict[str, Any]:
+        """Return runtime breakdown (minutes in each state) and energy over the last `hours` hours."""
+        since = int(time.time()) - max(1, int(hours)) * 3600
         with self._conn() as c:
             rows = c.execute(
-                """SELECT device_sn, name, model_code, model_name,
-                          first_seen, last_seen, capacity_wh_override
-                   FROM devices ORDER BY last_seen DESC"""
+                """SELECT equipment_status, COUNT(*), SUM(output_wh)
+                   FROM samples
+                   WHERE device_sn = ? AND bucket >= ?
+                   GROUP BY equipment_status""",
+                (device_sn, since),
             ).fetchall()
+        counts = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+        total_wh = 0.0
+        for eq_st, cnt, wh in rows:
+            if eq_st in counts:
+                counts[eq_st] = int(cnt or 0)
+            if wh:
+                total_wh += float(wh)
+        return {
+            "window_hours": int(hours),
+            "compressor_min": counts[1],
+            "fan_only_min": counts[2],
+            "defrost_min": counts[3],
+            "off_min": counts[0] + counts[4],
+            "tank_full_min": counts[4],
+            "energy_kwh": round(total_wh / 1000.0, 2),
+        }
+
+    def record_thinq_appliance(
+        self,
+        device_sn: str,
+        ts: float,
+        norm_dev: dict[str, Any],
+    ) -> None:
+        """Record time-series sample for an LG ThinQ smart appliance,
+        preserving operating status, sub-component states, and baseline power estimates.
+        """
+        import json as _json
+
+        category = str(norm_dev.get("category") or "other").lower()
+        is_online = bool(norm_dev.get("online", True))
+
+        power_w = 0.0
+        equipment_status = 0
+        temp_c: float | None = None
+        outdoor_temp_c: float | None = None
+        state_dict: dict[str, Any] = {
+            "online": is_online,
+            "category": category,
+        }
+
+        if not is_online:
+            power_w = 0.0
+            equipment_status = 0
+            state_dict["run_state"] = "OFFLINE"
+        elif category == "cooking":
+            sub_zones = norm_dev.get("sub_zones") or []
+            is_cooking = bool(norm_dev.get("is_cooking"))
+            run_state = norm_dev.get("run_state", "STANDBY")
+
+            cooking_power = 0.0
+            active_zones_summary = []
+            for z in sub_zones:
+                if not isinstance(z, dict):
+                    continue
+                z_active = bool(z.get("is_active"))
+                z_type = z.get("zone_type", "burner")
+                try:
+                    p_lvl = float(z.get("power_level") or 0.0)
+                except (ValueError, TypeError):
+                    p_lvl = 0.0
+                z_state = str(z.get("state") or "").upper()
+                c_mode = str(z.get("cook_mode") or "").upper()
+
+                if z_active or p_lvl > 0 or (z_state and z_state not in ("OFF", "INITIAL", "STANDBY")):
+                    if z_type == "burner":
+                        if p_lvl <= 2.0:
+                            cooking_power += 200.0 * max(0.5, p_lvl / 2.0)
+                        elif p_lvl <= 4.0:
+                            cooking_power += 500.0 * (p_lvl / 4.0)
+                        elif p_lvl <= 6.0:
+                            cooking_power += 1000.0 * (p_lvl / 6.0)
+                        elif p_lvl <= 8.0:
+                            cooking_power += 1800.0 * (p_lvl / 8.0)
+                        else:
+                            cooking_power += 2600.0 * (p_lvl / 9.0)
+                    elif z_type == "cavity":
+                        if "PREHEAT" in z_state:
+                            cooking_power += 3200.0
+                        elif "BROIL" in c_mode or "BROIL" in z_state:
+                            cooking_power += 3500.0
+                        elif "WARM" in c_mode or "WARM" in z_state:
+                            cooking_power += 300.0
+                        elif "CLEAN" in z_state:
+                            cooking_power += 3000.0
+                        else:
+                            cooking_power += 1400.0
+
+                    active_zones_summary.append({
+                        "id": z.get("id"),
+                        "name": z.get("name"),
+                        "type": z_type,
+                        "level": p_lvl,
+                        "state": z_state,
+                        "cook_mode": c_mode or None,
+                        "target_c": z.get("target_temp_c"),
+                        "current_c": z.get("current_temp_c"),
+                    })
+
+            if not sub_zones and is_cooking:
+                cooking_power = 2000.0
+
+            power_w = cooking_power if cooking_power > 0 else 2.0  # 2W standby
+            equipment_status = 1 if (is_cooking or cooking_power > 10.0) else 0
+            temp_c = norm_dev.get("current_temp_c")
+            outdoor_temp_c = norm_dev.get("target_temp_c")
+
+            state_dict.update({
+                "run_state": run_state,
+                "is_cooking": is_cooking,
+                "active_zones": active_zones_summary,
+                "total_zones": len(sub_zones),
+                "remaining_min": norm_dev.get("remaining_min"),
+            })
+
+        elif category == "laundry":
+            run_state = str(norm_dev.get("run_state") or "STANDBY").upper()
+            is_running = bool(norm_dev.get("is_running"))
+            current_step = str(norm_dev.get("current_step") or "").upper()
+            dtype = str(norm_dev.get("raw_type") or "").upper()
+            is_dryer = "DRYER" in dtype
+
+            if is_dryer:
+                if run_state == "COOLING" or "COOL" in current_step:
+                    power_w = 250.0       # heating element off, motor/fan only
+                    equipment_status = 2  # cooling
+                elif run_state == "WRINKLE_CARE":
+                    power_w = 150.0       # intermittent tumble
+                    equipment_status = 4  # wrinkle care
+                elif run_state in ("RUNNING", "DRYING") or is_running:
+                    power_w = 4500.0      # electric heating + motor
+                    equipment_status = 1  # drying
+                elif run_state in ("COMPLETE", "END"):
+                    power_w = 3.0
+                    equipment_status = 3  # complete
+                else:
+                    power_w = 2.0
+                    equipment_status = 0  # standby
+            else:
+                # Washer
+                if "SPIN" in current_step or run_state == "SPINNING":
+                    power_w = 650.0
+                    equipment_status = 3  # spinning
+                elif "RINSE" in current_step or run_state == "RINSING":
+                    power_w = 200.0
+                    equipment_status = 2  # rinsing
+                elif "WASH" in current_step or run_state == "WASHING":
+                    power_w = 250.0
+                    equipment_status = 1  # washing
+                elif is_running or run_state == "RUNNING":
+                    power_w = 250.0
+                    equipment_status = 5  # running
+                elif run_state in ("COMPLETE", "END"):
+                    power_w = 3.0
+                    equipment_status = 6  # complete
+                else:
+                    power_w = 2.0
+                    equipment_status = 0  # standby
+
+            state_dict.update({
+                "run_state": run_state,
+                "is_running": is_running,
+                "course": norm_dev.get("course"),
+                "step": norm_dev.get("current_step"),
+                "remaining_min": norm_dev.get("remaining_min"),
+                "door_locked": norm_dev.get("door_locked"),
+            })
+
+        elif category == "refrigeration":
+            express_freeze = bool(norm_dev.get("express_freeze"))
+            door_opened = bool(norm_dev.get("door_opened"))
+            eco = bool(norm_dev.get("eco_friendly"))
+
+            if express_freeze:
+                power_w = 160.0
+                equipment_status = 1
+            elif door_opened:
+                power_w = 75.0
+                equipment_status = 2
+            elif eco:
+                power_w = 45.0
+                equipment_status = 3
+            else:
+                power_w = 80.0
+                equipment_status = 0
+
+            temp_c = norm_dev.get("fridge_temp_c")
+            outdoor_temp_c = norm_dev.get("freezer_temp_c")
+
+            state_dict.update({
+                "fridge_temp_c": temp_c,
+                "freezer_temp_c": outdoor_temp_c,
+                "express_freeze": express_freeze,
+                "door_opened": door_opened,
+                "eco_friendly": eco,
+            })
+
+        elif category == "dishwasher":
+            run_state = str(norm_dev.get("run_state") or "STANDBY").upper()
+            is_running = bool(norm_dev.get("is_running"))
+
+            if run_state in ("DRYING",) or (is_running and "DRY" in run_state):
+                power_w = 1200.0
+                equipment_status = 2
+            elif is_running or run_state in ("RUNNING", "WASHING"):
+                power_w = 1200.0 if "WASH" in run_state else 180.0
+                equipment_status = 1
+            elif run_state in ("COMPLETE", "END"):
+                power_w = 2.0
+                equipment_status = 3
+            else:
+                power_w = 2.0
+                equipment_status = 0
+
+            state_dict.update({
+                "run_state": run_state,
+                "is_running": is_running,
+                "course": norm_dev.get("course"),
+                "remaining_min": norm_dev.get("remaining_min"),
+            })
+
+        else:
+            power_w = 5.0 if is_online else 0.0
+            equipment_status = 0
+            state_dict["run_state"] = norm_dev.get("run_state", "STANDBY")
+
+        self.record(
+            device_sn=device_sn,
+            ts=ts,
+            input_w=0.0,
+            output_w=power_w,
+            battery_pct=None,
+            solar_w=0.0,
+            ac_input_w=0.0,
+            battery_temp_c=temp_c,
+            outdoor_temp_c=outdoor_temp_c,
+            equipment_status=equipment_status,
+            state_json=_json.dumps(state_dict, ensure_ascii=False),
+        )
+
+    def record_tesla_device(
+        self,
+        device_sn: str,
+        ts: float,
+        dev_dict: dict[str, Any],
+    ) -> None:
+        """Record time-series telemetry for Tesla EVSE (Wall Connector) or Tesla Vehicle."""
+        import json as _json
+
+        dtype = str(dev_dict.get("device_type") or "").lower()
+        power_w = float(dev_dict.get("power_w") or 0.0)
+
+        if dtype == "ev_charger":
+            # Wall Connector
+            is_charging = bool(dev_dict.get("is_charging"))
+            vehicle_conn = bool(dev_dict.get("vehicle_connected"))
+            eq_status = 2 if is_charging else (1 if vehicle_conn else 0)
+
+            state_dict = {
+                "device_type": "ev_charger",
+                "charger_type": "wall_connector",
+                "location_id": dev_dict.get("location_id"),
+                "grid_v": dev_dict.get("grid_v"),
+                "current_a": dev_dict.get("current_a"),
+                "session_energy_wh": dev_dict.get("session_energy_wh"),
+                "lifetime_energy_wh": dev_dict.get("lifetime_energy_wh"),
+                "contactor_closed": dev_dict.get("contactor_closed"),
+                "vehicle_connected": vehicle_conn,
+                "is_charging": is_charging,
+                "handle_temp_c": dev_dict.get("handle_temp_c"),
+                "pcba_temp_c": dev_dict.get("pcba_temp_c"),
+            }
+
+            self.record(
+                device_sn=device_sn,
+                ts=ts,
+                input_w=0.0,
+                output_w=power_w,
+                battery_pct=None,
+                solar_w=0.0,
+                ac_input_w=0.0,
+                battery_temp_c=dev_dict.get("handle_temp_c"),
+                outdoor_temp_c=dev_dict.get("pcba_temp_c"),
+                equipment_status=eq_status,
+                state_json=_json.dumps(state_dict, ensure_ascii=False),
+            )
+
+        elif dtype == "ev_vehicle":
+            # Model Y Vehicle
+            is_charging = bool(dev_dict.get("is_charging"))
+            is_plugged = bool(dev_dict.get("is_plugged_in"))
+            eq_status = 2 if is_charging else (1 if is_plugged else 0)
+
+            battery_level = dev_dict.get("battery_level")
+            bat_pct = int(round(battery_level)) if battery_level is not None else None
+
+            state_dict = {
+                "device_type": "ev_vehicle",
+                "charging_state": dev_dict.get("charging_state"),
+                "battery_level": battery_level,
+                "battery_range_km": dev_dict.get("battery_range_km"),
+                "charger_power_kw": dev_dict.get("charger_power_kw"),
+                "charger_voltage": dev_dict.get("charger_voltage"),
+                "charger_actual_current": dev_dict.get("charger_actual_current"),
+                "charge_energy_added_kwh": dev_dict.get("charge_energy_added_kwh"),
+                "location_id": dev_dict.get("location_id"),
+                "location_name": dev_dict.get("location_name"),
+                "charger_type": dev_dict.get("charger_type"),
+                "charger_name": dev_dict.get("charger_name"),
+                "latitude": dev_dict.get("latitude"),
+                "longitude": dev_dict.get("longitude"),
+            }
+
+            self.record(
+                device_sn=device_sn,
+                ts=ts,
+                input_w=0.0,
+                output_w=power_w,
+                battery_pct=bat_pct,
+                solar_w=0.0,
+                ac_input_w=0.0,
+                battery_temp_c=None,
+                outdoor_temp_c=None,
+                equipment_status=eq_status,
+                state_json=_json.dumps(state_dict, ensure_ascii=False),
+            )
+
+
+    def record_metered_hourly_consumption(
+        self,
+        device_sn: str,
+        period_start_ts: int,
+        wh: float,
+        water_temp_c: float | None = None,
+    ) -> None:
+        """Record metered hourly consumption (e.g. from Neviweb /consumption/hourly).
+
+        Distributes `wh` across sixty 1-minute buckets starting at `period_start_ts`
+        to match 1-minute aggregation in `samples`.
+        """
+        wh = max(0.0, float(wh))
+        wh_per_min = round(wh / 60.0, 4)
+        avg_w = int(round(wh))
+        base_ts = (int(period_start_ts) // 3600) * 3600
+
+        with self._conn() as c:
+            for minute in range(60):
+                bucket = base_ts + minute * 60
+                c.execute(
+                    """INSERT INTO samples
+                           (device_sn, bucket, input_wh, output_wh, solar_wh, ac_input_wh,
+                            solar_charge_diverted_wh,
+                            last_input_w, last_output_w, last_solar_w, last_ac_input_w,
+                            last_battery_pct, battery_temp_c, outdoor_temp_c, equipment_status, sample_count)
+                       VALUES (?, ?, 0.0, ?, 0.0, 0.0, 0.0, 0, ?, 0, 0, NULL, ?, NULL, NULL, 1)
+                       ON CONFLICT(device_sn, bucket) DO UPDATE SET
+                         output_wh = excluded.output_wh,
+                         last_output_w = excluded.last_output_w,
+                         battery_temp_c = COALESCE(excluded.battery_temp_c, battery_temp_c),
+                         sample_count = MAX(sample_count, 1)
+                    """,
+                    (device_sn, bucket, wh_per_min, avg_w, water_temp_c),
+                )
+
+    def record_metered_daily_consumption(
+        self,
+        device_sn: str,
+        day_start_ts: int,
+        wh: float,
+    ) -> None:
+        """Record metered daily consumption (e.g. from Neviweb /consumption/daily).
+
+        Distributes `wh` across twenty-four 1-hour intervals (1440 minutes) for days
+        prior to hourly availability. Does not overwrite existing non-zero minute buckets.
+        """
+        wh = max(0.0, float(wh))
+        wh_per_min = round(wh / 1440.0, 4)
+        avg_w = int(round(wh / 24.0))
+        base_ts = (int(day_start_ts) // 86400) * 86400
+
+        with self._conn() as c:
+            for minute in range(1440):
+                bucket = base_ts + minute * 60
+                c.execute(
+                    """INSERT INTO samples
+                           (device_sn, bucket, input_wh, output_wh, solar_wh, ac_input_wh,
+                            solar_charge_diverted_wh,
+                            last_input_w, last_output_w, last_solar_w, last_ac_input_w,
+                            last_battery_pct, battery_temp_c, outdoor_temp_c, equipment_status, sample_count)
+                       VALUES (?, ?, 0.0, ?, 0.0, 0.0, 0.0, 0, ?, 0, 0, NULL, NULL, NULL, NULL, 1)
+                       ON CONFLICT(device_sn, bucket) DO NOTHING
+                    """,
+                    (device_sn, bucket, wh_per_min, avg_w),
+                )
+
+    def delete_device_samples(
+        self,
+        device_sn: str,
+        since_ts: int | None = None,
+        until_ts: int | None = None,
+    ) -> int:
+        """Delete sample records for a device, optionally scoped by timestamp range."""
+        with self._conn() as c:
+            if since_ts is not None and until_ts is not None:
+                cur = c.execute(
+                    "DELETE FROM samples WHERE device_sn = ? AND bucket >= ? AND bucket <= ?",
+                    (device_sn, since_ts, until_ts),
+                )
+            elif since_ts is not None:
+                cur = c.execute(
+                    "DELETE FROM samples WHERE device_sn = ? AND bucket >= ?",
+                    (device_sn, since_ts),
+                )
+            elif until_ts is not None:
+                cur = c.execute(
+                    "DELETE FROM samples WHERE device_sn = ? AND bucket <= ?",
+                    (device_sn, until_ts),
+                )
+            else:
+                cur = c.execute("DELETE FROM samples WHERE device_sn = ?", (device_sn,))
+            return cur.rowcount
+
+    # ---------- queries ----------
+    def list_devices(self, location_id: str | None = None) -> list[dict]:
+        with self._conn() as c:
+            if location_id and location_id.lower() != "all":
+                rows = c.execute(
+                    """SELECT device_sn, name, model_code, model_name,
+                              first_seen, last_seen, capacity_wh_override,
+                              brand, device_type, location_id, metadata_json
+                       FROM devices WHERE location_id = ? ORDER BY last_seen DESC""",
+                    (location_id,)
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    """SELECT device_sn, name, model_code, model_name,
+                              first_seen, last_seen, capacity_wh_override,
+                              brand, device_type, location_id, metadata_json
+                       FROM devices ORDER BY last_seen DESC"""
+                ).fetchall()
         return [dict(r) for r in rows]
+
+    def location_load_history(self, location_id: str, hours: int = 24,
+                              bucket_s: int = 600, brand: str = "sinope") -> list[dict]:
+        """Aggregate power and energy history for all devices in a location.
+
+        Returns time-bucketed entries with:
+          - ts: bucket epoch timestamp
+          - total_w: total power in watts across all devices in location
+          - total_wh: total energy in Wh consumed in this bucket
+          - avg_temp_c: average temperature across thermostats in location
+          - thermostat_w: power in watts from thermostats
+          - controller_w: power in watts from controllers / non-thermostats
+          - dev_count: number of reporting devices
+        """
+        since = int(time.time()) - hours * 3600
+        bucket_s = max(60, int(bucket_s))
+        with self._conn() as c:
+            if location_id and location_id.lower() != "all":
+                rows = c.execute(
+                    """SELECT (s.bucket / ?) * ? AS b,
+                              SUM(s.output_wh) AS out_wh,
+                              SUM(s.last_output_w) AS out_w,
+                              AVG(CASE WHEN d.device_type = 'thermostat' AND s.battery_temp_c IS NOT NULL THEN s.battery_temp_c ELSE NULL END) AS avg_temp_c,
+                              SUM(CASE WHEN d.device_type = 'thermostat' THEN s.output_wh ELSE 0 END) AS therm_wh,
+                              SUM(CASE WHEN d.device_type != 'thermostat' THEN s.output_wh ELSE 0 END) AS ctrl_wh,
+                              SUM(CASE WHEN d.device_type = 'thermostat' THEN s.last_output_w ELSE 0 END) AS therm_last_w,
+                              SUM(CASE WHEN d.device_type != 'thermostat' THEN s.last_output_w ELSE 0 END) AS ctrl_last_w,
+                              COUNT(DISTINCT s.device_sn) AS dev_count
+                       FROM samples s
+                       JOIN devices d ON s.device_sn = d.device_sn
+                       WHERE LOWER(d.location_id) = LOWER(?)
+                         AND (d.brand = ? OR ? IS NULL)
+                         AND s.bucket >= ?
+                       GROUP BY b
+                       ORDER BY b ASC""",
+                    (bucket_s, bucket_s, location_id, brand, brand, since)
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    """SELECT (s.bucket / ?) * ? AS b,
+                              SUM(s.output_wh) AS out_wh,
+                              SUM(s.last_output_w) AS out_w,
+                              AVG(CASE WHEN d.device_type = 'thermostat' AND s.battery_temp_c IS NOT NULL THEN s.battery_temp_c ELSE NULL END) AS avg_temp_c,
+                              SUM(CASE WHEN d.device_type = 'thermostat' THEN s.output_wh ELSE 0 END) AS therm_wh,
+                              SUM(CASE WHEN d.device_type != 'thermostat' THEN s.output_wh ELSE 0 END) AS ctrl_wh,
+                              SUM(CASE WHEN d.device_type = 'thermostat' THEN s.last_output_w ELSE 0 END) AS therm_last_w,
+                              SUM(CASE WHEN d.device_type != 'thermostat' THEN s.last_output_w ELSE 0 END) AS ctrl_last_w,
+                              COUNT(DISTINCT s.device_sn) AS dev_count
+                       FROM samples s
+                       JOIN devices d ON s.device_sn = d.device_sn
+                       WHERE (d.brand = ? OR ? IS NULL)
+                         AND s.bucket >= ?
+                       GROUP BY b
+                       ORDER BY b ASC""",
+                    (bucket_s, bucket_s, brand, brand, since)
+                ).fetchall()
+
+        out = []
+        for r in rows:
+            out_wh = r[1] or 0.0
+            if out_wh > 0:
+                tot_w = int(round((out_wh * 3600.0) / bucket_s))
+                th_w = int(round(((r[4] or 0.0) * 3600.0) / bucket_s))
+                ct_w = int(round(((r[5] or 0.0) * 3600.0) / bucket_s))
+            else:
+                tot_w = int(r[2] or 0)
+                th_w = int(r[6] or 0)
+                ct_w = int(r[7] or 0)
+            out.append({
+                "ts": r[0],
+                "total_wh": round(out_wh, 2),
+                "total_w": tot_w,
+                "avg_temp_c": round(r[3], 1) if r[3] is not None else None,
+                "thermostat_w": th_w,
+                "controller_w": ct_w,
+                "device_count": r[8] or 0,
+            })
+        return out
 
     def get_capacity_override(self, device_sn: str) -> int | None:
         if not device_sn:
@@ -1402,7 +2103,10 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                            AVG(last_solar_w) AS sol_w,
                            AVG(last_ac_input_w) AS ac_w,
                            AVG(last_battery_pct) AS bat,
-                           AVG(battery_temp_c) AS temp_c
+                           AVG(battery_temp_c) AS temp_c,
+                           AVG(outdoor_temp_c) AS outdoor_temp_c,
+                           MAX(equipment_status) AS equipment_status,
+                           MAX(state_json) AS state_json
                     FROM samples
                     WHERE device_sn = ? AND bucket >= ?
                     GROUP BY b
@@ -1465,7 +2169,10 @@ class EnergyDB(ForecastTablesMixin, AutomationTablesMixin):
                    "input_w": int(r[6] or 0), "output_w": int(r[7] or 0),
                    "solar_w": int(r[8] or 0), "ac_input_w": int(r[9] or 0),
                    "battery_pct": int(r[10]) if r[10] is not None else None,
-                   "battery_temp_c": round(r[11], 1) if r[11] is not None else None}
+                   "battery_temp_c": round(r[11], 1) if r[11] is not None else None,
+                   "outdoor_temp_c": round(r[12], 1) if r[12] is not None else None,
+                   "equipment_status": int(r[13]) if r[13] is not None else None,
+                   "state_json": r[14] if len(r) > 14 and r[14] is not None else None}
             if ts_sorted and row["battery_pct"] is not None:
                 row["system_soc"] = _capacity_weighted_soc(
                     float(row["battery_pct"]), int(row["ts"]),

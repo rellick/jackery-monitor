@@ -381,6 +381,10 @@ class JackeryCloudClient:
                         "batteryList", "battList"):
                 if device_blob.get(key):
                     props[f"_dev_{key}"] = device_blob[key]
+            for key in ("onlineStatus", "onlineTime", "offlineTime", "updateTime", "createTime"):
+                if key in device_blob:
+                    props[f"_dev_{key}"] = device_blob[key]
+
         # One-time log of the full property key set so we can see whether the
         # cloud is exposing per-input solar / per-battery fields that
         # aren't in the reverse-engineered protocol doc. Logged once per
@@ -477,6 +481,8 @@ class JackeryCloudClient:
             return {k: v for k, v in kw.items() if v is not None}
         attempts = [
             ("GET",  "/v1/device/battery/pack/list", {"deviceSn": sn}),
+            ("GET",  "/v1/device/property", {"deviceId": device_id}),
+            ("GET",  "/v1/device/bind/list", {}),
             ("POST", "/v1/device/version", body(deviceSn=sn)),
             ("POST", "/v1/device/version", body(deviceSn=sn, modelCode=mc)),
             ("POST", "/v1/device/version", body(deviceId=device_id, deviceSn=sn, modelCode=mc)),
@@ -832,4 +838,10 @@ def cloud_props_to_telemetry(p: dict[str, Any], model_code: int | None = None) -
                 "ups_mode": bool(i("ups", 1)) if "ups" in p and "ups_mode" not in unsupported else None,
             }.items() if v is not None
         },
+        "device_online": (int(p["_dev_onlineStatus"]) != 0) if "_dev_onlineStatus" in p and p["_dev_onlineStatus"] is not None else True,
+        "device_offline_ts": (float(p["_dev_offlineTime"]) / 1000.0) if p.get("_dev_offlineTime") else None,
+        "device_online_ts": (float(p["_dev_onlineTime"]) / 1000.0) if p.get("_dev_onlineTime") else None,
+        "device_last_update_ts": (float(p["_dev_updateTime"]) / 1000.0) if p.get("_dev_updateTime") else None,
+        "wifi_signal": i("wss") if "wss" in p else None,
     }
+

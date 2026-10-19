@@ -298,8 +298,10 @@ def _describe(host: str, dev: Any) -> dict:
             type_name = dev.device_type.name if hasattr(dev.device_type, "name") else str(dev.device_type)
     except Exception:
         pass
+    mac = dev.get("mac") if isinstance(dev, dict) else getattr(dev, "mac", None)
     return {
         "host": host,
+        "mac": mac,
         "alias": getattr(dev, "alias", None) or host,
         "model": getattr(dev, "model", None),
         "type": type_name,

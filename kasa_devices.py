@@ -72,9 +72,25 @@ class KasaRegistry:
     def get(self, host: str) -> dict | None:
         return next((d for d in self.devices if d.get("host") == host), None)
 
+    def get_device_sn(self, d: dict | str) -> str:
+        """Derive standard device_sn (e.g. kasa_3c7895053f14 or kasa_192_168_86_58)."""
+        if isinstance(d, str):
+            dev = self.get(d)
+            if dev:
+                d = dev
+            else:
+                return f"kasa_{d.replace('.', '_')}"
+        mac = d.get("mac")
+        if mac:
+            return f"kasa_{mac.lower().replace(':', '')}"
+        host = d.get("host") or "unknown"
+        return f"kasa_{host.replace('.', '_')}"
+
     def upsert(self, host: str, alias: str = "", model: str | None = None,
                type_: str | None = None, mark_tested: bool = False,
-               jackery_device_sn: str | None = None) -> dict:
+               jackery_device_sn: str | None = None,
+               location_id: str | None = None,
+               mac: str | None = None) -> dict:
         host = (host or "").strip()
         if not host:
             raise ValueError("host is required")
@@ -94,19 +110,25 @@ class KasaRegistry:
                 existing["model"] = model
             if type_ is not None:
                 existing["type"] = type_
+            if mac is not None:
+                existing["mac"] = mac
             if mark_tested:
                 existing["last_tested"] = now
             if jackery_device_sn is not None:
                 existing["jackery_device_sn"] = normalised_assignment
+            if location_id is not None:
+                existing["location_id"] = location_id.strip() or "maison"
         else:
             existing = {
                 "host":  host,
                 "alias": alias,
                 "model": model,
                 "type":  type_,
+                "mac":   mac,
                 "added": now,
                 "last_tested": now if mark_tested else None,
                 "jackery_device_sn": normalised_assignment,
+                "location_id": (location_id or "maison").strip() or "maison",
             }
             self.devices.append(existing)
         self._save()
@@ -134,7 +156,10 @@ class KasaRegistry:
                      is_on: bool | None = None,
                      error: str | None = None,
                      model: str | None = None,
-                     alias: str | None = None) -> dict | None:
+                     alias: str | None = None,
+                     power_w: float | None = None,
+                     type_: str | None = None,
+                     mac: str | None = None) -> dict | None:
         d = self.get(host)
         if not d:
             return None
@@ -145,6 +170,12 @@ class KasaRegistry:
             d["consecutive_failures"] = 0
             if is_on is not None:
                 d["last_known_is_on"] = is_on
+            if power_w is not None:
+                d["power_w"] = power_w
+            if type_ and not d.get("type"):
+                d["type"] = type_
+            if mac and not d.get("mac"):
+                d["mac"] = mac
             # Don't overwrite a user-edited alias; only fill if empty.
             if model and not d.get("model"):
                 d["model"] = model

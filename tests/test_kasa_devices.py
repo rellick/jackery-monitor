@@ -101,3 +101,25 @@ def test_probe_state_persists_across_reload(reg):
     assert d["consecutive_failures"] == 1
     assert d["last_error"] == "boom"
     assert reg2.status_of(d) == "offline"
+
+
+def test_update_probe_with_power_and_type(reg):
+    reg.upsert("192.168.1.50", alias="Switch", type_="WallSwitch", location_id="maison")
+    d = reg.update_probe("192.168.1.50", success=True, is_on=True, power_w=12.5, type_="WallSwitch")
+    assert d["power_w"] == 12.5
+    assert d["type"] == "WallSwitch"
+    assert d["location_id"] == "maison"
+    assert d["last_known_is_on"] is True
+
+
+def test_update_probe_with_mac_and_device_sn(reg):
+    reg.upsert("192.168.1.50", alias="Switch", mac="3C:78:95:05:3F:14")
+    d = reg.get("192.168.1.50")
+    assert d["mac"] == "3C:78:95:05:3F:14"
+    assert reg.get_device_sn(d) == "kasa_3c7895053f14"
+    assert reg.get_device_sn("192.168.1.50") == "kasa_3c7895053f14"
+
+    # Fallback to host when mac not present
+    reg.upsert("192.168.1.51", alias="Other")
+    assert reg.get_device_sn("192.168.1.51") == "kasa_192_168_1_51"
+
