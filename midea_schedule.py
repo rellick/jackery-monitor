@@ -248,7 +248,7 @@ async def check_and_execute_schedules(client: Any) -> list[dict[str, Any]]:
                 if cache_key not in _executed_events:
                     _executed_events[cache_key] = now_ts
                     power = bool(ev.get("power", True))
-                    action_str = "Allumer" if power else "Arrêter"
+                    action_str = "Régler / Allumer" if power else "Arrêter"
                     log.info(
                         "Executing schedule event '%s' (%s) for Midea device %s at %s (%s)",
                         ev.get("name"), action_str, dev_id, current_hm, tz_str,

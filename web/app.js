@@ -8538,7 +8538,7 @@ function getMideaEventsListHtml(devId, events) {
             <input type="time" class="midea-ev-time-input" value="${escapeHtml(evTime)}" style="background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 6px; border-radius:4px;" />
 
             <select class="midea-ev-power-select" style="font-size:11px; padding:2px 6px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
-              <option value="true" ${isPwr ? 'selected' : ''}>▶️ Allumer</option>
+              <option value="true" ${isPwr ? 'selected' : ''}>▶️ Régler / Allumer</option>
               <option value="false" ${!isPwr ? 'selected' : ''}>⏹️ Arrêter</option>
             </select>
 
