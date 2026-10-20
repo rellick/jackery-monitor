@@ -8401,9 +8401,9 @@ function collectMideaEventsFromDom(devId) {
   rows.forEach((row, idx) => {
     const id = row.dataset.id || `evt_${Math.random().toString(36).substring(2, 9)}`;
     const en = row.querySelector('.midea-ev-en-cb')?.checked ?? true;
-    const name = row.querySelector('.midea-ev-name-input')?.value?.trim() || `Plage ${idx + 1}`;
-    const startTime = row.querySelector('.midea-ev-start-time')?.value?.trim() || row.querySelector('.midea-ev-time-input')?.value?.trim() || '08:00';
-    const endTime = row.querySelector('.midea-ev-end-time')?.value?.trim() || '';
+    const name = row.querySelector('.midea-ev-name-input')?.value?.trim() || `Événement ${idx + 1}`;
+    const time = row.querySelector('.midea-ev-time-input')?.value?.trim() || '08:00';
+    const power = row.querySelector('.midea-ev-power-select')?.value !== 'false';
     const target_humidity = parseInt(row.querySelector('.midea-ev-hum-input')?.value, 10) || 40;
     const fan_speed = parseInt(row.querySelector('.midea-ev-fan-select')?.value, 10) || 80;
     const mode = parseInt(row.querySelector('.midea-ev-mode-select')?.value, 10) || 2;
@@ -8417,10 +8417,8 @@ function collectMideaEventsFromDom(devId) {
       name,
       enabled: en,
       days: days.length ? days : [1, 2, 3, 4, 5, 6, 7],
-      start_time: startTime,
-      end_time: endTime || null,
-      time: startTime,
-      power: true,
+      time,
+      power,
       target_humidity: Math.max(30, Math.min(80, target_humidity)),
       fan_speed: fan_speed >= 70 ? 80 : 40,
       mode: mode === 2 ? 2 : 1,
@@ -8483,7 +8481,7 @@ async function saveMideaDeviceSchedule(devId, btn = null) {
 
       const badgeEl = $(`midea-sched-badge-${devId}`);
       if (badgeEl) {
-        badgeEl.textContent = isEnabled ? `✓ Actif (${events.length} plage${events.length > 1 ? 's' : ''})` : 'Désactivé';
+        badgeEl.textContent = isEnabled ? `✓ Actif (${events.length} événement${events.length > 1 ? 's' : ''})` : 'Désactivé';
         badgeEl.style.color = isEnabled ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
       }
     } else {
@@ -8515,74 +8513,69 @@ function getMideaEventsListHtml(devId, events) {
   ];
 
   if (!events || !events.length) {
-    return `<div style="font-size:12px; color:var(--text-dim,#94a3b8); text-align:center; padding:14px; border:1px dashed rgba(255,255,255,0.12); border-radius:6px;">Aucune plage horaire configurée. Cliquez sur "+ Ajouter une plage" pour démarrer.</div>`;
+    return `<div style="font-size:12px; color:var(--text-dim,#94a3b8); text-align:center; padding:14px; border:1px dashed rgba(255,255,255,0.12); border-radius:6px;">Aucun événement configuré. Cliquez sur "+ Ajouter un événement" pour démarrer.</div>`;
   }
 
   return events.map((ev, idx) => {
     const isEn = !!ev.enabled;
-    const isActive = !!ev.is_active;
+    const isPwr = ev.power !== false;
     const evDays = ev.days || [1, 2, 3, 4, 5, 6, 7];
-    const startTime = ev.start_time || ev.time || '10:01';
-    const endTime = ev.end_time || '';
-    const isOvernight = Boolean(startTime && endTime && endTime < startTime);
+    const evTime = ev.time || ev.start_time || '08:00';
 
     const dayPillsHtml = dayLabels.map(d =>
       `<span class="midea-day-pill ${evDays.includes(d.num) ? 'on' : ''}" data-day="${d.num}">${d.label}</span>`
     ).join('');
 
     return `
-      <div class="midea-sched-event-row ${isEn ? '' : 'disabled'} ${isActive ? 'active' : ''}" data-id="${escapeHtml(ev.id)}" data-idx="${idx}">
+      <div class="midea-sched-event-row ${isEn ? '' : 'disabled'}" data-id="${escapeHtml(ev.id)}" data-idx="${idx}">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <input type="checkbox" class="midea-ev-en-cb" ${isEn ? 'checked' : ''} title="Activer cette plage" style="cursor:pointer;" />
-            <input type="text" class="midea-ev-name-input" value="${escapeHtml(ev.name || `Plage ${idx + 1}`)}" placeholder="Nom de la plage (ex. Jour, Nuit)" style="background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 4px; width:130px;" />
-            ${isActive ? '<span class="midea-period-active-badge">🟢 En cours</span>' : ''}
+            <input type="checkbox" class="midea-ev-en-cb" ${isEn ? 'checked' : ''} title="Activer cet événement" style="cursor:pointer;" />
+            <input type="text" class="midea-ev-name-input" value="${escapeHtml(ev.name || `Événement ${idx + 1}`)}" placeholder="Nom de l'événement" style="background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 4px; width:130px;" />
           </div>
 
           <div style="display:flex; align-items:center; gap:6px;">
-            <button type="button" class="btn btn-ghost btn-tiny midea-del-ev-btn" data-idx="${idx}" title="Supprimer cette plage" style="color:var(--red,#ef4444); padding:2px 6px;">🗑️</button>
+            <input type="time" class="midea-ev-time-input" value="${escapeHtml(evTime)}" style="background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 6px; border-radius:4px;" />
+
+            <select class="midea-ev-power-select" style="font-size:11px; padding:2px 6px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
+              <option value="true" ${isPwr ? 'selected' : ''}>▶️ Allumer</option>
+              <option value="false" ${!isPwr ? 'selected' : ''}>⏹️ Arrêter</option>
+            </select>
+
+            <button type="button" class="btn btn-ghost btn-tiny midea-del-ev-btn" data-idx="${idx}" title="Supprimer cet événement" style="color:var(--red,#ef4444); padding:2px 6px;">🗑️</button>
           </div>
         </div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-top:3px;">
-          <!-- Time range: Start time à End time -->
-          <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
-            <span style="color:var(--text-dim,#94a3b8); font-size:11px;">De</span>
-            <input type="time" class="midea-ev-start-time" value="${escapeHtml(startTime)}" style="background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 6px; border-radius:4px;" />
-            <span style="color:var(--text-dim,#94a3b8); font-size:11px;">à</span>
-            <input type="time" class="midea-ev-end-time" value="${escapeHtml(endTime)}" placeholder="Fin" style="background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); font-size:12px; font-weight:600; padding:2px 6px; border-radius:4px;" />
-            <span class="midea-overnight-badge" style="${isOvernight ? 'display:inline-flex;' : 'display:none;'}" title="Cette plage se termine le lendemain matin">🌙 Nuit</span>
-          </div>
-
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-top:4px;">
           <!-- Days pills -->
           <div class="midea-day-pills">
             ${dayPillsHtml}
           </div>
-        </div>
 
-        <!-- Target settings during period -->
-        <div style="display:flex; align-items:center; justify-content:flex-start; gap:12px; flex-wrap:wrap; margin-top:4px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.08); font-size:11px;">
-          <div style="display:flex; align-items:center; gap:4px;">
-            <span style="color:var(--text-dim,#94a3b8);">Cible:</span>
-            <input type="number" class="midea-ev-hum-input" min="30" max="80" step="5" value="${ev.target_humidity || 40}" style="width:48px; font-size:11px; padding:2px 4px; text-align:center; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); border-radius:4px;" />
-            <span style="color:var(--text-dim,#94a3b8);">%</span>
-          </div>
+          <!-- Settings group when Allumer is selected -->
+          <span class="midea-ev-settings-group" style="${isPwr ? 'display:inline-flex;' : 'display:none;'} align-items:center; gap:8px; font-size:11px;">
+            <div style="display:flex; align-items:center; gap:4px;">
+              <span style="color:var(--text-dim,#94a3b8);">Cible:</span>
+              <input type="number" class="midea-ev-hum-input" min="30" max="80" step="5" value="${ev.target_humidity || 40}" style="width:48px; font-size:11px; padding:2px 4px; text-align:center; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff); border-radius:4px;" />
+              <span style="color:var(--text-dim,#94a3b8);">%</span>
+            </div>
 
-          <div style="display:flex; align-items:center; gap:4px;">
-            <span style="color:var(--text-dim,#94a3b8);">Ventilation:</span>
-            <select class="midea-ev-fan-select" style="font-size:11px; padding:2px 4px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
-              <option value="80" ${ev.fan_speed >= 70 ? 'selected' : ''}>Élevée (High)</option>
-              <option value="40" ${ev.fan_speed < 70 ? 'selected' : ''}>Basse (Low)</option>
-            </select>
-          </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <span style="color:var(--text-dim,#94a3b8);">Ventilation:</span>
+              <select class="midea-ev-fan-select" style="font-size:11px; padding:2px 4px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
+                <option value="80" ${ev.fan_speed >= 70 ? 'selected' : ''}>Élevée (High)</option>
+                <option value="40" ${ev.fan_speed < 70 ? 'selected' : ''}>Basse (Low)</option>
+              </select>
+            </div>
 
-          <div style="display:flex; align-items:center; gap:4px;">
-            <span style="color:var(--text-dim,#94a3b8);">Mode:</span>
-            <select class="midea-ev-mode-select" style="font-size:11px; padding:2px 4px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
-              <option value="2" ${ev.mode === 2 ? 'selected' : ''}>Continu</option>
-              <option value="1" ${ev.mode !== 2 ? 'selected' : ''}>Normal (Cible)</option>
-            </select>
-          </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <span style="color:var(--text-dim,#94a3b8);">Mode:</span>
+              <select class="midea-ev-mode-select" style="font-size:11px; padding:2px 4px; border-radius:4px; background:var(--bg-card-sub, #1e293b); border:1px solid rgba(255,255,255,0.15); color:var(--text,#fff);">
+                <option value="2" ${ev.mode === 2 ? 'selected' : ''}>Continu</option>
+                <option value="1" ${ev.mode !== 2 ? 'selected' : ''}>Normal (Cible)</option>
+              </select>
+            </div>
+          </span>
         </div>
       </div>
     `;
@@ -8606,20 +8599,14 @@ function wireMideaEventsList(devId) {
       });
     });
 
-    const startInput = row.querySelector('.midea-ev-start-time');
-    const endInput = row.querySelector('.midea-ev-end-time');
-    const overnightBadge = row.querySelector('.midea-overnight-badge');
-
-    const updateOvernight = () => {
-      if (!overnightBadge || !startInput || !endInput) return;
-      const st = startInput.value.trim();
-      const et = endInput.value.trim();
-      const isOvernight = Boolean(st && et && et < st);
-      overnightBadge.style.display = isOvernight ? 'inline-flex' : 'none';
-    };
-
-    startInput?.addEventListener('input', updateOvernight);
-    endInput?.addEventListener('input', updateOvernight);
+    const pwrSel = row.querySelector('.midea-ev-power-select');
+    const settingsGroup = row.querySelector('.midea-ev-settings-group');
+    if (pwrSel && settingsGroup) {
+      pwrSel.addEventListener('change', () => {
+        const isTurnOn = pwrSel.value === 'true';
+        settingsGroup.style.display = isTurnOn ? 'inline-flex' : 'none';
+      });
+    }
 
     row.querySelector('.midea-del-ev-btn')?.addEventListener('click', () => {
       const curEvents = collectMideaEventsFromDom(devId);
@@ -8666,7 +8653,7 @@ function getMideaScheduleEditorHtml(devId, sched) {
 
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px;">
       <button type="button" class="btn btn-ghost btn-tiny midea-add-ev-btn" data-id="${escapeHtml(devId)}">
-        ➕ Ajouter une plage
+        ➕ Ajouter un événement
       </button>
 
       <button type="button" class="btn btn-primary btn-small midea-save-sched-btn" data-id="${escapeHtml(devId)}">
@@ -8688,7 +8675,7 @@ function wireMideaScheduleControls(devId) {
     enCb.addEventListener('change', () => {
       const curEvents = collectMideaEventsFromDom(devId);
       if (badgeEl) {
-        badgeEl.textContent = enCb.checked ? `✓ Actif (${curEvents.length} plage${curEvents.length > 1 ? 's' : ''})` : 'Désactivé';
+        badgeEl.textContent = enCb.checked ? `✓ Actif (${curEvents.length} événement${curEvents.length > 1 ? 's' : ''})` : 'Désactivé';
         badgeEl.style.color = enCb.checked ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
       }
     });
@@ -8698,12 +8685,10 @@ function wireMideaScheduleControls(devId) {
     const curEvents = collectMideaEventsFromDom(devId);
     curEvents.push({
       id: 'evt_' + Math.random().toString(36).substring(2, 9),
-      name: `Plage ${curEvents.length + 1}`,
+      name: `Événement ${curEvents.length + 1}`,
       enabled: true,
       days: [1, 2, 3, 4, 5, 6, 7],
-      start_time: '10:00',
-      end_time: '16:00',
-      time: '10:00',
+      time: '08:00',
       power: true,
       target_humidity: 40,
       fan_speed: 80,
@@ -8726,7 +8711,7 @@ function renderMideaScheduleEditor(devId, sched) {
 
   const badgeEl = $(`midea-sched-badge-${devId}`);
   if (badgeEl) {
-    badgeEl.textContent = isEnabled ? `✓ Actif (${events.length} plage${events.length > 1 ? 's' : ''})` : 'Désactivé';
+    badgeEl.textContent = isEnabled ? `✓ Actif (${events.length} événement${events.length > 1 ? 's' : ''})` : 'Désactivé';
     badgeEl.style.color = isEnabled ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
   }
 
@@ -8860,7 +8845,7 @@ function updateMideaCardInPlace(card, d, allLocations) {
   const schedCount = cachedSched ? (cachedSched.events || []).length : (d.schedule_events_count || 0);
   const badgeEl = $(`midea-sched-badge-${devId}`);
   if (badgeEl && hasSchedInfo) {
-    badgeEl.textContent = schedEn ? `✓ Actif (${schedCount} plage${schedCount > 1 ? 's' : ''})` : 'Désactivé';
+    badgeEl.textContent = schedEn ? `✓ Actif (${schedCount} événement${schedCount > 1 ? 's' : ''})` : 'Désactivé';
     badgeEl.style.color = schedEn ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
   }
 }
@@ -9054,7 +9039,7 @@ async function renderMideaTab(force = false) {
     const schedEn = cachedSched ? !!cachedSched.schedule_enabled : !!d.schedule_enabled;
     const schedCount = cachedSched ? (cachedSched.events || []).length : (d.schedule_events_count || 0);
     const badgeText = hasSchedInfo
-      ? (schedEn ? `✓ Actif (${schedCount} plage${schedCount > 1 ? 's' : ''})` : 'Désactivé')
+      ? (schedEn ? `✓ Actif (${schedCount} événement${schedCount > 1 ? 's' : ''})` : 'Désactivé')
       : '';
     const badgeColor = schedEn ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)';
 
