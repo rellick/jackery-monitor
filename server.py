@@ -3531,6 +3531,21 @@ async def midea_schedule_loop():
         try:
             executed = await midea_schedule.check_and_execute_schedules(state.midea)
             if executed:
+                for item in executed:
+                    res = item.get("result")
+                    if isinstance(res, dict) and "power" in res:
+                        try:
+                            state.energy.record_dehumidifier(
+                                device_sn=res.get("device_sn") or f"midea_{item.get('device_id')}",
+                                ts=time.time(),
+                                current_humidity=float(res.get("current_humidity", 0) or 0),
+                                target_humidity=float(res.get("target_humidity", 50) or 50),
+                                operational_status=str(res.get("operational_status", "off")),
+                                temp_c=float(res.get("current_temperature")) if res.get("current_temperature") else None,
+                                fan_speed=int(res.get("fan_speed", 40) or 40),
+                            )
+                        except Exception as e:
+                            log.warning("failed to record dehumidifier sample on schedule exec: %s", e)
                 await broadcast_status("telemetry")
         except asyncio.CancelledError:
             break

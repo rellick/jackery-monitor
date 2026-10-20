@@ -23,8 +23,53 @@ log = logging.getLogger("midea.schedule")
 SCHEDULES_FILE = os.environ.get("JACKERY_MIDEA_SCHEDULES_FILE", "/data/midea-schedules.json")
 DEFAULT_TIMEZONE = "America/Toronto"
 
-# In-memory execution cache: {(device_id, event_id, minute_stamp): timestamp}
-_executed_events: dict[tuple[str, str, str], float] = {}
+# In-memory execution cache: {(device_id, event_id, action, minute_stamp): timestamp}
+_executed_events: dict[tuple[str, str, str, str], float] = {}
+
+
+def _clean_time(val: Any, default: str | None = None) -> str | None:
+    """Normalize time string to 'HH:MM' format or return default."""
+    if val is None:
+        return default
+    clean = str(val).strip()
+    if not clean:
+        return default
+    parts = clean.split(":")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        h = max(0, min(23, int(parts[0])))
+        m = max(0, min(59, int(parts[1])))
+        return f"{h:02d}:{m:02d}"
+    return default
+
+
+def is_event_active(ev: dict[str, Any], local_now: datetime) -> bool:
+    """Check if an event/period is currently active at local_now."""
+    if not ev.get("enabled", True):
+        return False
+    start_time = _clean_time(ev.get("start_time") or ev.get("time"))
+    end_time = _clean_time(ev.get("end_time"))
+    if not start_time or not end_time or start_time == end_time:
+        return False
+
+    raw_days = ev.get("days", [1, 2, 3, 4, 5, 6, 7])
+    days = [int(d) for d in raw_days if str(d).isdigit() and 1 <= int(d) <= 7]
+    if not days:
+        days = [1, 2, 3, 4, 5, 6, 7]
+
+    current_iso_day = local_now.isoweekday()
+    prev_iso_day = (current_iso_day - 2) % 7 + 1
+    current_hm = local_now.strftime("%H:%M")
+
+    if end_time > start_time:
+        # Same day period (e.g. 10:01 to 16:00)
+        return (current_iso_day in days) and (start_time <= current_hm < end_time)
+    else:
+        # Overnight period (e.g. 20:02 to 06:00)
+        if current_iso_day in days and current_hm >= start_time:
+            return True
+        if prev_iso_day in days and current_hm < end_time:
+            return True
+        return False
 
 
 def validate_timezone(tz_name: str | None) -> str:
@@ -71,16 +116,36 @@ def save_all(data: dict[str, Any]) -> None:
 
 
 def get_schedule(device_id: str) -> dict[str, Any]:
-    """Retrieve schedule and timezone for a specific device."""
+    """Retrieve schedule and timezone for a specific device, with is_active flag per event."""
     dev_id = str(device_id).strip()
     clean_id = dev_id.removeprefix("midea_")
     all_scheds = load_all()
     item = all_scheds.get(clean_id) or all_scheds.get(f"midea_{clean_id}") or all_scheds.get(dev_id) or {}
+
+    tz_str = item.get("timezone", DEFAULT_TIMEZONE)
+    try:
+        tz = ZoneInfo(tz_str)
+    except Exception:
+        tz = ZoneInfo(DEFAULT_TIMEZONE)
+    local_now = datetime.now(tz)
+
+    raw_events = list(item.get("events", []))
+    annotated_events: list[dict[str, Any]] = []
+    for ev in raw_events:
+        if not isinstance(ev, dict):
+            continue
+        ev_copy = dict(ev)
+        # Ensure start_time is set
+        if not ev_copy.get("start_time") and ev_copy.get("time"):
+            ev_copy["start_time"] = ev_copy["time"]
+        ev_copy["is_active"] = is_event_active(ev_copy, local_now)
+        annotated_events.append(ev_copy)
+
     return {
         "device_id": clean_id,
-        "timezone": item.get("timezone", DEFAULT_TIMEZONE),
+        "timezone": tz_str,
         "schedule_enabled": bool(item.get("schedule_enabled", False)),
-        "events": list(item.get("events", [])),
+        "events": annotated_events,
     }
 
 
@@ -98,7 +163,7 @@ def set_schedule(device_id: str, schedule_data: dict[str, Any]) -> dict[str, Any
         if not isinstance(ev, dict):
             continue
         ev_id = str(ev.get("id") or f"evt_{uuid.uuid4().hex[:8]}")
-        ev_name = str(ev.get("name") or f"Event {idx + 1}")
+        ev_name = str(ev.get("name") or f"Plage {idx + 1}")
         ev_enabled = bool(ev.get("enabled", True))
 
         # Days: list of ints [1..7] (1=Monday ... 7=Sunday)
@@ -107,15 +172,11 @@ def set_schedule(device_id: str, schedule_data: dict[str, Any]) -> dict[str, Any
         if not clean_days:
             clean_days = [1, 2, 3, 4, 5, 6, 7]
 
-        # Time: HH:MM format
-        raw_time = str(ev.get("time", "08:00")).strip()
-        parts = raw_time.split(":")
-        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-            h = max(0, min(23, int(parts[0])))
-            m = max(0, min(59, int(parts[1])))
-            clean_time = f"{h:02d}:{m:02d}"
-        else:
-            clean_time = "08:00"
+        # Time range: start_time and optional end_time
+        start_time = _clean_time(ev.get("start_time") or ev.get("time"), default="08:00")
+        end_time = _clean_time(ev.get("end_time"), default=None)
+        if end_time == start_time:
+            end_time = None
 
         power = bool(ev.get("power", True))
         tgt_hum = max(30, min(80, int(ev.get("target_humidity", 50) or 50)))
@@ -127,7 +188,9 @@ def set_schedule(device_id: str, schedule_data: dict[str, Any]) -> dict[str, Any
             "name": ev_name,
             "enabled": ev_enabled,
             "days": clean_days,
-            "time": clean_time,
+            "start_time": start_time,
+            "end_time": end_time,
+            "time": start_time,
             "power": power,
             "target_humidity": tgt_hum,
             "fan_speed": fan_speed,
@@ -146,7 +209,7 @@ def set_schedule(device_id: str, schedule_data: dict[str, Any]) -> dict[str, Any
     all_scheds[clean_id] = saved_record
     save_all(all_scheds)
 
-    return saved_record
+    return get_schedule(clean_id)
 
 
 async def check_and_execute_schedules(client: Any) -> list[dict[str, Any]]:
@@ -172,6 +235,7 @@ async def check_and_execute_schedules(client: Any) -> list[dict[str, Any]]:
 
         local_now = datetime.now(tz)
         current_iso_day = local_now.isoweekday()  # 1=Monday ... 7=Sunday
+        prev_iso_day = (current_iso_day - 2) % 7 + 1
         current_hm = local_now.strftime("%H:%M")
         minute_key = local_now.strftime("%Y%m%d_%H%M")
 
@@ -184,41 +248,72 @@ async def check_and_execute_schedules(client: Any) -> list[dict[str, Any]]:
                 continue
 
             ev_days = ev.get("days", [])
-            ev_time = ev.get("time")
+            start_time = _clean_time(ev.get("start_time") or ev.get("time"))
+            end_time = _clean_time(ev.get("end_time"))
 
-            if current_iso_day in ev_days and ev_time == current_hm:
-                cache_key = (dev_id, ev_id, minute_key)
-                if cache_key in _executed_events:
-                    continue
+            # --- Check START transition ---
+            if current_iso_day in ev_days and start_time == current_hm:
+                cache_key = (str(dev_id), str(ev_id), "start", minute_key)
+                if cache_key not in _executed_events:
+                    _executed_events[cache_key] = now_ts
+                    log.info(
+                        "Executing schedule START '%s' for Midea device %s at %s (%s)",
+                        ev.get("name"), dev_id, current_hm, tz_str,
+                    )
 
-                # Mark as executed for this minute
-                _executed_events[cache_key] = now_ts
+                    power = bool(ev.get("power", True))
+                    ctrl_kwargs: dict[str, Any] = {"running": power}
+                    if power:
+                        if "target_humidity" in ev:
+                            ctrl_kwargs["target_humidity"] = ev["target_humidity"]
+                        if "fan_speed" in ev:
+                            ctrl_kwargs["fan_speed"] = ev["fan_speed"]
+                        if "mode" in ev:
+                            ctrl_kwargs["mode"] = ev["mode"]
 
-                log.info(
-                    "Executing schedule '%s' for Midea device %s at %s (%s)",
-                    ev.get("name"), dev_id, current_hm, tz_str,
-                )
+                    try:
+                        target_dev_id = str(dev_id).removeprefix("midea_")
+                        res = await client.control_device(target_dev_id, **ctrl_kwargs)
+                        executed.append({
+                            "device_id": target_dev_id,
+                            "event_id": ev_id,
+                            "action": "start",
+                            "name": ev.get("name"),
+                            "result": res,
+                        })
+                    except Exception as e:
+                        log.error("Failed executing schedule start '%s' for device %s: %s", ev.get("name"), dev_id, e)
 
-                power = bool(ev.get("power", True))
-                ctrl_kwargs: dict[str, Any] = {"running": power}
-                if power:
-                    if "target_humidity" in ev:
-                        ctrl_kwargs["target_humidity"] = ev["target_humidity"]
-                    if "fan_speed" in ev:
-                        ctrl_kwargs["fan_speed"] = ev["fan_speed"]
-                    if "mode" in ev:
-                        ctrl_kwargs["mode"] = ev["mode"]
+            # --- Check END transition (if end_time is configured) ---
+            if end_time and end_time != start_time:
+                end_match = False
+                if end_time > (start_time or "00:00"):
+                    # Same-day period (e.g. 10:01 to 16:00)
+                    end_match = (current_iso_day in ev_days) and (end_time == current_hm)
+                else:
+                    # Overnight period (e.g. 20:02 to 06:00)
+                    end_match = (prev_iso_day in ev_days) and (end_time == current_hm)
 
-                try:
-                    target_dev_id = str(dev_id).removeprefix("midea_")
-                    res = await client.control_device(target_dev_id, **ctrl_kwargs)
-                    executed.append({
-                        "device_id": target_dev_id,
-                        "event_id": ev_id,
-                        "name": ev.get("name"),
-                        "result": res,
-                    })
-                except Exception as e:
-                    log.error("Failed executing schedule '%s' for device %s: %s", ev.get("name"), dev_id, e)
+                if end_match:
+                    cache_key = (str(dev_id), str(ev_id), "end", minute_key)
+                    if cache_key not in _executed_events:
+                        _executed_events[cache_key] = now_ts
+                        log.info(
+                            "Executing schedule END '%s' for Midea device %s at %s (%s)",
+                            ev.get("name"), dev_id, current_hm, tz_str,
+                        )
+                        ctrl_kwargs = {"running": False}
+                        try:
+                            target_dev_id = str(dev_id).removeprefix("midea_")
+                            res = await client.control_device(target_dev_id, **ctrl_kwargs)
+                            executed.append({
+                                "device_id": target_dev_id,
+                                "event_id": ev_id,
+                                "action": "end",
+                                "name": ev.get("name"),
+                                "result": res,
+                            })
+                        except Exception as e:
+                            log.error("Failed executing schedule end '%s' for device %s: %s", ev.get("name"), dev_id, e)
 
     return executed
