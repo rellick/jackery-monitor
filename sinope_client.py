@@ -674,8 +674,15 @@ class SinopeClient:
             for loc in raw_locs:
                 loc_id = loc.get("id")
                 loc_name = loc.get("name") or "Unknown"
+                loc_mode = loc.get("mode")
                 if not loc_id:
                     continue
+
+                # Sync Neviweb location mode ('home' / 'away') and Neviweb ID into locations store
+                try:
+                    locations.sync_neviweb_location_state(loc_name, loc_id, loc_mode)
+                except Exception as e:
+                    log.debug("Failed syncing Neviweb location state for %s: %s", loc_name, e)
 
                 try:
                     devs = await self.fetch_devices_for_location(loc_id)
@@ -709,6 +716,53 @@ class SinopeClient:
             return devs
         norm_loc = location_id.strip().lower()
         return [d for d in devs if d.get("location_id", "").strip().lower() == norm_loc]
+
+    async def set_location_mode(self, location_id_or_name: str | int, mode: str) -> dict[str, Any]:
+        """Set native Neviweb location occupancy mode ('home' or 'away') via POST /api/location/{id}/mode."""
+        mode_norm = (mode or "").strip().lower()
+        if mode_norm not in ("home", "away"):
+            raise SinopeError("mode must be 'home' or 'away'")
+
+        # Resolve Neviweb numeric location ID
+        neviweb_id: int | str | None = None
+        if isinstance(location_id_or_name, int) or str(location_id_or_name).isdigit():
+            neviweb_id = int(location_id_or_name)
+        else:
+            loc_cfg = locations.get_location(str(location_id_or_name)) or locations.location_for_neviweb_name(str(location_id_or_name))
+            if loc_cfg and loc_cfg.get("neviweb_id"):
+                neviweb_id = loc_cfg["neviweb_id"]
+            else:
+                target_name = (loc_cfg.get("neviweb_name") if loc_cfg else str(location_id_or_name)).strip().lower()
+                raw_locs = self._cached_locations or await self.fetch_locations()
+                for rl in raw_locs:
+                    if str(rl.get("name") or "").strip().lower() == target_name:
+                        neviweb_id = rl.get("id")
+                        break
+
+        if not neviweb_id:
+            raise SinopeError(f"Could not resolve Neviweb location ID for '{location_id_or_name}'")
+
+        url = f"{HOST}/api/location/{neviweb_id}/mode"
+        res = await self._request_with_reauth("POST", url, json={"mode": mode_norm})
+        if res.status_code != 200:
+            raise SinopeTransientError(f"Failed to set Neviweb location mode for {neviweb_id}: HTTP {res.status_code}")
+        data = res.json() if res.content else {}
+        if isinstance(data, dict) and "error" in data and data["error"]:
+            err = data["error"]
+            code = err.get("code") if isinstance(err, dict) else str(err)
+            raise SinopeError(f"Neviweb rejected location mode update for {neviweb_id}: {code}")
+
+        # Update cached location mode
+        for rl in self._cached_locations:
+            if str(rl.get("id")) == str(neviweb_id):
+                rl["mode"] = mode_norm
+
+        return {
+            "ok": True,
+            "neviweb_location_id": neviweb_id,
+            "mode": mode_norm,
+            "response": data,
+        }
 
     async def set_thermostat_setpoint(self, device_id: int | str, setpoint_c: float) -> dict[str, Any]:
         """Set target room temperature (roomSetpoint) in 0.5°C increments on a Sinopé thermostat."""

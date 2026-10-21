@@ -6040,6 +6040,30 @@ body.device-switching .tab-panel { opacity: .45; pointer-events: none;
   font-weight: 700;
 }
 
+.occupancy-system-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.occupancy-system-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.occupancy-system-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
 .occupancy-pill-group {
   display: inline-flex;
   background: var(--bg-elev-2, #1a1f26);

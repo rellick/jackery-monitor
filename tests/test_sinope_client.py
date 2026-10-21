@@ -430,5 +430,47 @@ async def test_sinope_set_thermostat_setpoint_and_preserve_duty_pct(monkeypatch)
     assert client._cached_telemetry["101"]["power_w"] == 975.0
 
 
+@pytest.mark.asyncio
+async def test_sinope_set_location_mode(monkeypatch):
+    import httpx
+
+    client = SinopeClient()
+    client._session_id = "test-session"
+    client._cached_locations = [
+        {"id": 26284, "name": "Chalet", "mode": "home"},
+        {"id": 54185, "name": "Maison", "mode": "home"},
+    ]
+
+    captured = {}
+
+    class MockResponse:
+        def __init__(self, status_code, json_data):
+            self.status_code = status_code
+            self._json = json_data
+            self.content = b"{}"
+            self.cookies = {}
+
+        def json(self):
+            return self._json
+
+    async def mock_request(self, method, url, **kwargs):
+        captured["method"] = method
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        return MockResponse(200, {"mode": kwargs.get("json", {}).get("mode"), "success": []})
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    res = await client.set_location_mode("chalet", "away")
+    assert res["ok"] is True
+    assert res["neviweb_location_id"] == 26284
+    assert res["mode"] == "away"
+    assert captured["method"] == "POST"
+    assert "/api/location/26284/mode" in captured["url"]
+    assert captured["json"] == {"mode": "away"}
+    assert client._cached_locations[0]["mode"] == "away"
+
+
+
 
 

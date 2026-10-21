@@ -87,5 +87,32 @@ def test_occupancy_mode_home_and_away():
 
     restored = locations.set_occupancy_mode("chalet", "home")
     assert restored["occupancy_mode"] == "home"
+    assert restored["sinope_occupancy_mode"] == "home"
     assert restored["saved_home_setpoints"] == {"101": 21.0, "102": 19.5}
+
+
+def test_independent_sinope_and_daikin_occupancy_modes():
+    # Sync Neviweb location mode ('away') for Chalet
+    synced = locations.sync_neviweb_location_state("Chalet", 26284, "away")
+    assert synced is not None
+    assert synced["neviweb_id"] == 26284
+    assert synced["sinope_occupancy_mode"] == "away"
+    assert synced["occupancy_mode"] == "away"
+    assert synced["daikin_occupancy_mode"] == "home"
+
+    # Toggle Daikin mode on Maison independently of Sinopé
+    locations.sync_neviweb_location_state("Maison", 54185, "away")
+    m_after_daikin = locations.set_occupancy_mode(
+        "maison",
+        "home",
+        system="daikin",
+        saved_daikin_home={"d1": {"heat_setpoint_c": 20.0}},
+    )
+    assert m_after_daikin["daikin_occupancy_mode"] == "home"
+    assert m_after_daikin["sinope_occupancy_mode"] == "away"
+
+    m_daikin_away = locations.set_occupancy_mode("maison", "away", system="daikin")
+    assert m_daikin_away["daikin_occupancy_mode"] == "away"
+    assert m_daikin_away["sinope_occupancy_mode"] == "away"
+
 

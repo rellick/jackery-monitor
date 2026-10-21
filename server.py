@@ -5554,6 +5554,11 @@ async def api_locations_set_mode(location_id: str, req: Request):
     if mode not in ("home", "away"):
         raise HTTPException(400, "mode must be 'home' or 'away'")
 
+    # 'system' can be 'sinope' (default), 'daikin', or 'both'
+    system = (body.get("system") or "sinope").strip().lower()
+    if system not in ("sinope", "daikin", "both"):
+        raise HTTPException(400, "system must be 'sinope', 'daikin', or 'both'")
+
     loc = locations.get_location(location_id)
     if not loc:
         raise HTTPException(404, f"Location '{location_id}' not found")
@@ -5569,52 +5574,116 @@ async def api_locations_set_mode(location_id: str, req: Request):
 
     default_home_sp = float(loc.get("home_setpoint_c") or (20.5 if loc["id"] == "chalet" else 21.0))
     saved_map: dict[str, float] = dict(loc.get("saved_home_setpoints") or {})
-
-    # Find all Sinopé thermostats at this location
-    loc_devs = state.sinope.get_cached_devices(location_id)
-    thermostats = [d for d in loc_devs if d.get("device_type") == "thermostat"]
+    saved_daikin: dict[str, Any] = dict(loc.get("saved_daikin_home") or {})
 
     updated_devices: list[dict[str, Any]] = []
     errors: list[str] = []
 
-    if mode == "away":
-        # Snapshot current setpoints before lowering to away_sp
-        for d in thermostats:
-            did = str(d.get("id"))
-            cur_sp = d.get("setpoint_c")
-            if cur_sp is not None and float(cur_sp) > away_sp:
-                saved_map[did] = float(cur_sp)
-        for d in thermostats:
-            did = str(d.get("id"))
+    # 1. Handle Sinopé / Neviweb occupancy mode
+    if system in ("sinope", "both"):
+        neviweb_synced = False
+        if sinope_creds.has_credentials():
             try:
-                res = await state.sinope.set_thermostat_setpoint(did, away_sp)
-                if res.get("device"):
-                    updated_devices.append(res["device"])
+                await state.sinope.set_location_mode(location_id, mode)
+                neviweb_synced = True
             except Exception as e:
-                log.warning("Failed setting Away setpoint on Sinopé %s: %s", did, e)
-                errors.append(f"{d.get('name', did)}: {e}")
-    else:
-        # Restore saved setpoints (or default_home_sp)
-        for d in thermostats:
+                log.warning("Neviweb native location mode call failed for %s (%s): %s", location_id, mode, e)
+
+        loc_devs = state.sinope.get_cached_devices(location_id)
+        thermostats = [d for d in loc_devs if d.get("device_type") == "thermostat"]
+
+        if not neviweb_synced:
+            # Fallback or mock/offline mode: adjust individual Sinopé thermostat setpoints directly
+            if mode == "away":
+                for d in thermostats:
+                    did = str(d.get("id"))
+                    cur_sp = d.get("setpoint_c")
+                    if cur_sp is not None and float(cur_sp) > away_sp:
+                        saved_map[did] = float(cur_sp)
+                for d in thermostats:
+                    did = str(d.get("id"))
+                    try:
+                        res = await state.sinope.set_thermostat_setpoint(did, away_sp)
+                        if res.get("device"):
+                            updated_devices.append(res["device"])
+                    except Exception as e:
+                        log.warning("Failed setting Away setpoint on Sinopé %s: %s", did, e)
+                        errors.append(f"{d.get('name', did)}: {e}")
+            else:
+                for d in thermostats:
+                    did = str(d.get("id"))
+                    target_sp = saved_map.get(did, default_home_sp)
+                    try:
+                        res = await state.sinope.set_thermostat_setpoint(did, target_sp)
+                        if res.get("device"):
+                            updated_devices.append(res["device"])
+                    except Exception as e:
+                        log.warning("Failed restoring Home setpoint on Sinopé %s: %s", did, e)
+                        errors.append(f"{d.get('name', did)}: {e}")
+        else:
+            # Neviweb updated all devices in this location natively; refresh attributes for this location
+            updated_devices.extend(thermostats)
+            asyncio.create_task(state.sinope.poll_all_devices(force=True))
+
+    # 2. Handle Daikin Heat Pump occupancy mode independently
+    if system in ("daikin", "both"):
+        daikin_devs = state.daikin.get_cached_devices(location_id)
+        daikin_away_heat = float(loc.get("daikin_away_heat_setpoint_c") or (14.0 if loc["id"] == "chalet" else 16.0))
+        daikin_away_cool = float(loc.get("daikin_away_cool_setpoint_c") or 25.0)
+        for d in daikin_devs:
             did = str(d.get("id"))
-            target_sp = saved_map.get(did, default_home_sp)
+            if not did:
+                continue
             try:
-                res = await state.sinope.set_thermostat_setpoint(did, target_sp)
-                if res.get("device"):
-                    updated_devices.append(res["device"])
+                if mode == "away":
+                    # Snapshot current Daikin state before applying Away setback
+                    saved_daikin[did] = {
+                        "mode": int(d.get("mode") if d.get("mode") is not None else 3),
+                        "heat_setpoint_c": float(d.get("heat_setpoint_c") or 20.0),
+                        "cool_setpoint_c": float(d.get("cool_setpoint_c") or 23.0),
+                        "schedule_enabled": bool(d.get("schedule_enabled")),
+                    }
+                    cur_mode = int(d.get("mode") if d.get("mode") is not None else 3)
+                    if cur_mode == 0:
+                        cur_mode = 1  # Ensure heat/auto protection if off
+                    await state.daikin.set_msp(
+                        device_id=did,
+                        mode=cur_mode,
+                        heat_setpoint=daikin_away_heat,
+                        cool_setpoint=daikin_away_cool,
+                    )
+                    updated_devices.append(d)
+                else:
+                    # Restore Home mode on Daikin: re-enable schedule if it was enabled, or restore saved setpoints
+                    prev = saved_daikin.get(did) or {}
+                    was_sched = prev.get("schedule_enabled", True)
+                    if was_sched:
+                        await state.daikin.set_schedule(did, True)
+                    else:
+                        await state.daikin.set_msp(
+                            device_id=did,
+                            mode=int(prev.get("mode", d.get("mode") or 3)),
+                            heat_setpoint=float(prev.get("heat_setpoint_c", 20.0)),
+                            cool_setpoint=float(prev.get("cool_setpoint_c", 22.0)),
+                        )
+                    updated_devices.append(d)
             except Exception as e:
-                log.warning("Failed restoring Home setpoint on Sinopé %s: %s", did, e)
-                errors.append(f"{d.get('name', did)}: {e}")
+                log.warning("Failed setting Daikin mode (%s) on %s: %s", mode, did, e)
+                errors.append(f"Daikin {d.get('name', did)}: {e}")
 
     updated_loc = locations.set_occupancy_mode(
         location_id,
         mode,
+        system=system,
         away_setpoint_c=away_sp,
         saved_home_setpoints=saved_map,
+        saved_daikin_home=saved_daikin,
     )
     await broadcast_status("telemetry")
     return {
         "ok": True,
+        "system": system,
+        "mode": mode,
         "location": updated_loc,
         "locations": locations.list_locations(),
         "updated_count": len(updated_devices),

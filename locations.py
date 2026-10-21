@@ -35,9 +35,14 @@ DEFAULT_LOCATIONS: list[dict[str, Any]] = [
         "is_default": True,
         "assigned_jackerys": [],
         "occupancy_mode": "home",
+        "sinope_occupancy_mode": "home",
+        "daikin_occupancy_mode": "home",
         "away_setpoint_c": 16.0,
         "home_setpoint_c": 21.0,
         "saved_home_setpoints": {},
+        "daikin_away_heat_setpoint_c": 16.0,
+        "daikin_away_cool_setpoint_c": 25.0,
+        "saved_daikin_home": {},
     },
     {
         "id": "chalet",
@@ -47,9 +52,14 @@ DEFAULT_LOCATIONS: list[dict[str, Any]] = [
         "is_default": False,
         "assigned_jackerys": [],
         "occupancy_mode": "home",
+        "sinope_occupancy_mode": "home",
+        "daikin_occupancy_mode": "home",
         "away_setpoint_c": 12.0,
         "home_setpoint_c": 20.5,
         "saved_home_setpoints": {},
+        "daikin_away_heat_setpoint_c": 14.0,
+        "daikin_away_cool_setpoint_c": 25.0,
+        "saved_daikin_home": {},
     },
 ]
 
@@ -61,12 +71,22 @@ def _enrich_defaults(loc: dict[str, Any]) -> dict[str, Any]:
     out = dict(loc)
     if "occupancy_mode" not in out or out["occupancy_mode"] not in ("home", "away"):
         out["occupancy_mode"] = "home"
+    if "sinope_occupancy_mode" not in out or out["sinope_occupancy_mode"] not in ("home", "away"):
+        out["sinope_occupancy_mode"] = out["occupancy_mode"]
+    if "daikin_occupancy_mode" not in out or out["daikin_occupancy_mode"] not in ("home", "away"):
+        out["daikin_occupancy_mode"] = "home"
     if "away_setpoint_c" not in out or out["away_setpoint_c"] is None:
         out["away_setpoint_c"] = default_away
     if "home_setpoint_c" not in out or out["home_setpoint_c"] is None:
         out["home_setpoint_c"] = default_home
     if not isinstance(out.get("saved_home_setpoints"), dict):
         out["saved_home_setpoints"] = {}
+    if "daikin_away_heat_setpoint_c" not in out or out["daikin_away_heat_setpoint_c"] is None:
+        out["daikin_away_heat_setpoint_c"] = 14.0 if lid == "chalet" else 16.0
+    if "daikin_away_cool_setpoint_c" not in out or out["daikin_away_cool_setpoint_c"] is None:
+        out["daikin_away_cool_setpoint_c"] = 25.0
+    if not isinstance(out.get("saved_daikin_home"), dict):
+        out["saved_daikin_home"] = {}
     return out
 
 
@@ -234,20 +254,55 @@ def set_occupancy_mode(
     location_id: str,
     mode: str,
     *,
+    system: str = "sinope",
     away_setpoint_c: float | None = None,
     saved_home_setpoints: dict[str, float] | None = None,
+    saved_daikin_home: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Update occupancy_mode ('home' or 'away') and optional setpoint snapshot for a location."""
+    """Update occupancy_mode ('home' or 'away') for 'sinope', 'daikin', or 'both' on a location."""
     mode_norm = (mode or "").strip().lower()
     if mode_norm not in ("home", "away"):
         raise ValueError("mode must be 'home' or 'away'")
+    sys_norm = (system or "sinope").strip().lower()
     loc = get_location(location_id)
     if not loc:
         return None
-    updates: dict[str, Any] = {"id": loc["id"], "occupancy_mode": mode_norm}
+    updates: dict[str, Any] = {"id": loc["id"]}
+    if sys_norm in ("sinope", "both"):
+        updates["sinope_occupancy_mode"] = mode_norm
+        updates["occupancy_mode"] = mode_norm
+    if sys_norm in ("daikin", "both"):
+        updates["daikin_occupancy_mode"] = mode_norm
     if away_setpoint_c is not None:
         updates["away_setpoint_c"] = round(float(away_setpoint_c) * 2.0) / 2.0
     if saved_home_setpoints is not None:
         updates["saved_home_setpoints"] = dict(saved_home_setpoints)
+    if saved_daikin_home is not None:
+        updates["saved_daikin_home"] = dict(saved_daikin_home)
     return upsert_location(updates)
+
+
+def sync_neviweb_location_state(
+    neviweb_loc_name: str,
+    neviweb_id: int | str | None,
+    neviweb_mode: str | None,
+) -> dict[str, Any] | None:
+    """Sync a location's Neviweb ID and occupancy mode ('home' / 'away') from Sinopé cloud."""
+    loc = location_for_neviweb_name(neviweb_loc_name)
+    if not loc:
+        return None
+    mode_norm = (neviweb_mode or "").strip().lower()
+    updates: dict[str, Any] = {"id": loc["id"]}
+    changed = False
+    if neviweb_id is not None and loc.get("neviweb_id") != neviweb_id:
+        updates["neviweb_id"] = neviweb_id
+        changed = True
+    if mode_norm in ("home", "away"):
+        if loc.get("sinope_occupancy_mode") != mode_norm or loc.get("occupancy_mode") != mode_norm:
+            updates["sinope_occupancy_mode"] = mode_norm
+            updates["occupancy_mode"] = mode_norm
+            changed = True
+    if changed:
+        return upsert_location(updates)
+    return loc
 

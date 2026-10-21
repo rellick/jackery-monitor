@@ -5501,7 +5501,7 @@ function renderSinopeTab() {
       const locName = locObj.name || (lid.charAt(0).toUpperCase() + lid.slice(1));
       const planName = locObj.plan_id === 'hq-tarif-flex-d' ? 'Hydro-Québec Tarif Flex D' : (locObj.plan_id === 'hq-tarif-d-tdt' ? 'Hydro-Québec Tarif D TDT' : (locObj.plan_id || ''));
       const locWatts = Math.round(locDevs.reduce((sum, d) => sum + (d.power_w || 0), 0));
-      const occMode = (locObj.occupancy_mode || 'home').toLowerCase();
+      const occMode = (locObj.sinope_occupancy_mode || locObj.occupancy_mode || 'home').toLowerCase();
       const awaySp = locObj.away_setpoint_c != null ? locObj.away_setpoint_c : (lid === 'chalet' ? 12.0 : 16.0);
 
       fullHtml += `
@@ -5510,9 +5510,12 @@ function renderSinopeTab() {
             <div class="sinope-location-title" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               <span>${lid === 'chalet' ? '🌲' : '🏠'} ${escapeHtml(locName)}</span>
               ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
-              <div class="occupancy-pill-group" title="Set Home or Away mode for ${escapeHtml(locName)} (${awaySp}°C in Away)">
-                <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="home">🏠 Home</button>
-                <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="away">🚗 Away (${awaySp}°C)</button>
+              <div class="occupancy-system-row">
+                <span class="occupancy-system-label">🔥 Sinopé (Neviweb):</span>
+                <div class="occupancy-pill-group" title="Set Sinopé / Neviweb Home or Away mode for ${escapeHtml(locName)}">
+                  <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Home</button>
+                  <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Away</button>
+                </div>
               </div>
             </div>
             <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${locDevs.length} devices)</span>
@@ -5530,7 +5533,7 @@ function renderSinopeTab() {
     const locName = locObj.name || (locFilter.charAt(0).toUpperCase() + locFilter.slice(1));
     const planName = locObj.plan_id === 'hq-tarif-flex-d' ? 'Hydro-Québec Tarif Flex D' : (locObj.plan_id === 'hq-tarif-d-tdt' ? 'Hydro-Québec Tarif D TDT' : (locObj.plan_id || ''));
     const locWatts = Math.round(filtered.reduce((sum, d) => sum + (d.power_w || 0), 0));
-    const occMode = (locObj.occupancy_mode || 'home').toLowerCase();
+    const occMode = (locObj.sinope_occupancy_mode || locObj.occupancy_mode || 'home').toLowerCase();
     const awaySp = locObj.away_setpoint_c != null ? locObj.away_setpoint_c : (lid === 'chalet' ? 12.0 : 16.0);
 
     container.innerHTML = `
@@ -5539,9 +5542,12 @@ function renderSinopeTab() {
           <div class="sinope-location-title" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span>${lid === 'chalet' ? '🌲' : '🏠'} ${escapeHtml(locName)}</span>
             ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
-            <div class="occupancy-pill-group" title="Set Home or Away mode for ${escapeHtml(locName)} (${awaySp}°C in Away)">
-              <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="home">🏠 Home</button>
-              <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="away">🚗 Away (${awaySp}°C)</button>
+            <div class="occupancy-system-row">
+              <span class="occupancy-system-label">🔥 Sinopé (Neviweb):</span>
+              <div class="occupancy-pill-group" title="Set Sinopé / Neviweb Home or Away mode for ${escapeHtml(locName)}">
+                <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Home</button>
+                <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Away</button>
+              </div>
             </div>
           </div>
           <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${filtered.length} devices)</span>
@@ -6057,6 +6063,7 @@ function renderDaikinTab(force = false) {
   const sig = JSON.stringify({
     loc: _daikinSelectedLocation,
     unit: isF,
+    locs: ((lastStatus && lastStatus.locations) || []).map(l => ({ id: l.id, dMode: l.daikin_occupancy_mode })),
     hist: Array.from(_daikinOpenDeviceHistories).sort(),
     devHours: _daikinDevHours,
     devs: filtered.map(d => ({
@@ -6320,6 +6327,11 @@ function renderDaikinTab(force = false) {
       `;
     }
 
+    const devLocId = (dev.location_id || 'maison').toLowerCase();
+    const devLocObj = ((lastStatus && lastStatus.locations) || []).find(l => (l.id || '').toLowerCase() === devLocId) || {};
+    const daikinOccMode = (devLocObj.daikin_occupancy_mode || 'home').toLowerCase();
+    const daikinAwayHeat = devLocObj.daikin_away_heat_setpoint_c != null ? devLocObj.daikin_away_heat_setpoint_c : (devLocId === 'chalet' ? 14.0 : 16.0);
+
     cardsHtml += `
       <div class="daikin-card ${cardBorderClass}" id="daikin-card-${dev.id}">
         <!-- Card Header -->
@@ -6335,7 +6347,16 @@ function renderDaikinTab(force = false) {
               ${dev.firmware_version ? `<span>· fw ${escapeHtml(dev.firmware_version)}</span>` : ''}
             </div>
           </div>
-          <span class="daikin-badge ${badgeClass}">${badgeIcon} ${escapeHtml(badgeText)}</span>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <div class="occupancy-system-row">
+              <span class="occupancy-system-label">❄️ Daikin:</span>
+              <div class="occupancy-pill-group" title="Set Daikin Heat Pump Home or Away mode independently from Sinopé">
+                <button type="button" class="occupancy-btn mode-home ${daikinOccMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(devLocId)}" data-occ-sys="daikin" data-occ-mode="home">🏠 Home</button>
+                <button type="button" class="occupancy-btn mode-away ${daikinOccMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(devLocId)}" data-occ-sys="daikin" data-occ-mode="away">🚗 Away (${daikinAwayHeat}°C)</button>
+              </div>
+            </div>
+            <span class="daikin-badge ${badgeClass}">${badgeIcon} ${escapeHtml(badgeText)}</span>
+          </div>
         </div>
 
         <!-- Climate Hero Display -->
@@ -17726,15 +17747,16 @@ function adjustSinopeSetpoint(devId, delta) {
   }, 550);
 }
 
-async function setLocationOccupancyMode(locationId, mode, btnEl = null) {
+async function setLocationOccupancyMode(locationId, mode, system = 'sinope', btnEl = null) {
   const lid = (locationId || '').toLowerCase();
+  const sys = (system || 'sinope').toLowerCase();
   if (!lid || !['home', 'away'].includes(mode)) return;
   if (btnEl) btnEl.disabled = true;
   try {
     const r = await fetch(`/api/locations/${encodeURIComponent(lid)}/mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, system: sys }),
     });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
@@ -17744,21 +17766,34 @@ async function setLocationOccupancyMode(locationId, mode, btnEl = null) {
     if (j.locations && lastStatus) {
       lastStatus.locations = j.locations;
     }
-    // Refresh Sinopé devices cache
-    const devR = await fetch('/api/sinope/devices');
-    if (devR.ok) {
-      const devJ = await devR.json();
-      if (devJ.devices) {
-        lastSinopeDevices = devJ.devices;
-        if (lastStatus) lastStatus.sinope_devices = devJ.devices;
+    // Refresh Sinopé and Daikin devices cache
+    if (sys === 'sinope' || sys === 'both') {
+      const devR = await fetch('/api/sinope/devices');
+      if (devR.ok) {
+        const devJ = await devR.json();
+        if (devJ.devices) {
+          lastSinopeDevices = devJ.devices;
+          if (lastStatus) lastStatus.sinope_devices = devJ.devices;
+        }
+      }
+    }
+    if (sys === 'daikin' || sys === 'both') {
+      const daikinR = await fetch('/api/daikin/devices');
+      if (daikinR.ok) {
+        const daikinJ = await daikinR.json();
+        if (daikinJ.devices) {
+          lastDaikinDevices = daikinJ.devices;
+          if (lastStatus) lastStatus.daikin_devices = daikinJ.devices;
+        }
       }
     }
     if (activeTab === 'home') renderHomeOverviewTab(true);
     if (activeTab === 'climate-all') renderUnifiedClimateTab(true);
     if (activeTab === 'sinope') renderSinopeTab();
+    if (activeTab === 'daikin' && typeof renderDaikinTab === 'function') renderDaikinTab();
     if (activeTab === 'automation') renderUnifiedSchedulesTab();
   } catch (e) {
-    alert(`Failed to set ${lid} to ${mode.toUpperCase()}: ${e.message || e}`);
+    alert(`Failed to set ${lid} (${sys}) to ${mode.toUpperCase()}: ${e.message || e}`);
   } finally {
     if (btnEl) btnEl.disabled = false;
   }
@@ -17784,8 +17819,9 @@ document.addEventListener('click', (e) => {
     e.stopPropagation();
     const lid = occBtn.dataset.occLoc;
     const mode = occBtn.dataset.occMode;
+    const sys = occBtn.dataset.occSys || 'sinope';
     if (lid && mode) {
-      setLocationOccupancyMode(lid, mode, occBtn);
+      setLocationOccupancyMode(lid, mode, sys, occBtn);
     }
     return;
   }
@@ -17794,8 +17830,8 @@ document.addEventListener('click', (e) => {
 // ---- Helper: Build Per-House Summary & Home/Away Strip ----
 function buildHousesSummaryStripHtml() {
   const locations = (lastStatus && lastStatus.locations) || [
-    { id: 'maison', name: 'Maison', plan_id: 'hq-tarif-d-tdt', occupancy_mode: 'home', away_setpoint_c: 16.0 },
-    { id: 'chalet', name: 'Chalet', plan_id: 'hq-tarif-flex-d', occupancy_mode: 'home', away_setpoint_c: 12.0 },
+    { id: 'maison', name: 'Maison', plan_id: 'hq-tarif-d-tdt', occupancy_mode: 'home', sinope_occupancy_mode: 'home', daikin_occupancy_mode: 'home', away_setpoint_c: 16.0 },
+    { id: 'chalet', name: 'Chalet', plan_id: 'hq-tarif-flex-d', occupancy_mode: 'away', sinope_occupancy_mode: 'away', daikin_occupancy_mode: 'home', away_setpoint_c: 12.0 },
   ];
   const visibleLocs = _globalLocation === 'all'
     ? locations
@@ -17809,8 +17845,9 @@ function buildHousesSummaryStripHtml() {
   return visibleLocs.map(loc => {
     const lid = (loc.id || '').toLowerCase();
     const locName = loc.name || (lid === 'chalet' ? 'Chalet' : 'Maison');
-    const occMode = (loc.occupancy_mode || 'home').toLowerCase();
-    const awaySp = loc.away_setpoint_c != null ? loc.away_setpoint_c : (lid === 'chalet' ? 12.0 : 16.0);
+    const sinopeMode = (loc.sinope_occupancy_mode || loc.occupancy_mode || 'home').toLowerCase();
+    const daikinMode = (loc.daikin_occupancy_mode || 'home').toLowerCase();
+    const daikinAwayHeat = loc.daikin_away_heat_setpoint_c != null ? loc.daikin_away_heat_setpoint_c : (lid === 'chalet' ? 14.0 : 16.0);
 
     const locSinope = sinopeDevs.filter(d => (d.location_id || '').toLowerCase() === lid);
     const locDaikin = daikinDevs.filter(d => (d.location_id || '').toLowerCase() === lid);
@@ -17833,7 +17870,7 @@ function buildHousesSummaryStripHtml() {
     // Average humidity across Daikin & Danby dehumidifiers
     const hums = [
       ...locMidea.map(d => d.current_humidity).filter(h => h != null && h > 0),
-      ...locDaikin.map(d => d.humidity_indoor).filter(h => h != null && h > 0),
+      ...locDaikin.map(d => d.hum_indoor || d.humidity_indoor).filter(h => h != null && h > 0),
     ];
     const avgHumStr = hums.length
       ? `${Math.round(hums.reduce((a, b) => a + b, 0) / hums.length)}%`
@@ -17843,21 +17880,40 @@ function buildHousesSummaryStripHtml() {
     const totalTherms = locSinope.filter(d => d.device_type === 'thermostat').length + locDaikin.length;
     const dehumRunning = locMidea.filter(d => d.power && d.compressor_running).length;
 
+    const statusSummaryParts = [`🔥 Sinopé: ${sinopeMode === 'away' ? '🚗 Away' : '🏠 Home'}`];
+    if (locDaikin.length > 0) {
+      statusSummaryParts.push(`❄️ Daikin: ${daikinMode === 'away' ? `🚗 Away (${daikinAwayHeat}°C)` : '🏠 Home'}`);
+    }
+
     return `
-      <div class="house-status-card ${occMode === 'away' ? 'is-away' : ''}">
+      <div class="house-status-card ${sinopeMode === 'away' ? 'is-away' : ''}">
         <div class="house-status-header">
           <div class="house-title-group">
             <span style="font-size:20px;">${lid === 'chalet' ? '🌲' : '🏠'}</span>
             <div>
               <h3>${escapeHtml(locName)}</h3>
               <span class="hint" style="font-size:11px;">
-                ${occMode === 'away' ? `🚗 Away Mode (${awaySp}°C setback)` : '🏠 Home (Comfort)'}
+                ${statusSummaryParts.join(' · ')}
               </span>
             </div>
           </div>
-          <div class="occupancy-pill-group" title="Switch ${escapeHtml(locName)} between Home (comfort setpoints) and Away (${awaySp}°C setback)">
-            <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="home">🏠 Home</button>
-            <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="away">🚗 Away (${awaySp}°C)</button>
+          <div class="occupancy-system-stack">
+            <div class="occupancy-system-row">
+              <span class="occupancy-system-label" title="Controls Sinopé thermostats &amp; synced live with Neviweb app">🔥 Sinopé:</span>
+              <div class="occupancy-pill-group" title="Switch Sinopé (Neviweb) ${escapeHtml(locName)} between Home and Away">
+                <button type="button" class="occupancy-btn mode-home ${sinopeMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Home</button>
+                <button type="button" class="occupancy-btn mode-away ${sinopeMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Away</button>
+              </div>
+            </div>
+            ${locDaikin.length > 0 ? `
+              <div class="occupancy-system-row">
+                <span class="occupancy-system-label" title="Controls Daikin Heat Pump independently from Sinopé">❄️ Daikin:</span>
+                <div class="occupancy-pill-group" title="Switch Daikin Heat Pump (${escapeHtml(locName)}) between Home (Schedule/Comfort) and Away (${daikinAwayHeat}°C)">
+                  <button type="button" class="occupancy-btn mode-home ${daikinMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="daikin" data-occ-mode="home">🏠 Home</button>
+                  <button type="button" class="occupancy-btn mode-away ${daikinMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="daikin" data-occ-mode="away">🚗 Away (${daikinAwayHeat}°C)</button>
+                </div>
+              </div>
+            ` : ''}
           </div>
         </div>
         <div class="house-kpis-row">
