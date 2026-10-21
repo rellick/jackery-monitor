@@ -5267,11 +5267,14 @@ function renderSinopeTab() {
       const waterC = d.water_temperature_c;
       const waterDisplay = waterC != null ? formatTemp(waterC, 1) : '—';
       const todayKwhStr = d.today_kwh != null ? `${d.today_kwh.toFixed(1)} kWh today` : '';
+      const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
       metricsHtml = `
         <div class="sinope-dev-metrics">
-          <div class="sinope-temp-row">
+          <div class="sinope-temp-row" style="display:flex; align-items:center; gap:8px;">
             <span class="sinope-temp-cur">💧 ${waterDisplay}</span>
-            <span class="sinope-temp-target">${d.is_on ? '⚡ Armed' : '○ Shed'}</span>
+            <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
+              ${d.is_on ? '⚡ Armed (Turn Off)' : '○ Off (Turn On)'}
+            </button>
           </div>
           <span class="sinope-power-val">${pwr > 10 ? pwr + ' W' : (todayKwhStr || 'Standby')}</span>
         </div>
@@ -5292,9 +5295,15 @@ function renderSinopeTab() {
         statusBadge = `<span class="sinope-badge idle">⚡ Armed (Standby)</span>`;
       }
     } else if (d.device_type === 'controller') {
+      const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
       metricsHtml = `
         <div class="sinope-dev-metrics">
-          <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '⚡ ON' : '○ OFF'}</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '⚡ ON' : '○ OFF'}</span>
+            <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
+              ${d.is_on ? 'Turn Off' : 'Turn On'}
+            </button>
+          </div>
           <span class="sinope-power-val">${pwr} W</span>
         </div>
       `;
@@ -17799,8 +17808,51 @@ async function setLocationOccupancyMode(locationId, mode, system = 'sinope', btn
   }
 }
 
-// Global click delegation for Sinopé 0.5°C steppers and House Home/Away buttons
+// Global click delegation for Sinopé 0.5°C steppers, Water Heater / Controller toggles, and House Home/Away buttons
+async function toggleSinopeController(devId, nextOn, btnEl = null) {
+  const idStr = String(devId).replace(/^sinope_/, '');
+  if (!idStr) return;
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const r = await fetch(`/api/sinope/device/${encodeURIComponent(idStr)}/control`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_on: Boolean(nextOn) }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    const j = await r.json();
+    const devices = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+    const dev = devices.find(d => String(d.id) === idStr || d.device_sn === `sinope_${idStr}`);
+    if (dev) {
+      dev.is_on = Boolean(j.is_on != null ? j.is_on : nextOn);
+      if (!dev.is_on) dev.power_w = 0;
+    }
+    if (activeTab === 'home') renderHomeOverviewTab(true);
+    if (activeTab === 'climate-all') renderUnifiedClimateTab(true);
+    if (activeTab === 'sinope') renderSinopeTab();
+  } catch (e) {
+    alert(`Failed to toggle Sinopé controller: ${e.message || e}`);
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
 document.addEventListener('click', (e) => {
+  const ctrlBtn = e.target.closest('.sinope-ctrl-toggle-btn');
+  if (ctrlBtn && !ctrlBtn.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    const devId = ctrlBtn.dataset.sinopeCtrlId;
+    const nextOn = ctrlBtn.dataset.sinopeNextOn === 'true';
+    if (devId) {
+      toggleSinopeController(devId, nextOn, ctrlBtn);
+    }
+    return;
+  }
+
   const stepBtn = e.target.closest('.sinope-step-btn');
   if (stepBtn && !stepBtn.disabled) {
     e.preventDefault();
@@ -17880,22 +17932,12 @@ function buildHousesSummaryStripHtml() {
     const totalTherms = locSinope.filter(d => d.device_type === 'thermostat').length + locDaikin.length;
     const dehumRunning = locMidea.filter(d => d.power && d.compressor_running).length;
 
-    const statusSummaryParts = [`🔥 Sinopé: ${sinopeMode === 'away' ? '🚗 Away' : '🏠 Home'}`];
-    if (locDaikin.length > 0) {
-      statusSummaryParts.push(`❄️ Daikin: ${daikinMode === 'away' ? `🚗 Away (${daikinAwayHeat}°C)` : '🏠 Home'}`);
-    }
-
     return `
       <div class="house-status-card ${sinopeMode === 'away' ? 'is-away' : ''}">
         <div class="house-status-header">
           <div class="house-title-group">
             <span style="font-size:20px;">${lid === 'chalet' ? '🌲' : '🏠'}</span>
-            <div>
-              <h3>${escapeHtml(locName)}</h3>
-              <span class="hint" style="font-size:11px;">
-                ${statusSummaryParts.join(' · ')}
-              </span>
-            </div>
+            <h3>${escapeHtml(locName)}</h3>
           </div>
           <div class="occupancy-system-stack">
             <div class="occupancy-system-row">
@@ -18124,6 +18166,46 @@ function renderHomeOverviewTab() {
       html += `</div>`;
     }
 
+    // Sinopé Water Heaters & Load Controllers (Calypso RM3500WF)
+    const controllers = fSinope.filter(d => d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35')));
+    if (controllers.length) {
+      html += `<div class="home-climate-section-title"><span>🚿 Water Heater Controllers &amp; Heavy Loads</span><span>${controllers.length} unit(s)</span></div>`;
+      html += `<div class="home-climate-grid">`;
+      controllers.forEach(d => {
+        const waterDisplay = d.water_temperature_c != null ? `💧 ${formatTemp(d.water_temperature_c, 1)}` : (d.is_on ? '⚡ Armed' : '○ Off');
+        const pwr = Math.round(d.power_w || 0);
+        const ratedW = d.load_watt ? `${Math.round(d.load_watt)} W rated` : 'Calypso RM3500WF';
+        const todayKwh = d.today_kwh != null ? ` · ${d.today_kwh.toFixed(1)} kWh today` : '';
+        const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
+        const locBadge = (d.location_name || d.location_id || '').toUpperCase();
+        const isReheating = Boolean(d.is_on && pwr > 10);
+
+        html += `
+          <div class="quick-climate-card ${isReheating ? 'is-active' : ''}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+              <div>
+                <div style="font-weight:600; font-size:13.5px;">🚿 ${escapeHtml(d.name || 'Water Heater')}</div>
+                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${ratedW}${todayKwh}</div>
+              </div>
+              <span style="font-family:var(--font-mono); font-size:12px; font-weight:600; color:${isReheating ? '#fb923c' : 'var(--text-dim)'};">
+                ${isReheating ? `${pwr} W` : (d.is_on ? 'Armed' : 'Off')}
+              </span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+              <span style="font-size:20px; font-weight:700; font-family:var(--font-mono);">${waterDisplay}</span>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
+                  ${d.is_on ? '⚡ Armed (Turn Off)' : '○ Off (Turn On)'}
+                </button>
+                <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('sinope')">History</button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+    }
+
     if (!html) {
       html = `<div class="hint" style="padding:18px; text-align:center;">Loading climate devices… Use the Climate &amp; Comfort tab to configure or poll devices.</div>`;
     }
@@ -18217,7 +18299,9 @@ function renderUnifiedClimateTab() {
 
   const fDaikin = filterLoc(daikinDevs);
   const fMidea = filterLoc(mideaDevs);
-  const fSinope = filterLoc(sinopeDevs).filter(d => d.device_type === 'thermostat');
+  const fSinopeAll = filterLoc(sinopeDevs);
+  const fSinope = fSinopeAll.filter(d => d.device_type === 'thermostat');
+  const fSinopeCtrls = fSinopeAll.filter(d => d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35')));
 
   container.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:18px;">
@@ -18312,6 +18396,45 @@ function renderUnifiedClimateTab() {
               </div>
             `;
           }).join('') : '<div class="hint">No Sinopé thermostats for this location filter.</div>'}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>🚿 Water Heater Controllers &amp; Heavy Loads (${fSinopeCtrls.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('sinope')">Open Full Sinopé &amp; History Charts &rarr;</button>
+        </div>
+        <p class="hint" style="margin:4px 0 10px;">Sinopé Calypso (RM3500WF) water heater controllers with tank temperature, daily energy (kWh), and direct relay control.</p>
+        <div class="home-climate-grid">
+          ${fSinopeCtrls.length ? fSinopeCtrls.map(d => {
+            const waterDisplay = d.water_temperature_c != null ? `💧 ${formatTemp(d.water_temperature_c, 1)}` : (d.is_on ? '⚡ Armed' : '○ Off');
+            const pwr = Math.round(d.power_w || 0);
+            const ratedW = d.load_watt ? `${Math.round(d.load_watt)} W rated` : 'Calypso RM3500WF';
+            const todayKwh = d.today_kwh != null ? ` · ${d.today_kwh.toFixed(1)} kWh today` : '';
+            const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
+            const isReheating = Boolean(d.is_on && pwr > 10);
+            return `
+              <div class="quick-climate-card ${isReheating ? 'is-active' : ''}">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                  <div>
+                    <strong>🚿 ${escapeHtml(d.name || 'Water Heater')}</strong>
+                    <div class="hint" style="font-size:11px;">${escapeHtml((d.location_name || d.location_id || '').toUpperCase())} · ${ratedW}${todayKwh}</div>
+                  </div>
+                  <span style="font-family:var(--font-mono); font-size:12px; font-weight:600; color:${isReheating ? '#fb923c' : 'var(--text-dim)'};">
+                    ${isReheating ? `${pwr} W` : (d.is_on ? 'Armed' : 'Off')}
+                  </span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                  <span style="font-size:20px; font-weight:700; font-family:var(--font-mono);">${waterDisplay}</span>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
+                      ${d.is_on ? '⚡ Armed (Turn Off)' : '○ Off (Turn On)'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('') : '<div class="hint">No water heater controllers for this location filter.</div>'}
         </div>
       </section>
     </div>
