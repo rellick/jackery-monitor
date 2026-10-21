@@ -5542,6 +5542,86 @@ async def api_locations_assign_jackery(req: Request):
     return {"ok": ok, "locations": locations.list_locations()}
 
 
+@app.post("/api/locations/{location_id}/mode")
+async def api_locations_set_mode(location_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "expected JSON object")
+    mode = (body.get("mode") or "").strip().lower()
+    if mode not in ("home", "away"):
+        raise HTTPException(400, "mode must be 'home' or 'away'")
+
+    loc = locations.get_location(location_id)
+    if not loc:
+        raise HTTPException(404, f"Location '{location_id}' not found")
+
+    away_sp = body.get("away_setpoint_c")
+    if away_sp is not None:
+        try:
+            away_sp = max(5.0, min(30.0, round(float(away_sp) * 2.0) / 2.0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "invalid away_setpoint_c")
+    else:
+        away_sp = float(loc.get("away_setpoint_c") or (12.0 if loc["id"] == "chalet" else 16.0))
+
+    default_home_sp = float(loc.get("home_setpoint_c") or (20.5 if loc["id"] == "chalet" else 21.0))
+    saved_map: dict[str, float] = dict(loc.get("saved_home_setpoints") or {})
+
+    # Find all Sinopé thermostats at this location
+    loc_devs = state.sinope.get_cached_devices(location_id)
+    thermostats = [d for d in loc_devs if d.get("device_type") == "thermostat"]
+
+    updated_devices: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    if mode == "away":
+        # Snapshot current setpoints before lowering to away_sp
+        for d in thermostats:
+            did = str(d.get("id"))
+            cur_sp = d.get("setpoint_c")
+            if cur_sp is not None and float(cur_sp) > away_sp:
+                saved_map[did] = float(cur_sp)
+        for d in thermostats:
+            did = str(d.get("id"))
+            try:
+                res = await state.sinope.set_thermostat_setpoint(did, away_sp)
+                if res.get("device"):
+                    updated_devices.append(res["device"])
+            except Exception as e:
+                log.warning("Failed setting Away setpoint on Sinopé %s: %s", did, e)
+                errors.append(f"{d.get('name', did)}: {e}")
+    else:
+        # Restore saved setpoints (or default_home_sp)
+        for d in thermostats:
+            did = str(d.get("id"))
+            target_sp = saved_map.get(did, default_home_sp)
+            try:
+                res = await state.sinope.set_thermostat_setpoint(did, target_sp)
+                if res.get("device"):
+                    updated_devices.append(res["device"])
+            except Exception as e:
+                log.warning("Failed restoring Home setpoint on Sinopé %s: %s", did, e)
+                errors.append(f"{d.get('name', did)}: {e}")
+
+    updated_loc = locations.set_occupancy_mode(
+        location_id,
+        mode,
+        away_setpoint_c=away_sp,
+        saved_home_setpoints=saved_map,
+    )
+    await broadcast_status("telemetry")
+    return {
+        "ok": True,
+        "location": updated_loc,
+        "locations": locations.list_locations(),
+        "updated_count": len(updated_devices),
+        "errors": errors,
+    }
+
+
 @app.get("/api/sinope/credentials")
 def api_sinope_creds_get():
     saved = sinope_creds.has_credentials()
@@ -5580,6 +5660,69 @@ async def api_sinope_creds_delete():
 @app.get("/api/sinope/devices")
 def api_sinope_devices(location_id: str | None = None):
     return {"devices": _enrich_sinope_devices(state.sinope.get_cached_devices(location_id))}
+
+
+@app.put("/api/sinope/device/{device_id}/setpoint")
+@app.post("/api/sinope/device/{device_id}/setpoint")
+async def api_sinope_set_setpoint(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict) or "setpoint_c" not in body:
+        raise HTTPException(400, "setpoint_c required")
+    try:
+        sp = float(body["setpoint_c"])
+    except (TypeError, ValueError):
+        raise HTTPException(400, "setpoint_c must be a number")
+    try:
+        res = await state.sinope.set_thermostat_setpoint(device_id, sp)
+        dev = res.get("device")
+        if dev:
+            now = time.time()
+            power_w = dev.get("power_w") or 0.0
+            temp_c = dev.get("room_temp_c")
+            heat_pct = dev.get("heat_level_pct")
+            setpoint = dev.get("setpoint_c")
+            load_w = dev.get("load_watt")
+            sinope_st = json.dumps({
+                "duty_pct": heat_pct,
+                "setpoint_c": setpoint,
+                "load_watt": load_w,
+                "room_temp_c": temp_c,
+            })
+            state.energy.record_thermostat(
+                device_sn=dev["device_sn"],
+                ts=now,
+                power_w=power_w,
+                temp_c=temp_c,
+                outdoor_temp_c=setpoint,
+                equipment_status=heat_pct,
+                state_json=sinope_st,
+            )
+        await broadcast_status("telemetry")
+        return res
+    except Exception as e:
+        log.warning("Failed to update Sinopé setpoint for %s: %s", device_id, e)
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/sinope/device/{device_id}/control")
+@app.post("/api/sinope/device/{device_id}/control")
+async def api_sinope_control_device(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict) or "is_on" not in body:
+        raise HTTPException(400, "is_on (bool) required")
+    try:
+        res = await state.sinope.set_controller_state(device_id, bool(body["is_on"]))
+        await broadcast_status("telemetry")
+        return res
+    except Exception as e:
+        log.warning("Failed to toggle Sinopé controller %s: %s", device_id, e)
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/sinope/poll")

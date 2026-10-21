@@ -34,6 +34,10 @@ DEFAULT_LOCATIONS: list[dict[str, Any]] = [
         "plan_id": "hq-tarif-d-tdt",
         "is_default": True,
         "assigned_jackerys": [],
+        "occupancy_mode": "home",
+        "away_setpoint_c": 16.0,
+        "home_setpoint_c": 21.0,
+        "saved_home_setpoints": {},
     },
     {
         "id": "chalet",
@@ -42,8 +46,28 @@ DEFAULT_LOCATIONS: list[dict[str, Any]] = [
         "plan_id": "hq-tarif-flex-d",
         "is_default": False,
         "assigned_jackerys": [],
+        "occupancy_mode": "home",
+        "away_setpoint_c": 12.0,
+        "home_setpoint_c": 20.5,
+        "saved_home_setpoints": {},
     },
 ]
+
+
+def _enrich_defaults(loc: dict[str, Any]) -> dict[str, Any]:
+    lid = (loc.get("id") or "").strip().lower()
+    default_away = 12.0 if lid == "chalet" else 16.0
+    default_home = 20.5 if lid == "chalet" else 21.0
+    out = dict(loc)
+    if "occupancy_mode" not in out or out["occupancy_mode"] not in ("home", "away"):
+        out["occupancy_mode"] = "home"
+    if "away_setpoint_c" not in out or out["away_setpoint_c"] is None:
+        out["away_setpoint_c"] = default_away
+    if "home_setpoint_c" not in out or out["home_setpoint_c"] is None:
+        out["home_setpoint_c"] = default_home
+    if not isinstance(out.get("saved_home_setpoints"), dict):
+        out["saved_home_setpoints"] = {}
+    return out
 
 
 def _load_raw() -> list[dict[str, Any]]:
@@ -51,14 +75,14 @@ def _load_raw() -> list[dict[str, Any]]:
         with open(LOCATIONS_PATH) as f:
             data = json.load(f)
         if isinstance(data, dict) and "locations" in data:
-            return list(data["locations"])
+            return [_enrich_defaults(l) for l in data["locations"] if isinstance(l, dict)]
         if isinstance(data, list):
-            return data
+            return [_enrich_defaults(l) for l in data if isinstance(l, dict)]
     except FileNotFoundError:
         pass
     except Exception as e:
         log.warning("locations file %s unreadable: %s; using defaults", LOCATIONS_PATH, e)
-    return [dict(loc) for loc in DEFAULT_LOCATIONS]
+    return [_enrich_defaults(loc) for loc in DEFAULT_LOCATIONS]
 
 
 def list_locations() -> list[dict[str, Any]]:
@@ -204,3 +228,26 @@ def plan_for_location(location_id: str | None) -> dict[str, Any]:
         if preset_plan:
             return dict(preset_plan)
     return cost.get_plan()
+
+
+def set_occupancy_mode(
+    location_id: str,
+    mode: str,
+    *,
+    away_setpoint_c: float | None = None,
+    saved_home_setpoints: dict[str, float] | None = None,
+) -> dict[str, Any] | None:
+    """Update occupancy_mode ('home' or 'away') and optional setpoint snapshot for a location."""
+    mode_norm = (mode or "").strip().lower()
+    if mode_norm not in ("home", "away"):
+        raise ValueError("mode must be 'home' or 'away'")
+    loc = get_location(location_id)
+    if not loc:
+        return None
+    updates: dict[str, Any] = {"id": loc["id"], "occupancy_mode": mode_norm}
+    if away_setpoint_c is not None:
+        updates["away_setpoint_c"] = round(float(away_setpoint_c) * 2.0) / 2.0
+    if saved_home_setpoints is not None:
+        updates["saved_home_setpoints"] = dict(saved_home_setpoints)
+    return upsert_location(updates)
+

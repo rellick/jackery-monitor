@@ -48,7 +48,8 @@ function setDeviceSwitching(on) {
   document.body.classList.toggle('device-switching', !!on);
 }   // last /api/energy/daily payload (365d, per device)
 let forecastCache = null;     // last /api/forecast response
-let activeTab = 'live';
+let activeTab = 'home';
+let _globalLocation = 'all';  // Default to All Locations per user preference
 
 // ---------- chart palette ----------
 // Single source of truth so the chart drawing code, hover tooltips, and
@@ -450,21 +451,93 @@ $('forget-creds')?.addEventListener('click', async () => {
 // URL on explicit navigations (clearing the hash from the address bar
 // would be over-ridden by the saved value, snapping back).
 const VALID_TABS = new Set([
-  'live', 'sinope', 'daikin', 'hilo', 'thinq', 'midea', 'tesla', 'kasa', 'energy', 'cost', 'forecast', 'device', 'automation', 'logs', 'settings',
+  'home', 'climate-all', 'live', 'sinope', 'daikin', 'hilo', 'thinq', 'midea', 'tesla', 'kasa', 'energy', 'cost', 'forecast', 'device', 'automation', 'logs', 'settings',
 ]);
+
+// Map each subtab/legacy tab to its primary 6-tab parent
+const TAB_TO_PRIMARY = {
+  'home':        'home',
+  'climate-all': 'climate',
+  'sinope':      'climate',
+  'daikin':      'climate',
+  'midea':       'climate',
+  'hilo':        'energy-hub',
+  'energy':      'energy-hub',
+  'cost':        'energy-hub',
+  'forecast':    'energy-hub',
+  'live':        'devices-hub',
+  'tesla':       'devices-hub',
+  'thinq':       'devices-hub',
+  'kasa':        'devices-hub',
+  'device':      'devices-hub',
+  'automation':  'automation-hub',
+  'settings':    'settings-hub',
+  'logs':        'settings-hub',
+};
+
+// Remember last selected sub-tab within each primary group
+const _lastSubtabForPrimary = {
+  'home':           'home',
+  'climate':        'climate-all',
+  'energy-hub':     'hilo',
+  'devices-hub':    'live',
+  'automation-hub': 'automation',
+  'settings-hub':   'settings',
+};
 
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => switchTab(tab.dataset.tab));
 });
 
+document.querySelectorAll('.primary-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const primary = btn.dataset.primary;
+    const targetSub = _lastSubtabForPrimary[primary] || 'home';
+    switchTab(targetSub);
+  });
+});
+
+document.querySelectorAll('.context-subtab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const sub = btn.dataset.subtab;
+    if (sub) switchTab(sub);
+  });
+});
+
+function _syncPrimaryAndSubnavUI(name) {
+  const primary = TAB_TO_PRIMARY[name] || 'home';
+  if (primary && name) {
+    _lastSubtabForPrimary[primary] = name;
+  }
+  document.querySelectorAll('.primary-tab').forEach((btn) => {
+    btn.classList.toggle('on', btn.dataset.primary === primary);
+  });
+
+  const subnavWrap = $('context-subnav-wrap');
+  const hasSubnav = ['climate', 'energy-hub', 'devices-hub', 'settings-hub'].includes(primary);
+  if (subnavWrap) {
+    subnavWrap.hidden = !hasSubnav;
+    subnavWrap.querySelectorAll('.context-subtabs').forEach((group) => {
+      const isMatch = group.dataset.subnavFor === primary;
+      group.hidden = !isMatch;
+      if (isMatch) {
+        group.querySelectorAll('.context-subtab').forEach((b) => {
+          b.classList.toggle('on', b.dataset.subtab === name);
+        });
+      }
+    });
+  }
+}
+
 function switchTab(name, opts = {}) {
   if (!VALID_TABS.has(name)) return;
   activeTab = name;
-  // Reflect the tab in the URL hash. Live is the default — keep the
+  _syncPrimaryAndSubnavUI(name);
+  // Reflect the tab in the URL hash. Home is the default — keep the
   // URL clean (no hash) on that one. fromHash skips the rewrite when
   // we're already responding to a hashchange we didn't trigger.
   if (!opts.fromHash) {
-    const desired = name === 'live' ? '' : '#' + name;
+    const desired = name === 'home' ? '' : '#' + name;
     if (location.hash !== desired) {
       try {
         if (desired) {
@@ -478,6 +551,8 @@ function switchTab(name, opts = {}) {
   }
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.toggleAttribute('hidden', p.id !== `tab-${name}`));
+  if (name === 'home')        { if (typeof renderHomeOverviewTab === 'function') renderHomeOverviewTab(true); }
+  if (name === 'climate-all') { if (typeof renderUnifiedClimateTab === 'function') renderUnifiedClimateTab(true); }
   if (name === 'live')     { drawLiveChart(lastStatus); drawLiveTempChart(lastStatus); }
   if (name === 'sinope')   { renderSinopeTab(); }
   if (name === 'daikin')   { renderDaikinTab(true); }
@@ -494,6 +569,7 @@ function switchTab(name, opts = {}) {
   if (name === 'automation') {
     restoreAutomationSubtab();
     loadAutomation(); loadSmartCharge(); loadSolarCharge(); loadAlgorithmAdvisor(); resumeAdvisorPollIfRunning();
+    if (typeof renderUnifiedSchedulesTab === 'function') renderUnifiedSchedulesTab();
     // User is now looking — clear the "new insights" dot.
     setAutomationDot(false);
   }
@@ -507,11 +583,11 @@ function switchTab(name, opts = {}) {
 // module-level vars (e.g. loadAnthropicKeyStatus -> _anthropicHasKey).
 function _initialTab() {
   const hashTab = location.hash.slice(1);
-  return (hashTab && VALID_TABS.has(hashTab)) ? hashTab : 'live';
+  return (hashTab && VALID_TABS.has(hashTab)) ? hashTab : 'home';
 }
 queueMicrotask(() => {
   const tab = _initialTab();
-  if (tab !== 'live') switchTab(tab);
+  switchTab(tab, { fromHash: true });
 });
 
 // Back/forward buttons cycle through tab history; manual hash edits in
@@ -519,7 +595,7 @@ queueMicrotask(() => {
 // fires for our own pushState too, but the activeTab guard short-
 // circuits the re-entry.
 window.addEventListener('hashchange', () => {
-  const target = location.hash.slice(1) || 'live';
+  const target = location.hash.slice(1) || 'home';
   if (VALID_TABS.has(target) && target !== activeTab) {
     switchTab(target, { fromHash: true });
   }
@@ -620,10 +696,10 @@ document.body.addEventListener('click', (e) => {
 // non-matching ones and tracks the choice in localStorage so a reload
 // or tab switch lands the user back where they left off.
 const AUTOMATION_SUBTAB_KEY = 'jackery-automation-subtab';
-const AUTOMATION_SUBTABS = ['controllers', 'rules', 'insights'];
+const AUTOMATION_SUBTABS = ['schedules', 'rules', 'controllers', 'insights'];
 
 function selectAutomationSubtab(name) {
-  if (!AUTOMATION_SUBTABS.includes(name)) name = 'controllers';
+  if (!AUTOMATION_SUBTABS.includes(name)) name = 'schedules';
   const pane = document.getElementById('tab-automation');
   if (pane) pane.dataset.activeGroup = name;
   document.querySelectorAll('.automation-subtab').forEach((btn) => {
@@ -634,12 +710,15 @@ function selectAutomationSubtab(name) {
     el.toggleAttribute('hidden', el.dataset.automationGroup !== name);
   });
   try { localStorage.setItem(AUTOMATION_SUBTAB_KEY, name); } catch (_) {}
+  if (name === 'schedules' && typeof renderUnifiedSchedulesTab === 'function') {
+    renderUnifiedSchedulesTab();
+  }
 }
 
 function restoreAutomationSubtab() {
   let saved = null;
   try { saved = localStorage.getItem(AUTOMATION_SUBTAB_KEY); } catch (_) {}
-  selectAutomationSubtab(saved || 'controllers');
+  selectAutomationSubtab(saved || 'schedules');
 }
 
 document.querySelectorAll('.automation-subtab').forEach((btn) => {
@@ -5146,14 +5225,21 @@ function renderSinopeTab() {
     if (d.device_type === 'thermostat') {
       const curC = d.room_temp_c;
       const curDisplay = curC != null ? formatTemp(curC, 1) : '—';
-      const setC = d.setpoint_c;
-      const setDisplay = setC != null ? formatTemp(setC, 1) : '—';
+      const setC = d.setpoint_c != null ? Number(d.setpoint_c) : 20.0;
+      const setDisplay = d.setpoint_c != null ? formatTemp(setC, 1) : '—';
+      const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
+      const stepMinusVal = Math.max(5.0, Math.round((setC - 0.5) * 2) / 2);
+      const stepPlusVal = Math.min(30.0, Math.round((setC + 0.5) * 2) / 2);
 
       metricsHtml = `
         <div class="sinope-dev-metrics">
-          <div class="sinope-temp-row">
+          <div class="sinope-temp-row" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span class="sinope-temp-cur">${curDisplay}</span>
-            <span class="sinope-temp-target">Set: ${setDisplay}</span>
+            <div class="sinope-setpoint-stepper" title="Adjust setpoint in 0.5°C increments (duty cycle % below is read-only for power analysis)">
+              <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="-0.5" data-sinope-cur="${setC}" ${!d.is_online ? 'disabled' : ''} aria-label="Decrease setpoint by 0.5°C">−</button>
+              <span class="sinope-step-val" id="sinope-sp-val-${devIdEsc}" data-setpoint-c="${setC}">${setDisplay}</span>
+              <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="0.5" data-sinope-cur="${setC}" ${!d.is_online ? 'disabled' : ''} aria-label="Increase setpoint by 0.5°C">+</button>
+            </div>
           </div>
           <span class="sinope-power-val">${pwr} W</span>
         </div>
@@ -5161,11 +5247,11 @@ function renderSinopeTab() {
 
       const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));
       dutyHtml = `
-        <div class="sinope-duty-track">
+        <div class="sinope-duty-track" title="Read-only heating duty cycle (${pct}%) recorded for NILM power analysis">
           <div class="sinope-duty-bar" style="width: ${pct}%;"></div>
         </div>
         <div class="sinope-duty-label">
-          <span>${pct}% duty cycle</span>
+          <span>🔥 ${pct}% duty cycle (read-only)</span>
           <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated' : ''}</span>
         </div>
       `;
@@ -5415,13 +5501,19 @@ function renderSinopeTab() {
       const locName = locObj.name || (lid.charAt(0).toUpperCase() + lid.slice(1));
       const planName = locObj.plan_id === 'hq-tarif-flex-d' ? 'Hydro-Québec Tarif Flex D' : (locObj.plan_id === 'hq-tarif-d-tdt' ? 'Hydro-Québec Tarif D TDT' : (locObj.plan_id || ''));
       const locWatts = Math.round(locDevs.reduce((sum, d) => sum + (d.power_w || 0), 0));
+      const occMode = (locObj.occupancy_mode || 'home').toLowerCase();
+      const awaySp = locObj.away_setpoint_c != null ? locObj.away_setpoint_c : (lid === 'chalet' ? 12.0 : 16.0);
 
       fullHtml += `
         <div class="sinope-location-section">
           <div class="sinope-location-header">
-            <div class="sinope-location-title">
-              <span>🏠 ${escapeHtml(locName)}</span>
+            <div class="sinope-location-title" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <span>${lid === 'chalet' ? '🌲' : '🏠'} ${escapeHtml(locName)}</span>
               ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
+              <div class="occupancy-pill-group" title="Set Home or Away mode for ${escapeHtml(locName)} (${awaySp}°C in Away)">
+                <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="home">🏠 Home</button>
+                <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="away">🚗 Away (${awaySp}°C)</button>
+              </div>
             </div>
             <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${locDevs.length} devices)</span>
           </div>
@@ -5432,22 +5524,29 @@ function renderSinopeTab() {
     });
     container.innerHTML = fullHtml;
   } else {
-    visibleLocIds.push(locFilter.toLowerCase());
-    const locObj = locations.find(l => l.id.toLowerCase() === locFilter.toLowerCase()) || {};
+    const lid = locFilter.toLowerCase();
+    visibleLocIds.push(lid);
+    const locObj = locations.find(l => l.id.toLowerCase() === lid) || {};
     const locName = locObj.name || (locFilter.charAt(0).toUpperCase() + locFilter.slice(1));
     const planName = locObj.plan_id === 'hq-tarif-flex-d' ? 'Hydro-Québec Tarif Flex D' : (locObj.plan_id === 'hq-tarif-d-tdt' ? 'Hydro-Québec Tarif D TDT' : (locObj.plan_id || ''));
     const locWatts = Math.round(filtered.reduce((sum, d) => sum + (d.power_w || 0), 0));
+    const occMode = (locObj.occupancy_mode || 'home').toLowerCase();
+    const awaySp = locObj.away_setpoint_c != null ? locObj.away_setpoint_c : (lid === 'chalet' ? 12.0 : 16.0);
 
     container.innerHTML = `
       <div class="sinope-location-section">
         <div class="sinope-location-header">
-          <div class="sinope-location-title">
-            <span>🏠 ${escapeHtml(locName)}</span>
+          <div class="sinope-location-title" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span>${lid === 'chalet' ? '🌲' : '🏠'} ${escapeHtml(locName)}</span>
             ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
+            <div class="occupancy-pill-group" title="Set Home or Away mode for ${escapeHtml(locName)} (${awaySp}°C in Away)">
+              <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="home">🏠 Home</button>
+              <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="away">🚗 Away (${awaySp}°C)</button>
+            </div>
           </div>
           <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${filtered.length} devices)</span>
         </div>
-        ${buildLocationChartHtml(locFilter.toLowerCase(), locName)}
+        ${buildLocationChartHtml(lid, locName)}
         ${buildLocationDevicesHtml(filtered)}
       </div>
     `;
@@ -11780,6 +11879,15 @@ function applyStatus(s) {
     drawLiveChart(s);
     drawLiveTempChart(s);
   }
+
+  // Update topbar Hilo live wattage pill & Home / Unified Climate views
+  if (typeof updateTopbarHiloPill === 'function') updateTopbarHiloPill();
+  if (activeTab === 'home' && typeof renderHomeOverviewTab === 'function') {
+    renderHomeOverviewTab();
+  }
+  if (activeTab === 'climate-all' && typeof renderUnifiedClimateTab === 'function') {
+    renderUnifiedClimateTab();
+  }
 }
 
 
@@ -17467,3 +17575,768 @@ async function _doRestore(snapDir, btn) {
     btn.textContent = original;
   }
 }
+
+// ========================================================================
+// UI v5 — Global Location Switcher, Sinopé 0.5°C Controls, House Home/Away,
+// Home Overview Tab, Unified Climate Tab, and Unified Schedules Tab
+// ========================================================================
+
+// Enforce default to 'all' (All Locations) on page load per user preference
+function setGlobalLocation(loc) {
+  const norm = (loc || 'all').toLowerCase();
+  _globalLocation = norm;
+
+  // Sync all per-tab location variables
+  _sinopeSelectedLocation = norm;
+  _daikinSelectedLocation = norm;
+  _hiloSelectedLocation = norm;
+  _thinqSelectedLocation = norm;
+  _mideaSelectedLocation = norm;
+  if (typeof _teslaLocFilter !== 'undefined') _teslaLocFilter = norm;
+  if (typeof _kasaLocFilter !== 'undefined') _kasaLocFilter = norm;
+
+  try {
+    localStorage.setItem('sinope_selected_location', norm);
+    localStorage.setItem('daikin_selected_location', norm);
+    localStorage.setItem('hilo_selected_location', norm);
+    localStorage.setItem('thinq_selected_location', norm);
+    localStorage.setItem('midea_selected_location', norm);
+  } catch (_) {}
+
+  // Update global location pills in topbar
+  document.querySelectorAll('.global-loc-pill').forEach(btn => {
+    btn.classList.toggle('on', (btn.dataset.globalLoc || 'all') === norm);
+  });
+
+  // Update per-tab location pills
+  document.querySelectorAll('.sinope-loc-pill, .daikin-loc-pill, .hilo-loc-pill, .thinq-loc-pill, .midea-loc-pill, .tesla-loc-pill, #kasa-loc-pills .kasa-loc-pill').forEach(p => {
+    p.classList.toggle('on', (p.dataset.loc || 'all') === norm);
+  });
+
+  updateTopbarHiloPill();
+
+  // Re-render whichever view is currently active
+  if (activeTab === 'home') renderHomeOverviewTab(true);
+  else if (activeTab === 'climate-all') renderUnifiedClimateTab(true);
+  else if (activeTab === 'sinope') renderSinopeTab();
+  else if (activeTab === 'daikin') renderDaikinTab(true);
+  else if (activeTab === 'hilo') renderHiloTab(true);
+  else if (activeTab === 'thinq') renderThinqTab(true);
+  else if (activeTab === 'midea') renderMideaTab(true);
+  else if (activeTab === 'tesla') renderTeslaTab(true);
+  else if (activeTab === 'kasa') renderKasaTab(true);
+  else if (activeTab === 'automation') renderUnifiedSchedulesTab();
+}
+
+document.querySelectorAll('.global-loc-pill').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setGlobalLocation(btn.dataset.globalLoc || 'all');
+  });
+});
+
+// Initialize to 'all' on boot so default is always All Locations
+queueMicrotask(() => {
+  setGlobalLocation('all');
+});
+
+// Topbar Hilo Live Wattage Pill
+function updateTopbarHiloPill() {
+  const pill = $('topbar-hilo-pill');
+  const txt = $('topbar-hilo-watts');
+  if (!pill || !txt) return;
+  const meters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
+  if (!meters.length) {
+    pill.hidden = true;
+    return;
+  }
+  const filtered = _globalLocation === 'all'
+    ? meters
+    : meters.filter(m => (m.location_id || '').toLowerCase() === _globalLocation);
+  if (!filtered.length) {
+    pill.hidden = true;
+    return;
+  }
+  const totalW = Math.round(filtered.reduce((sum, m) => sum + (Number(m.power_w) || 0), 0));
+  const locPrefix = _globalLocation === 'all' ? '' : (_globalLocation === 'maison' ? 'Maison: ' : 'Chalet: ');
+  txt.textContent = `${locPrefix}${totalW.toLocaleString()} W`;
+  pill.hidden = false;
+}
+
+$('topbar-hilo-pill')?.addEventListener('click', () => {
+  switchTab('hilo');
+});
+
+// ---- Sinopé 0.5°C Debounced Setpoint Control + House Home/Away ----
+const _sinopeSetpointTimers = {};
+const _sinopePendingSetpoints = {};
+
+function adjustSinopeSetpoint(devId, delta) {
+  const idStr = String(devId).replace(/^sinope_/, '');
+  const devices = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  const dev = devices.find(d => String(d.id) === idStr || d.device_sn === `sinope_${idStr}`);
+
+  const currentBase = _sinopePendingSetpoints[idStr] != null
+    ? _sinopePendingSetpoints[idStr]
+    : (dev && dev.setpoint_c != null ? Number(dev.setpoint_c) : 20.0);
+
+  const nextSp = Math.max(5.0, Math.min(30.0, Math.round((currentBase + delta) * 2.0) / 2.0));
+  _sinopePendingSetpoints[idStr] = nextSp;
+
+  // Update any visible setpoint labels for this device across all tabs
+  document.querySelectorAll(`[id="sinope-sp-val-${idStr}"], [data-sinope-sp-display="${idStr}"]`).forEach(el => {
+    el.textContent = formatTemp(nextSp, 1);
+    el.classList.add('saving');
+    el.dataset.setpointC = String(nextSp);
+  });
+
+  if (dev) dev.setpoint_c = nextSp;
+
+  if (_sinopeSetpointTimers[idStr]) {
+    clearTimeout(_sinopeSetpointTimers[idStr]);
+  }
+
+  _sinopeSetpointTimers[idStr] = setTimeout(async () => {
+    const targetSp = _sinopePendingSetpoints[idStr];
+    delete _sinopeSetpointTimers[idStr];
+    try {
+      const r = await fetch(`/api/sinope/device/${encodeURIComponent(idStr)}/setpoint`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setpoint_c: targetSp }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${r.status}`);
+      }
+      const j = await r.json();
+      const confirmedSp = j.setpoint_c != null ? j.setpoint_c : targetSp;
+      if (dev) dev.setpoint_c = confirmedSp;
+      document.querySelectorAll(`[id="sinope-sp-val-${idStr}"], [data-sinope-sp-display="${idStr}"]`).forEach(el => {
+        el.textContent = formatTemp(confirmedSp, 1);
+        el.classList.remove('saving');
+      });
+    } catch (e) {
+      console.warn('Failed to update Sinopé setpoint:', e);
+      document.querySelectorAll(`[id="sinope-sp-val-${idStr}"], [data-sinope-sp-display="${idStr}"]`).forEach(el => {
+        el.classList.remove('saving');
+      });
+    } finally {
+      delete _sinopePendingSetpoints[idStr];
+    }
+  }, 550);
+}
+
+async function setLocationOccupancyMode(locationId, mode, btnEl = null) {
+  const lid = (locationId || '').toLowerCase();
+  if (!lid || !['home', 'away'].includes(mode)) return;
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const r = await fetch(`/api/locations/${encodeURIComponent(lid)}/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+    const j = await r.json();
+    if (j.locations && lastStatus) {
+      lastStatus.locations = j.locations;
+    }
+    // Refresh Sinopé devices cache
+    const devR = await fetch('/api/sinope/devices');
+    if (devR.ok) {
+      const devJ = await devR.json();
+      if (devJ.devices) {
+        lastSinopeDevices = devJ.devices;
+        if (lastStatus) lastStatus.sinope_devices = devJ.devices;
+      }
+    }
+    if (activeTab === 'home') renderHomeOverviewTab(true);
+    if (activeTab === 'climate-all') renderUnifiedClimateTab(true);
+    if (activeTab === 'sinope') renderSinopeTab();
+    if (activeTab === 'automation') renderUnifiedSchedulesTab();
+  } catch (e) {
+    alert(`Failed to set ${lid} to ${mode.toUpperCase()}: ${e.message || e}`);
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
+// Global click delegation for Sinopé 0.5°C steppers and House Home/Away buttons
+document.addEventListener('click', (e) => {
+  const stepBtn = e.target.closest('.sinope-step-btn');
+  if (stepBtn && !stepBtn.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    const devId = stepBtn.dataset.sinopeStepId;
+    const delta = parseFloat(stepBtn.dataset.sinopeDelta || '0');
+    if (devId && delta) {
+      adjustSinopeSetpoint(devId, delta);
+    }
+    return;
+  }
+
+  const occBtn = e.target.closest('.occupancy-btn');
+  if (occBtn && !occBtn.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    const lid = occBtn.dataset.occLoc;
+    const mode = occBtn.dataset.occMode;
+    if (lid && mode) {
+      setLocationOccupancyMode(lid, mode, occBtn);
+    }
+    return;
+  }
+});
+
+// ---- Helper: Build Per-House Summary & Home/Away Strip ----
+function buildHousesSummaryStripHtml() {
+  const locations = (lastStatus && lastStatus.locations) || [
+    { id: 'maison', name: 'Maison', plan_id: 'hq-tarif-d-tdt', occupancy_mode: 'home', away_setpoint_c: 16.0 },
+    { id: 'chalet', name: 'Chalet', plan_id: 'hq-tarif-flex-d', occupancy_mode: 'home', away_setpoint_c: 12.0 },
+  ];
+  const visibleLocs = _globalLocation === 'all'
+    ? locations
+    : locations.filter(l => (l.id || '').toLowerCase() === _globalLocation);
+
+  const sinopeDevs = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  const daikinDevs = (lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || [];
+  const mideaDevs = (lastStatus && lastStatus.midea_devices) || lastMideaDevices || [];
+  const hiloMeters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
+
+  return visibleLocs.map(loc => {
+    const lid = (loc.id || '').toLowerCase();
+    const locName = loc.name || (lid === 'chalet' ? 'Chalet' : 'Maison');
+    const occMode = (loc.occupancy_mode || 'home').toLowerCase();
+    const awaySp = loc.away_setpoint_c != null ? loc.away_setpoint_c : (lid === 'chalet' ? 12.0 : 16.0);
+
+    const locSinope = sinopeDevs.filter(d => (d.location_id || '').toLowerCase() === lid);
+    const locDaikin = daikinDevs.filter(d => (d.location_id || '').toLowerCase() === lid);
+    const locMidea = mideaDevs.filter(d => (d.location_id || '').toLowerCase() === lid);
+    const locMeter = hiloMeters.find(m => (m.location_id || '').toLowerCase() === lid);
+
+    // Whole-home power (Hilo meter if available, else sum of Sinopé loads)
+    const sinopeW = Math.round(locSinope.reduce((s, d) => s + (d.power_w || 0), 0));
+    const totalW = locMeter && locMeter.power_w != null ? Math.round(locMeter.power_w) : sinopeW;
+
+    // Average indoor temperature across Daikin & Sinopé thermostats
+    const temps = [
+      ...locDaikin.map(d => d.temp_indoor_c).filter(t => t != null),
+      ...locSinope.filter(d => d.device_type === 'thermostat').map(d => d.room_temp_c).filter(t => t != null),
+    ];
+    const avgTempStr = temps.length
+      ? formatTemp(temps.reduce((a, b) => a + b, 0) / temps.length, 1)
+      : '—';
+
+    // Average humidity across Daikin & Danby dehumidifiers
+    const hums = [
+      ...locMidea.map(d => d.current_humidity).filter(h => h != null && h > 0),
+      ...locDaikin.map(d => d.humidity_indoor).filter(h => h != null && h > 0),
+    ];
+    const avgHumStr = hums.length
+      ? `${Math.round(hums.reduce((a, b) => a + b, 0) / hums.length)}%`
+      : '—';
+
+    const heatingCount = locSinope.filter(d => d.device_type === 'thermostat' && (d.heat_level_pct || 0) > 0).length;
+    const totalTherms = locSinope.filter(d => d.device_type === 'thermostat').length + locDaikin.length;
+    const dehumRunning = locMidea.filter(d => d.power && d.compressor_running).length;
+
+    return `
+      <div class="house-status-card ${occMode === 'away' ? 'is-away' : ''}">
+        <div class="house-status-header">
+          <div class="house-title-group">
+            <span style="font-size:20px;">${lid === 'chalet' ? '🌲' : '🏠'}</span>
+            <div>
+              <h3>${escapeHtml(locName)}</h3>
+              <span class="hint" style="font-size:11px;">
+                ${occMode === 'away' ? `🚗 Away Mode (${awaySp}°C setback)` : '🏠 Home (Comfort)'}
+              </span>
+            </div>
+          </div>
+          <div class="occupancy-pill-group" title="Switch ${escapeHtml(locName)} between Home (comfort setpoints) and Away (${awaySp}°C setback)">
+            <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="home">🏠 Home</button>
+            <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-mode="away">🚗 Away (${awaySp}°C)</button>
+          </div>
+        </div>
+        <div class="house-kpis-row">
+          <div class="house-kpi-mini">
+            <span class="lbl">${locMeter ? '⚡ Hilo Meter' : '⚡ Heating Power'}</span>
+            <span class="val">${totalW.toLocaleString()} W</span>
+          </div>
+          <div class="house-kpi-mini">
+            <span class="lbl">🌡️ Avg Indoor</span>
+            <span class="val">${avgTempStr}</span>
+          </div>
+          <div class="house-kpi-mini">
+            <span class="lbl">💧 Avg Humidity</span>
+            <span class="val">${avgHumStr}</span>
+          </div>
+          <div class="house-kpi-mini">
+            <span class="lbl">🔥 Active Climate</span>
+            <span class="val" style="font-size:12.5px;">${heatingCount}/${totalTherms} heat · ${dehumRunning} dehum</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ---- Render Home Overview Tab (New Default Landing Page) ----
+function renderHomeOverviewTab() {
+  const housesEl = $('home-houses-strip');
+  if (housesEl) {
+    housesEl.innerHTML = buildHousesSummaryStripHtml();
+  }
+
+  const sinopeDevs = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  const daikinDevs = (lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || [];
+  const mideaDevs = (lastStatus && lastStatus.midea_devices) || lastMideaDevices || [];
+  const hiloMeters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
+  const hiloChallenges = (lastStatus && lastStatus.hilo_challenges) || lastHiloChallenges || [];
+  const thinqDevs = (lastStatus && lastStatus.thinq_devices) || lastThinqDevices || [];
+  const teslaDevs = (lastStatus && lastStatus.tesla_devices) || lastTeslaDevices || [];
+
+  const filterLoc = (arr) => _globalLocation === 'all'
+    ? arr
+    : arr.filter(d => (d.location_id || '').toLowerCase() === _globalLocation);
+
+  const fSinope = filterLoc(sinopeDevs);
+  const fDaikin = filterLoc(daikinDevs);
+  const fMidea = filterLoc(mideaDevs);
+  const fMeters = filterLoc(hiloMeters);
+  const fChallenges = filterLoc(hiloChallenges);
+  const fThinq = filterLoc(thinqDevs);
+  const fTesla = filterLoc(teslaDevs);
+
+  // 1. Urgent Alerts Banner
+  const alertsEl = $('home-alerts-container');
+  if (alertsEl) {
+    const alerts = [];
+    fSinope.forEach(d => {
+      if (d.device_type === 'leak_sensor' && d.leak_status && !['ok', 'dry'].includes(d.leak_status.toLowerCase())) {
+        alerts.push({
+          level: 'danger',
+          text: `🚨 Water Leak Detected: ${d.name} (${d.location_name || d.location_id})`,
+          tab: 'sinope',
+        });
+      }
+      if (d.device_type === 'thermostat' && d.room_temp_c != null && d.room_temp_c < 5.0) {
+        alerts.push({
+          level: 'danger',
+          text: `❄️ Freeze Warning: ${d.name} is at ${formatTemp(d.room_temp_c, 1)} (${d.location_name || d.location_id})`,
+          tab: 'sinope',
+        });
+      }
+    });
+    fMidea.forEach(d => {
+      if (d.tank_full) {
+        alerts.push({
+          level: 'warn',
+          text: `⚠️ Dehumidifier Water Tank Full: ${d.name} (${(d.location_id || 'maison').toUpperCase()}) — Empty bucket to resume`,
+          tab: 'midea',
+        });
+      }
+    });
+    fChallenges.forEach(ch => {
+      const prog = (ch.progress || '').toLowerCase();
+      if (prog && prog !== 'completed' && prog !== 'cancelled') {
+        alerts.push({
+          level: 'hilo',
+          text: `⚡ Défi Hilo (${prog.toUpperCase()}): ${ch.location_name || ch.location_id || ''}`,
+          tab: 'hilo',
+        });
+      }
+    });
+
+    if (alerts.length) {
+      alertsEl.hidden = false;
+      alertsEl.innerHTML = alerts.map(a => `
+        <div class="home-alert-banner ${a.level}">
+          <span>${escapeHtml(a.text)}</span>
+          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('${a.tab}')">View &rarr;</button>
+        </div>
+      `).join('');
+    } else {
+      alertsEl.hidden = true;
+      alertsEl.innerHTML = '';
+    }
+  }
+
+  // 2. Quick Climate & Dehumidifiers Grid
+  const climateEl = $('home-climate-overview');
+  if (climateEl) {
+    let html = '';
+
+    // Daikin Heat Pumps + Danby Dehumidifiers
+    if (fDaikin.length || fMidea.length) {
+      html += `<div class="home-climate-section-title"><span>❄️ Heat Pumps &amp; 💧 Dehumidifiers</span><span>${fDaikin.length + fMidea.length} unit(s)</span></div>`;
+      html += `<div class="home-climate-grid">`;
+
+      fDaikin.forEach(d => {
+        const inTemp = d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—';
+        const outTemp = d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—';
+        const heatSp = d.heat_setpoint_c != null ? formatTemp(d.heat_setpoint_c, 1) : '—';
+        const locBadge = (d.location_id || 'maison').toUpperCase();
+        html += `
+          <div class="quick-climate-card ${d.equipment_status === 1 || d.equipment_status === 3 ? 'is-active' : ''}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-weight:600; font-size:13.5px;">❄️ ${escapeHtml(d.name || 'Daikin Heat Pump')}</div>
+                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · Outdoor: ${outTemp}</div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Controls</button>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span style="font-size:22px; font-weight:700; font-family:var(--font-mono);">${inTemp}</span>
+              <span class="hint" style="font-size:12px;">Target: <b>${heatSp}</b> (${escapeHtml(d.mode_label || 'Heat')})</span>
+            </div>
+          </div>
+        `;
+      });
+
+      fMidea.forEach(d => {
+        const curHum = d.current_humidity ? `${Math.round(d.current_humidity)}%` : '—';
+        const tgtHum = d.target_humidity ? Math.round(d.target_humidity) : 50;
+        const isComp = Boolean(d.power && d.compressor_running);
+        const locBadge = (d.location_id || 'maison').toUpperCase();
+        const statusTxt = !d.power ? 'Off' : (d.tank_full ? '⚠️ Tank Full' : (isComp ? '💧 Compressor On' : '🌪️ Fan Only'));
+        html += `
+          <div class="quick-climate-card ${isComp ? 'is-dehum-active' : ''}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <div style="font-weight:600; font-size:13.5px;">💧 ${escapeHtml(d.name || 'Danby Dehumidifier')}</div>
+                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${statusTxt}</div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Schedule / More</button>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+              <div>
+                <span style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:#38bdf8;">${curHum}</span>
+                <span class="hint" style="font-size:11px; margin-left:4px;">RH</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="hint" style="font-size:12px;">Target: <b>${tgtHum}%</b></span>
+                <button type="button" class="btn btn-tiny ${d.power ? 'btn-ghost' : 'btn-primary'}" onclick="switchTab('midea')">${d.power ? 'Adjust' : 'Turn On'}</button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    }
+
+    // Sinopé Thermostats (with direct 0.5°C stepper + read-only duty %)
+    const therms = fSinope.filter(d => d.device_type === 'thermostat');
+    if (therms.length) {
+      html += `<div class="home-climate-section-title"><span>🔥 Sinopé Baseboard Thermostats (0.5°C Controls)</span><span>${therms.length} zone(s)</span></div>`;
+      html += `<div class="home-climate-grid">`;
+      therms.forEach(d => {
+        const curDisplay = d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—';
+        const setC = d.setpoint_c != null ? Number(d.setpoint_c) : 20.0;
+        const setDisplay = d.setpoint_c != null ? formatTemp(setC, 1) : '—';
+        const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));
+        const pwr = Math.round(d.power_w || 0);
+        const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
+        const locBadge = (d.location_name || d.location_id || '').toUpperCase();
+
+        html += `
+          <div class="quick-climate-card ${pct > 0 ? 'is-active' : ''}">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+              <div>
+                <div style="font-weight:600; font-size:13.5px;">${escapeHtml(d.name || d.device_sn)}</div>
+                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${pct}% duty (read-only)</div>
+              </div>
+              <span style="font-family:var(--font-mono); font-size:12px; font-weight:600; color:${pct > 0 ? '#fb923c' : 'var(--text-dim)'};">${pwr} W</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+              <span style="font-size:21px; font-weight:700; font-family:var(--font-mono);">${curDisplay}</span>
+              <div class="sinope-setpoint-stepper">
+                <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="-0.5" ${!d.is_online ? 'disabled' : ''}>−</button>
+                <span class="sinope-step-val" data-sinope-sp-display="${devIdEsc}">${setDisplay}</span>
+                <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="0.5" ${!d.is_online ? 'disabled' : ''}>+</button>
+              </div>
+            </div>
+            <div class="sinope-duty-track" style="margin-top:2px;">
+              <div class="sinope-duty-bar" style="width:${pct}%;"></div>
+            </div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+    }
+
+    if (!html) {
+      html = `<div class="hint" style="padding:18px; text-align:center;">Loading climate devices… Use the Climate &amp; Comfort tab to configure or poll devices.</div>`;
+    }
+    climateEl.innerHTML = html;
+  }
+
+  // 3. Whole-Home Energy Summary
+  const energyEl = $('home-energy-summary');
+  if (energyEl) {
+    const sinopeTotalW = Math.round(fSinope.reduce((s, d) => s + (d.power_w || 0), 0));
+    const mideaTotalW = Math.round(fMidea.reduce((s, d) => s + (d.power && d.compressor_running ? 480 : (d.power ? 45 : 0)), 0));
+    const meterTotalW = Math.round(fMeters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
+    const meterTodayKwh = fMeters.reduce((s, m) => s + (Number(m.today_kwh) || 0), 0);
+
+    energyEl.innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px;">
+        <div class="house-kpi-mini">
+          <span class="lbl">Whole-Home Meter (Hilo)</span>
+          <span class="val" style="color:#38bdf8; font-size:18px;">${fMeters.length ? meterTotalW.toLocaleString() + ' W' : '—'}</span>
+        </div>
+        <div class="house-kpi-mini">
+          <span class="lbl">Sinopé Heating &amp; Loads</span>
+          <span class="val" style="color:#fb923c; font-size:18px;">${sinopeTotalW.toLocaleString()} W</span>
+        </div>
+        <div class="house-kpi-mini">
+          <span class="lbl">Dehumidifiers (Est.)</span>
+          <span class="val" style="font-size:18px;">${mideaTotalW.toLocaleString()} W</span>
+        </div>
+        <div class="house-kpi-mini">
+          <span class="lbl">Today Meter Energy</span>
+          <span class="val" style="font-size:18px;">${fMeters.length ? meterTodayKwh.toFixed(1) + ' kWh' : '—'}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // 4. Active Appliances, EV & Batteries Summary
+  const activeDevsEl = $('home-active-devices-summary');
+  if (activeDevsEl) {
+    const items = [];
+    // Jackery battery status
+    if (lastStatus && lastStatus.telemetry) {
+      const t = lastStatus.telemetry;
+      const soc = t.battery_percent != null ? `${t.battery_percent}%` : '—';
+      const outW = t.output_power_w || 0;
+      const inW = t.input_power_w || 0;
+      items.push(`🔋 <strong>Jackery Battery:</strong> SOC <b>${soc}</b> · In ${inW} W / Out ${outW} W`);
+    }
+    // Tesla EV
+    fTesla.forEach(d => {
+      if (d.device_type === 'vehicle' || d.battery_level != null) {
+        items.push(`🚗 <strong>${escapeHtml(d.name || 'Tesla Model Y')}:</strong> ${d.battery_level != null ? d.battery_level + '%' : '—'} (${escapeHtml(d.charging_state || 'Idle')})`);
+      } else if ((d.power_w || 0) > 50) {
+        items.push(`⚡ <strong>${escapeHtml(d.name || 'Wall Connector')}:</strong> Charging at ${Math.round(d.power_w)} W`);
+      }
+    });
+    // Active ThinQ appliances
+    fThinq.filter(d => d.is_running).forEach(d => {
+      items.push(`🧺 <strong>${escapeHtml(d.name || d.device_type)}:</strong> Running (${escapeHtml(d.run_state || 'Active')})`);
+    });
+    // Water protection
+    const leakSensors = fSinope.filter(d => d.device_type === 'leak_sensor');
+    if (leakSensors.length) {
+      const leaks = leakSensors.filter(d => d.leak_status && !['ok', 'dry'].includes(d.leak_status.toLowerCase())).length;
+      items.push(`💧 <strong>Water Protection:</strong> ${leaks === 0 ? `All Dry (${leakSensors.length} sensors OK)` : `🚨 ${leaks} LEAK ALERT`}`);
+    }
+
+    activeDevsEl.innerHTML = items.length
+      ? `<ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13px;">${items.map(i => `<li>${i}</li>`).join('')}</ul>`
+      : `<div class="hint">No active appliances or EV sessions right now.</div>`;
+  }
+}
+
+// ---- Render Unified Climate & Comfort Tab (`climate-all`) ----
+function renderUnifiedClimateTab() {
+  const housesBar = $('climate-all-houses-bar');
+  if (housesBar) {
+    housesBar.innerHTML = buildHousesSummaryStripHtml();
+  }
+  const container = $('climate-all-container');
+  if (!container) return;
+
+  // Ensure underlying device lists are rendered/populated
+  const sinopeDevs = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  const daikinDevs = (lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || [];
+  const mideaDevs = (lastStatus && lastStatus.midea_devices) || lastMideaDevices || [];
+
+  const filterLoc = (arr) => _globalLocation === 'all'
+    ? arr
+    : arr.filter(d => (d.location_id || '').toLowerCase() === _globalLocation);
+
+  const fDaikin = filterLoc(daikinDevs);
+  const fMidea = filterLoc(mideaDevs);
+  const fSinope = filterLoc(sinopeDevs).filter(d => d.device_type === 'thermostat');
+
+  container.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:18px;">
+      <section class="card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>❄️ Daikin Heat Pumps (${fDaikin.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('daikin')">Open Full Daikin Controls &amp; Air Clean &rarr;</button>
+        </div>
+        <p class="hint" style="margin:4px 0 10px;">Communicating heat pumps &amp; indoor/outdoor climate telemetry.</p>
+        <div class="home-climate-grid">
+          ${fDaikin.length ? fDaikin.map(d => `
+            <div class="quick-climate-card">
+              <div style="display:flex; justify-content:space-between;">
+                <strong>❄️ ${escapeHtml(d.name || 'Daikin')} (${escapeHtml((d.location_id || '').toUpperCase())})</strong>
+                <span class="hint">${escapeHtml(d.mode_label || 'Heat')}</span>
+              </div>
+              <div style="font-size:22px; font-weight:700; font-family:var(--font-mono); margin:4px 0;">
+                ${d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—'}
+                <small class="hint">Indoor · Outdoor: ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'}</small>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span class="hint">Heat Setpoint: <b>${d.heat_setpoint_c != null ? formatTemp(d.heat_setpoint_c, 1) : '—'}</b></span>
+                <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Adjust</button>
+              </div>
+            </div>
+          `).join('') : '<div class="hint">No Daikin heat pumps for this location filter.</div>'}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>💧 Danby Smart Dehumidifiers (${fMidea.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('midea')">Open Full Dehumidifier Controls &amp; Schedules &rarr;</button>
+        </div>
+        <p class="hint" style="margin:4px 0 10px;">Real-time ambient RH%, target humidity setpoints, compressor state, and water bucket monitoring.</p>
+        <div class="home-climate-grid">
+          ${fMidea.length ? fMidea.map(d => {
+            const isComp = Boolean(d.power && d.compressor_running);
+            return `
+              <div class="quick-climate-card ${isComp ? 'is-dehum-active' : ''}">
+                <div style="display:flex; justify-content:space-between;">
+                  <strong>💧 ${escapeHtml(d.name || 'Danby')} (${escapeHtml((d.location_id || '').toUpperCase())})</strong>
+                  <span class="hint">${!d.power ? 'Off' : (d.tank_full ? '⚠️ Tank Full' : (isComp ? '💧 Compressor' : '🌪️ Fan Only'))}</span>
+                </div>
+                <div style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:#38bdf8; margin:4px 0;">
+                  ${d.current_humidity ? Math.round(d.current_humidity) + '%' : '—'} <small class="hint">Target: ${d.target_humidity || 50}%</small>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span class="hint">${d.schedule_enabled ? '📅 Schedule Active' : 'Manual Mode'}</span>
+                  <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Control</button>
+                </div>
+              </div>
+            `;
+          }).join('') : '<div class="hint">No Danby dehumidifiers for this location filter.</div>'}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>🔥 Sinopé Baseboard Thermostats (${fSinope.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('sinope')">Open Full Sinopé &amp; History Charts &rarr;</button>
+        </div>
+        <p class="hint" style="margin:4px 0 10px;">Adjust setpoints in 0.5°C increments. Heating duty cycle (%) is displayed read-only and recorded continuously for power analysis.</p>
+        <div class="home-climate-grid">
+          ${fSinope.length ? fSinope.map(d => {
+            const curDisplay = d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—';
+            const setC = d.setpoint_c != null ? Number(d.setpoint_c) : 20.0;
+            const setDisplay = d.setpoint_c != null ? formatTemp(setC, 1) : '—';
+            const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));
+            const pwr = Math.round(d.power_w || 0);
+            const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
+            return `
+              <div class="quick-climate-card ${pct > 0 ? 'is-active' : ''}">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                  <div>
+                    <strong>${escapeHtml(d.name || d.device_sn)}</strong>
+                    <div class="hint" style="font-size:11px;">${escapeHtml((d.location_name || d.location_id || '').toUpperCase())} · ${pct}% duty</div>
+                  </div>
+                  <span style="font-family:var(--font-mono); font-size:12px; font-weight:600;">${pwr} W</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                  <span style="font-size:21px; font-weight:700; font-family:var(--font-mono);">${curDisplay}</span>
+                  <div class="sinope-setpoint-stepper">
+                    <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="-0.5" ${!d.is_online ? 'disabled' : ''}>−</button>
+                    <span class="sinope-step-val" data-sinope-sp-display="${devIdEsc}">${setDisplay}</span>
+                    <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="0.5" ${!d.is_online ? 'disabled' : ''}>+</button>
+                  </div>
+                </div>
+                <div class="sinope-duty-track" style="margin-top:2px;">
+                  <div class="sinope-duty-bar" style="width:${pct}%;"></div>
+                </div>
+              </div>
+            `;
+          }).join('') : '<div class="hint">No Sinopé thermostats for this location filter.</div>'}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+// ---- Render Unified Schedules & Modes Sub-Tab (`Automation -> Schedules & Modes`) ----
+function renderUnifiedSchedulesTab() {
+  const container = $('unified-schedules-container');
+  if (!container) return;
+
+  const mideaDevs = (lastStatus && lastStatus.midea_devices) || lastMideaDevices || [];
+  const daikinDevs = (lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || [];
+
+  const filterLoc = (arr) => _globalLocation === 'all'
+    ? arr
+    : arr.filter(d => (d.location_id || '').toLowerCase() === _globalLocation);
+
+  const fMidea = filterLoc(mideaDevs);
+  const fDaikin = filterLoc(daikinDevs);
+
+  container.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:18px;">
+      <div>
+        <h3 style="margin:0 0 10px; font-size:14px;">🏠 House Occupancy Modes (Home / Away Setback)</h3>
+        <div class="home-houses-grid">
+          ${buildHousesSummaryStripHtml()}
+        </div>
+      </div>
+
+      <div style="padding-top:12px; border-top:1px solid var(--border-soft);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h3 style="margin:0; font-size:14px;">💧 Danby Dehumidifier Weekly Schedules (${fMidea.length})</h3>
+          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Edit in Danby View &rarr;</button>
+        </div>
+        <div class="home-climate-grid">
+          ${fMidea.length ? fMidea.map(d => {
+            const devId = String(d.device_id);
+            const cachedSched = typeof _mideaDeviceSchedules !== 'undefined' ? _mideaDeviceSchedules[devId] : null;
+            const schedEn = cachedSched ? !!cachedSched.schedule_enabled : !!d.schedule_enabled;
+            const schedCount = cachedSched ? (cachedSched.events || []).length : (d.schedule_events_count || 0);
+            return `
+              <div class="quick-climate-card">
+                <div style="display:flex; justify-content:space-between;">
+                  <strong>💧 ${escapeHtml(d.name || 'Danby')}</strong>
+                  <span class="hint">${escapeHtml((d.location_id || 'maison').toUpperCase())}</span>
+                </div>
+                <div style="font-size:13px; margin:4px 0; color:${schedEn ? 'var(--accent)' : 'var(--text-dim)'}; font-weight:600;">
+                  ${schedEn ? `✓ Schedule Enabled (${schedCount} event${schedCount === 1 ? '' : 's'})` : '⏸️ Schedule Disabled'}
+                </div>
+                <button type="button" class="btn btn-ghost btn-tiny" onclick="_mideaOpenDeviceSchedules.add('${escapeHtml(devId)}'); switchTab('midea');">Configure Schedule &rarr;</button>
+              </div>
+            `;
+          }).join('') : '<div class="hint">No Danby dehumidifiers found.</div>'}
+        </div>
+      </div>
+
+      <div style="padding-top:12px; border-top:1px solid var(--border-soft);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h3 style="margin:0; font-size:14px;">❄️ Daikin Thermostat Schedule State (${fDaikin.length})</h3>
+          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Open Daikin View &rarr;</button>
+        </div>
+        <div class="home-climate-grid">
+          ${fDaikin.length ? fDaikin.map(d => `
+            <div class="quick-climate-card">
+              <div style="display:flex; justify-content:space-between;">
+                <strong>❄️ ${escapeHtml(d.name || 'Daikin')}</strong>
+                <span class="hint">${escapeHtml((d.location_id || 'maison').toUpperCase())}</span>
+              </div>
+              <div style="font-size:13px; margin:4px 0;">
+                Programmed Schedule: <b>${d.schedule_enabled ? '📅 Following Schedule' : '⏸️ Hold / Manual Setpoint'}</b>
+              </div>
+            </div>
+          `).join('') : '<div class="hint">No Daikin thermostats found.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+$('auto-schedules-refresh-btn')?.addEventListener('click', () => {
+  renderUnifiedSchedulesTab();
+});
+

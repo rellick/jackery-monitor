@@ -67,3 +67,25 @@ def test_plan_for_location():
     plan_chalet = locations.plan_for_location("chalet")
     assert plan_chalet.get("currency") == "CAD"
     assert any(s.get("rate") == 0.55832 for s in plan_chalet.get("tou_rates", []))
+
+
+def test_occupancy_mode_home_and_away():
+    maison = locations.get_location("maison")
+    assert maison["occupancy_mode"] == "home"
+    assert maison["away_setpoint_c"] == 16.0
+
+    updated = locations.set_occupancy_mode(
+        "chalet",
+        "away",
+        away_setpoint_c=11.5,
+        saved_home_setpoints={"101": 21.0, "102": 19.5},
+    )
+    assert updated is not None
+    assert updated["occupancy_mode"] == "away"
+    assert updated["away_setpoint_c"] == 11.5
+    assert updated["saved_home_setpoints"] == {"101": 21.0, "102": 19.5}
+
+    restored = locations.set_occupancy_mode("chalet", "home")
+    assert restored["occupancy_mode"] == "home"
+    assert restored["saved_home_setpoints"] == {"101": 21.0, "102": 19.5}
+

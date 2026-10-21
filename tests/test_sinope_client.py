@@ -379,4 +379,56 @@ async def test_sinope_fetch_groups(monkeypatch):
     assert groups[20] == "Cuisine"
 
 
+@pytest.mark.asyncio
+async def test_sinope_set_thermostat_setpoint_and_preserve_duty_pct(monkeypatch):
+    import httpx
+
+    client = SinopeClient()
+    client._session_id = "test-session"
+    client._cached_telemetry["101"] = {
+        "id": "101",
+        "device_sn": "sinope_101",
+        "name": "Salon",
+        "device_type": "thermostat",
+        "room_temp_c": 20.0,
+        "setpoint_c": 21.0,
+        "heat_level_pct": 65,
+        "power_w": 975.0,
+        "load_watt": 1500.0,
+    }
+
+    captured = {}
+
+    class MockResponse:
+        def __init__(self, status_code, json_data):
+            self.status_code = status_code
+            self._json = json_data
+            self.content = b"{}"
+            self.cookies = {}
+
+        def json(self):
+            return self._json
+
+    async def mock_request(self, method, url, **kwargs):
+        captured["method"] = method
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        return MockResponse(200, {"roomSetpoint": kwargs.get("json", {}).get("roomSetpoint")})
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    # 21.3 should round to nearest 0.5°C -> 21.5°C
+    res = await client.set_thermostat_setpoint("sinope_101", 21.3)
+    assert res["ok"] is True
+    assert res["setpoint_c"] == 21.5
+    assert captured["method"] == "PUT"
+    assert "/api/device/101/attribute" in captured["url"]
+    assert captured["json"] == {"roomSetpoint": 21.5}
+    # Duty cycle % and power_w must remain preserved in telemetry cache
+    assert client._cached_telemetry["101"]["setpoint_c"] == 21.5
+    assert client._cached_telemetry["101"]["heat_level_pct"] == 65
+    assert client._cached_telemetry["101"]["power_w"] == 975.0
+
+
+
 

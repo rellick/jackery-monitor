@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=6" />
+  <link rel="stylesheet" href="/static/style.css?v=7" />
 </head>
 <body>
   <!-- =============== LOGIN MODAL =============== -->
@@ -61,14 +61,27 @@
          is the easiest "fix it" gesture on the page. Anchored at "/" so
          middle-click and cmd-click open it in a fresh tab on Live. -->
     <a href="/" class="brand" id="brand-home"
-       title="Back to Live (refresh)">
+       title="Back to Home (refresh)">
       <span class="logo-dot"></span>
       <h1>Jackery Monitor</h1>
     </a>
 
+    <!-- Global Location Switcher (Default: All Locations) -->
+    <div class="global-location-bar" id="global-location-bar" role="tablist" aria-label="Location filter">
+      <button type="button" class="global-loc-pill on" data-global-loc="all">🌐 All Locations</button>
+      <button type="button" class="global-loc-pill" data-global-loc="maison">🏠 Maison</button>
+      <button type="button" class="global-loc-pill" data-global-loc="chalet">🌲 Chalet</button>
+    </div>
+
     <div class="topbar-right">
+      <!-- Whole-Home Live Power Pill (Hilo Meter) -->
+      <button type="button" id="topbar-hilo-pill" class="pill pill-hilo-live" hidden title="Whole-home live power (Hilo smart meter) — click for Energy &amp; Hilo">
+        <span class="hilo-bolt">⚡</span>
+        <span id="topbar-hilo-watts">— W</span>
+      </button>
+
       <label id="device-picker" class="device-picker" hidden>
-        <span class="dp-label">Device</span>
+        <span class="dp-label">Battery</span>
         <select id="device-select" class="device-select"></select>
       </label>
       <!-- Shown while a device switch is in flight: appears the moment
@@ -91,9 +104,55 @@
   </header>
 
   <main>
-    <!-- Tab nav -->
-    <nav class="tabs">
-      <button class="tab on" data-tab="live">Live</button>
+    <!-- Primary 6-Tab Navigation (Task & Intent Driven) -->
+    <nav class="tabs primary-tabs" id="primary-tabs-nav" aria-label="Main navigation">
+      <button class="primary-tab on" data-primary="home" type="button">🏠 Home</button>
+      <button class="primary-tab" data-primary="climate" type="button">🌡️ Climate &amp; Comfort</button>
+      <button class="primary-tab" data-primary="energy-hub" type="button">⚡ Energy &amp; Hilo</button>
+      <button class="primary-tab" data-primary="devices-hub" type="button">🔌 Devices &amp; Batteries</button>
+      <button class="primary-tab" data-primary="automation-hub" type="button">🤖 Automation &amp; Schedules<span id="tab-automation-dot" class="tab-dot" hidden title="New AI insights pending"></span></button>
+      <button class="primary-tab" data-primary="settings-hub" type="button">⚙️ Settings &amp; Logs</button>
+    </nav>
+
+    <!-- Context Sub-Navigation Bar (Dynamically shown for Climate, Energy, Devices, Settings) -->
+    <div id="context-subnav-wrap" class="context-subnav-wrap" hidden>
+      <!-- Climate Sub-tabs -->
+      <div class="context-subtabs" data-subnav-for="climate" hidden>
+        <button type="button" class="context-subtab on" data-subtab="climate-all">🌡️ All Climate (Unified)</button>
+        <button type="button" class="context-subtab" data-subtab="sinope">🔥 Sinopé Thermostats &amp; Zones</button>
+        <button type="button" class="context-subtab" data-subtab="daikin">❄️ Daikin Heat Pump</button>
+        <button type="button" class="context-subtab" data-subtab="midea">💧 Danby Dehumidifiers</button>
+      </div>
+
+      <!-- Energy & Hilo Sub-tabs -->
+      <div class="context-subtabs" data-subnav-for="energy-hub" hidden>
+        <button type="button" class="context-subtab on" data-subtab="hilo">⚡ Hilo &amp; Whole-Home Power</button>
+        <button type="button" class="context-subtab" data-subtab="energy">🔋 Jackery Energy History</button>
+        <button type="button" class="context-subtab" data-subtab="cost">💰 Cost &amp; Tariffs</button>
+        <button type="button" class="context-subtab" data-subtab="forecast">☀️ Solar Forecast</button>
+      </div>
+
+      <!-- Devices & Batteries Sub-tabs -->
+      <div class="context-subtabs" data-subnav-for="devices-hub" hidden>
+        <button type="button" class="context-subtab on" data-subtab="live">🔋 Jackery Live</button>
+        <button type="button" class="context-subtab" data-subtab="tesla">🚗 Tesla &amp; EV Chargers</button>
+        <button type="button" class="context-subtab" data-subtab="thinq">🧺 LG ThinQ Appliances</button>
+        <button type="button" class="context-subtab" data-subtab="kasa">🔌 Kasa Plugs &amp; Switches</button>
+        <button type="button" class="context-subtab" data-subtab="device">🛠️ Jackery Hardware &amp; Config</button>
+      </div>
+
+      <!-- Settings & Logs Sub-tabs -->
+      <div class="context-subtabs" data-subnav-for="settings-hub" hidden>
+        <button type="button" class="context-subtab on" data-subtab="settings">⚙️ System Settings &amp; Integrations</button>
+        <button type="button" class="context-subtab" data-subtab="logs">📋 Bridge Logs &amp; Diagnostics</button>
+      </div>
+    </div>
+
+    <!-- Legacy hidden tab buttons preserved for programmatic compatibility -->
+    <nav class="tabs" hidden aria-hidden="true">
+      <button class="tab" data-tab="home">Home</button>
+      <button class="tab" data-tab="climate-all">Climate</button>
+      <button class="tab" data-tab="live">Live</button>
       <button class="tab" data-tab="sinope">Sinopé</button>
       <button class="tab" data-tab="daikin">Daikin</button>
       <button class="tab" data-tab="hilo">Hilo</button>
@@ -105,13 +164,63 @@
       <button class="tab" data-tab="cost">Cost</button>
       <button class="tab" data-tab="forecast">Forecast</button>
       <button class="tab" data-tab="device">Device</button>
-      <button class="tab" data-tab="automation">Automation<span id="tab-automation-dot" class="tab-dot" hidden title="New AI insights pending"></span></button>
+      <button class="tab" data-tab="automation">Automation</button>
       <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
 
+    <!-- ============== HOME OVERVIEW TAB (NEW DEFAULT) ============== -->
+    <section id="tab-home" class="tab-panel">
+      <!-- Actionable Urgent Alerts Banner (Leak, Freeze, Tank Full, Hilo Challenge) -->
+      <div id="home-alerts-container" class="home-alerts-container" hidden></div>
+
+      <!-- Per-House Status & Home/Away Control Cards (Maison & Chalet) -->
+      <div id="home-houses-strip" class="home-houses-grid"></div>
+
+      <!-- Quick Climate & Humidity Control Section (Thermostats & Dehumidifiers Front-and-Center) -->
+      <section class="card home-section-card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h2 style="font-size:16px; margin:0;">🌡️ Climate &amp; Dehumidifiers — Quick Control</h2>
+            <p class="hint" style="margin:2px 0 0; font-size:12px;">Adjust heat pumps, dehumidifiers, and baseboard thermostats in 0.5°C steps</p>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('climate-all')">Open Full Climate View &rarr;</button>
+          </div>
+        </div>
+        <div id="home-climate-overview" class="home-climate-overview"></div>
+      </section>
+
+      <!-- Whole-Home Energy, EV & Active Appliances Summary -->
+      <div class="grid home-bottom-grid" style="grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; margin-top: 18px;">
+        <section class="card home-section-card">
+          <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="font-size:15px; margin:0;">⚡ Whole-Home Power &amp; Hilo</h2>
+            <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('hilo')">Details &rarr;</button>
+          </div>
+          <div id="home-energy-summary" style="margin-top:10px;"></div>
+        </section>
+
+        <section class="card home-section-card">
+          <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="font-size:15px; margin:0;">🔌 Active Appliances, EV &amp; Batteries</h2>
+            <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('live')">All Devices &rarr;</button>
+          </div>
+          <div id="home-active-devices-summary" style="margin-top:10px;"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ============== UNIFIED CLIMATE & COMFORT TAB ============== -->
+    <section id="tab-climate-all" class="tab-panel" hidden>
+      <!-- Per-House Home / Away & Climate Summary Header -->
+      <div id="climate-all-houses-bar" class="home-houses-grid" style="margin-bottom:18px;"></div>
+      <!-- Unified stacked sections: Daikin Heat Pumps + Danby Dehumidifiers + Sinopé Thermostats -->
+      <div id="climate-all-container"></div>
+    </section>
+
     <!-- ============== LIVE TAB ============== -->
-    <section id="tab-live" class="tab-panel">
+    <section id="tab-live" class="tab-panel" hidden>
       <!-- Disconnected / Offline banner: shown when the physical Jackery loses Wi-Fi
            and stops pushing fresh telemetry to Jackery Cloud. -->
       <div id="device-offline-banner" class="device-offline-banner" hidden>
@@ -1618,12 +1727,26 @@
            screens (via CSS), everything else stacks. -->
       <nav class="automation-subtabs" role="tablist" aria-label="Automation sections">
         <button class="automation-subtab on" type="button" role="tab"
-                data-automation-tab="controllers">Controllers</button>
+                data-automation-tab="schedules">📅 Schedules &amp; Modes</button>
         <button class="automation-subtab" type="button" role="tab"
-                data-automation-tab="rules">Rules</button>
+                data-automation-tab="rules">⚡ Rules</button>
         <button class="automation-subtab" type="button" role="tab"
-                data-automation-tab="insights">Insights</button>
+                data-automation-tab="controllers">🔋 Energy Controllers</button>
+        <button class="automation-subtab" type="button" role="tab"
+                data-automation-tab="insights">🧠 AI Insights</button>
       </nav>
+
+      <!-- UNIFIED SCHEDULES & MODES: Danby Dehumidifier Schedules, Daikin Schedule Follow/Hold, House Occupancy Modes -->
+      <section class="card device-card" data-automation-group="schedules">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h2>📅 Home &amp; Device Schedules</h2>
+            <p class="hint" style="margin:4px 0 0;">Centralized view of house occupancy modes (Home / Away), Danby dehumidifier weekly schedules, and Daikin thermostat schedules.</p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-tiny" id="auto-schedules-refresh-btn">🔄 Refresh</button>
+        </div>
+        <div id="unified-schedules-container" style="margin-top:14px;"></div>
+      </section>
 
       <!-- AI INSIGHTS: daily AI-advisor review of forecast/control performance -->
       <section class="card device-card" data-automation-group="insights">
@@ -3338,6 +3461,6 @@
   </footer>
 
   <script src="/static/sortable.min.js"></script>
-  <script src="/static/app.js?v=10"></script>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>

@@ -709,3 +709,67 @@ class SinopeClient:
             return devs
         norm_loc = location_id.strip().lower()
         return [d for d in devs if d.get("location_id", "").strip().lower() == norm_loc]
+
+    async def set_thermostat_setpoint(self, device_id: int | str, setpoint_c: float) -> dict[str, Any]:
+        """Set target room temperature (roomSetpoint) in 0.5°C increments on a Sinopé thermostat."""
+        dev_id_str = str(device_id).removeprefix("sinope_").strip()
+        if not dev_id_str:
+            raise SinopeError("device_id is required")
+        # Round to nearest 0.5°C and clamp between 5.0°C and 30.0°C
+        rounded = round(float(setpoint_c) * 2.0) / 2.0
+        clamped = max(5.0, min(30.0, rounded))
+
+        url = DEVICE_ATTR_URL.format(device_id=dev_id_str)
+        payload = {"roomSetpoint": clamped}
+        res = await self._request_with_reauth("PUT", url, json=payload)
+        if res.status_code != 200:
+            raise SinopeTransientError(f"Failed to set Sinopé setpoint for {dev_id_str}: HTTP {res.status_code}")
+        data = res.json() if res.content else {}
+        if isinstance(data, dict) and "error" in data and data["error"]:
+            err = data["error"]
+            code = err.get("code") if isinstance(err, dict) else str(err)
+            raise SinopeError(f"Neviweb rejected setpoint update for {dev_id_str}: {code}")
+
+        # Optimistically update in-memory cache while preserving duty cycle %
+        if dev_id_str in self._cached_telemetry:
+            self._cached_telemetry[dev_id_str]["setpoint_c"] = clamped
+            self._cached_telemetry[dev_id_str]["last_update_ts"] = time.time()
+
+        return {
+            "ok": True,
+            "device_id": dev_id_str,
+            "device_sn": f"sinope_{dev_id_str}",
+            "setpoint_c": clamped,
+            "device": self._cached_telemetry.get(dev_id_str),
+        }
+
+    async def set_controller_state(self, device_id: int | str, is_on: bool) -> dict[str, Any]:
+        """Toggle onOff attribute ('on' or 'off') on a Sinopé load controller or switch."""
+        dev_id_str = str(device_id).removeprefix("sinope_").strip()
+        if not dev_id_str:
+            raise SinopeError("device_id is required")
+        url = DEVICE_ATTR_URL.format(device_id=dev_id_str)
+        payload = {"onOff": "on" if is_on else "off"}
+        res = await self._request_with_reauth("PUT", url, json=payload)
+        if res.status_code != 200:
+            raise SinopeTransientError(f"Failed to set Sinopé controller state for {dev_id_str}: HTTP {res.status_code}")
+        data = res.json() if res.content else {}
+        if isinstance(data, dict) and "error" in data and data["error"]:
+            err = data["error"]
+            code = err.get("code") if isinstance(err, dict) else str(err)
+            raise SinopeError(f"Neviweb rejected controller state update for {dev_id_str}: {code}")
+
+        if dev_id_str in self._cached_telemetry:
+            self._cached_telemetry[dev_id_str]["is_on"] = bool(is_on)
+            if not is_on:
+                self._cached_telemetry[dev_id_str]["power_w"] = 0.0
+            self._cached_telemetry[dev_id_str]["last_update_ts"] = time.time()
+
+        return {
+            "ok": True,
+            "device_id": dev_id_str,
+            "device_sn": f"sinope_{dev_id_str}",
+            "is_on": bool(is_on),
+            "device": self._cached_telemetry.get(dev_id_str),
+        }
+
