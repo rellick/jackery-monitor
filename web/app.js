@@ -11275,7 +11275,7 @@ async function loadNotificationsSettings() {
     if ($('notif-username')) $('notif-username').value = cfg.username || '';
     if ($('notif-password')) $('notif-password').value = cfg.has_password ? '••••••••' : '';
     if ($('notif-recipient')) $('notif-recipient').value = cfg.recipient || '';
-    if ($('notif-sender-name')) $('notif-sender-name').value = cfg.sender_name || 'Jackery Monitor';
+    if ($('notif-sender-name')) $('notif-sender-name').value = cfg.sender_name || 'Vigie';
     if ($('notif-cooldown')) $('notif-cooldown').value = cfg.cooldown_minutes || 60;
     if ($('notif-host')) $('notif-host').value = cfg.smtp_host || 'smtp.gmail.com';
     if ($('notif-port')) $('notif-port').value = cfg.smtp_port || 587;
@@ -11411,7 +11411,7 @@ function initNotificationsSettings() {
 // RECONNECT
 // ============================================================
 $('logout')?.addEventListener('click', async () => {
-  if (!confirm('Sign out of the Jackery Monitor?')) return;
+  if (!confirm('Se déconnecter de Vigie ?')) return;
   try { await fetch('/api/auth/logout', { method: 'POST' }); }
   catch (_e) {}
   window.location.replace('/login');

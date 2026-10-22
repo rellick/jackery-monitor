@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Jackery Monitor — Sign in</title>
+  <title>Vigie — Connexion</title>
   <meta name="theme-color" content="#0b0d10" />
   <link rel="icon" type="image/svg+xml" href="/static/icon.svg" />
   <link rel="apple-touch-icon" href="/static/icon.svg" />
@@ -18,34 +18,34 @@
     <form id="auth-form" class="login-card" autocomplete="on">
       <div class="login-brand">
         <span class="logo-dot"></span>
-        <h1>Jackery Monitor</h1>
+        <h1>Vigie</h1>
       </div>
-      <p id="auth-sub" class="login-sub">Sign in to continue.</p>
+      <p id="auth-sub" class="login-sub">Connectez-vous pour continuer.</p>
 
       <label class="field">
-        <span class="field-label">Username</span>
+        <span class="field-label">Nom d'utilisateur</span>
         <input id="auth-username" type="text" name="username" autocomplete="username" required />
       </label>
       <label class="field">
-        <span class="field-label">Password</span>
+        <span class="field-label">Mot de passe</span>
         <input id="auth-password" type="password" name="password" autocomplete="current-password" required minlength="6" />
       </label>
       <label id="auth-confirm-row" class="field" hidden>
-        <span class="field-label">Confirm password</span>
+        <span class="field-label">Confirmer le mot de passe</span>
         <input id="auth-confirm" type="password" name="confirm" autocomplete="new-password" minlength="6" />
       </label>
 
       <div id="auth-error" class="login-error" hidden></div>
 
-      <button id="auth-submit" class="btn btn-primary" type="submit">Sign in</button>
-      <p class="login-foot">Stored locally on this NAS, never sent off-device. The session cookie is HMAC-signed and lasts 30 days.</p>
+      <button id="auth-submit" class="btn btn-primary" type="submit">Se connecter</button>
+      <p class="login-foot">Stocké localement sur ce serveur, jamais transmis à l'extérieur. Le témoin de session est signé par HMAC et valide pendant 30 jours.</p>
 
       <!-- Setup-only: offer to restore from a remote backup instead of
            creating a fresh account. Hidden on /login. The button toggles
            this whole form out and the restore wizard in. -->
       <div id="setup-alt-row" hidden style="margin-top:16px; text-align:center; border-top:1px solid var(--border); padding-top:14px">
-        <p class="hint" style="margin:0 0 8px">Already have a backup on a NAS?</p>
-        <button id="show-restore" class="btn btn-ghost" type="button">Restore from backup instead</button>
+        <p class="hint" style="margin:0 0 8px">Vous avez déjà une sauvegarde sur un NAS ?</p>
+        <button id="show-restore" class="btn btn-ghost" type="button">Restaurer depuis une sauvegarde</button>
       </div>
     </form>
 
@@ -59,34 +59,34 @@
     <section id="restore-card" class="login-card" hidden>
       <div class="login-brand">
         <span class="logo-dot"></span>
-        <h1>Restore from backup</h1>
+        <h1>Restaurer depuis une sauvegarde</h1>
       </div>
-      <p class="login-sub">Pull settings + telemetry from a remote NAS. After restoring you'll sign in with the credentials from the original install.</p>
+      <p class="login-sub">Récupérez les paramètres et la télémétrie depuis un NAS distant. Après la restauration, vous pourrez vous connecter avec les identifiants de l'installation d'origine.</p>
 
       <!-- step 1: creds -->
       <div id="restore-step-creds">
         <label class="field">
-          <span class="field-label">NAS host / IP</span>
+          <span class="field-label">Hôte / IP du NAS</span>
           <input id="rs-host" type="text" placeholder="nas.local" autocomplete="off" required />
         </label>
         <label class="field">
-          <span class="field-label">Share name</span>
+          <span class="field-label">Nom du partage</span>
           <input id="rs-share" type="text" placeholder="backups" autocomplete="off" required />
         </label>
         <label class="field">
-          <span class="field-label">Subdirectory</span>
+          <span class="field-label">Sous-répertoire</span>
           <input id="rs-subdir" type="text" value="jackery-monitor" autocomplete="off" />
         </label>
         <label class="field">
-          <span class="field-label">Username</span>
+          <span class="field-label">Nom d'utilisateur</span>
           <input id="rs-username" type="text" autocomplete="username" required />
         </label>
         <label class="field">
-          <span class="field-label">Password</span>
+          <span class="field-label">Mot de passe</span>
           <input id="rs-password" type="password" autocomplete="current-password" required />
         </label>
         <label class="field">
-          <span class="field-label">Domain</span>
+          <span class="field-label">Domaine</span>
           <input id="rs-domain" type="text" value="WORKGROUP" autocomplete="off" />
         </label>
 
@@ -94,17 +94,17 @@
         <div id="restore-info" class="login-error" hidden style="background:rgba(74,222,128,.12); color:var(--accent); border-color:rgba(74,222,128,.2)"></div>
 
         <div style="display:flex; gap:8px; margin-top:6px">
-          <button id="rs-test" class="btn btn-ghost" type="button">Test</button>
-          <button id="rs-list" class="btn btn-primary" type="button" style="flex:1">List snapshots →</button>
+          <button id="rs-test" class="btn btn-ghost" type="button">Tester</button>
+          <button id="rs-list" class="btn btn-primary" type="button" style="flex:1">Lister les instantanés →</button>
         </div>
       </div>
 
       <!-- step 2: snapshot picker -->
       <div id="restore-step-pick" hidden>
-        <p class="login-sub" id="rs-pick-sub">Pick a snapshot to restore.</p>
+        <p class="login-sub" id="rs-pick-sub">Choisissez un instantané à restaurer.</p>
         <div id="rs-snapshot-list" style="display:flex; flex-direction:column; gap:8px; margin:6px 0 12px"></div>
         <div style="display:flex; gap:8px">
-          <button id="rs-back" class="btn btn-ghost" type="button">← Back</button>
+          <button id="rs-back" class="btn btn-ghost" type="button">← Retour</button>
         </div>
       </div>
 
@@ -113,19 +113,19 @@
         <p class="login-sub" id="rs-confirm-sub"></p>
         <div id="restore-confirm-error" class="login-error" hidden></div>
         <div style="display:flex; gap:8px; margin-top:8px">
-          <button id="rs-confirm-back" class="btn btn-ghost" type="button">← Back</button>
-          <button id="rs-confirm-go" class="btn btn-primary" type="button" style="flex:1">Restore now</button>
+          <button id="rs-confirm-back" class="btn btn-ghost" type="button">← Retour</button>
+          <button id="rs-confirm-go" class="btn btn-primary" type="button" style="flex:1">Restaurer maintenant</button>
         </div>
       </div>
 
       <!-- step 4: success -->
       <div id="restore-step-done" hidden>
-        <p class="login-sub" style="color:var(--accent)">Restore complete.</p>
-        <p class="hint">Your old settings, telemetry, and user account are now on this device. Sign in with the credentials from the original install.</p>
-        <button id="rs-go-login" class="btn btn-primary" type="button">Continue to sign in</button>
+        <p class="login-sub" style="color:var(--accent)">Restauration terminée.</p>
+        <p class="hint">Vos anciens paramètres, votre télémétrie et votre compte utilisateur sont maintenant sur cet appareil. Connectez-vous avec les identifiants de l'installation d'origine.</p>
+        <button id="rs-go-login" class="btn btn-primary" type="button">Continuer vers la connexion</button>
       </div>
 
-      <p class="login-foot" style="margin-top:14px"><a href="#" id="rs-cancel">Cancel and create a new account instead</a></p>
+      <p class="login-foot" style="margin-top:14px"><a href="#" id="rs-cancel">Annuler et créer un nouveau compte</a></p>
     </section>
   </main>
 
@@ -141,9 +141,9 @@
       const setupAltRow = $('setup-alt-row');
 
       if (setup) {
-        document.title = 'Jackery Monitor — Set up';
-        subEl.textContent = 'First-time setup. Pick a username and password.';
-        submitBtn.textContent = 'Create account';
+        document.title = 'Vigie — Configuration initiale';
+        subEl.textContent = 'Configuration initiale. Choisissez un nom d\'utilisateur et un mot de passe.';
+        submitBtn.textContent = 'Créer le compte';
         confirmRow.hidden = false;
         confirmInput.required = true;
         $('auth-password').autocomplete = 'new-password';
@@ -161,13 +161,13 @@
         const password = $('auth-password').value;
         if (setup) {
           if (password !== confirmInput.value) {
-            showError("Passwords don't match.");
+            showError("Les mots de passe ne correspondent pas.");
             return;
           }
         }
         submitBtn.disabled = true;
         const original = submitBtn.textContent;
-        submitBtn.textContent = setup ? 'Creating…' : 'Signing in…';
+        submitBtn.textContent = setup ? 'Création…' : 'Connexion…';
         try {
           const url = setup ? '/api/auth/setup' : '/api/auth/login';
           const r = await fetch(url, {
