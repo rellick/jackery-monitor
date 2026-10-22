@@ -18618,6 +18618,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
         watts: w,
         source: 'measured',
         sourceLabel: 'Measured (RM3500WF)',
+        alwaysVisible: true,
       });
     }
   });
@@ -18650,6 +18651,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       watts: w,
       source: 'estimated',
       sourceLabel: 'State Estimate',
+      alwaysVisible: true,
     });
   });
 
@@ -18669,6 +18671,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       watts: w,
       source: 'estimated',
       sourceLabel: 'State Estimate',
+      alwaysVisible: true,
     });
   });
 
@@ -18685,6 +18688,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       watts: w,
       source: 'measured',
       sourceLabel: 'Telemetry',
+      alwaysVisible: true,
     });
   });
 
@@ -18707,25 +18711,99 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
 
   // 5. LG ThinQ Appliances & Kasa Smart Plugs
   thinqDevs.forEach(d => {
-    const loc = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
+    const loc = (d.location_name || d.location_id || 'Maison');
+    const nameStr = String(d.name || d.device_type || 'LG ThinQ');
+    const nameLower = nameStr.toLowerCase();
+    const cat = String(d.category || '').toLowerCase();
+    const rawType = String(d.raw_type || d.device_type || '').toLowerCase();
     let w = 0;
-    const runState = String(d.run_state || d.state || 'Standby');
-    if (d.is_running) {
-      const dtype = String(d.device_type || '').toLowerCase();
-      if (dtype.includes('dryer')) w = 2400;
-      else if (dtype.includes('washer')) w = 350;
-      else if (dtype.includes('dish')) w = 750;
-      else w = 400;
+    let icon = '🧺';
+    let catLabel = 'LG ThinQ Appliance';
+    let stateStr = 'Off / Standby';
+
+    if (cat === 'refrigeration' || rawType.includes('fridge') || rawType.includes('refrig') || nameLower.includes('réfrig') || nameLower.includes('frigo')) {
+      icon = '🧊';
+      catLabel = 'Refrigeration (LG ThinQ)';
+      // Modern inverter fridge averages ~65W continuous (~140W in Express Freeze, +15W if door open)
+      w = d.online === false ? 0 : (d.express_freeze ? 140 : 65) + (d.door_opened ? 15 : 0);
+      const fTemp = d.fridge_temp_c != null ? formatTemp(d.fridge_temp_c, 0) : '3°C';
+      const fzTemp = d.freezer_temp_c != null ? formatTemp(d.freezer_temp_c, 0) : '-18°C';
+      const st = String(d.run_state || '').toUpperCase();
+      stateStr = `Cooling (${fTemp} / ${fzTemp}${d.express_freeze ? ' · Express Freeze' : ''}${d.door_opened ? ' · ⚠️ Door Open' : ''})`;
+      rows.push({
+        name: `${icon} ${nameStr}`,
+        location: loc,
+        category: catLabel,
+        state: d.online === false ? 'Offline' : stateStr,
+        watts: w,
+        source: 'estimated',
+        sourceLabel: 'State Estimate',
+        alwaysVisible: true,
+      });
+      categories.appliances.watts += w;
+      return;
+    } else if (cat === 'cooking' || rawType.includes('oven') || rawType.includes('cooktop') || nameLower.includes('four') || nameLower.includes('plaque')) {
+      icon = '🍳';
+      catLabel = 'Cooking (LG ThinQ)';
+      const zones = Array.isArray(d.sub_zones) ? d.sub_zones : [];
+      const activeZones = zones.filter(z => z.is_active);
+      if (d.is_cooking || activeZones.length > 0) {
+        if (activeZones.length > 0) {
+          activeZones.forEach(z => {
+            if (z.zone_type === 'burner' || z.power_level > 0) {
+              // Induction burner: scale 200W..1800W by power level (1..9)
+              const lvl = Math.max(1, Math.min(10, Number(z.power_level) || 5));
+              w += Math.round(lvl * 200);
+            } else {
+              // Oven cavity: ~2400W preheating, ~1100W maintaining bake temp
+              const st = String(z.state || '').toUpperCase();
+              w += st.includes('PREHEAT') ? 2400 : 1100;
+            }
+          });
+        } else {
+          const st = String(d.run_state || '').toUpperCase();
+          w = st.includes('PREHEAT') ? 2400 : 1200;
+        }
+        stateStr = `Active (${d.run_state || 'Cooking'})`;
+      } else {
+        w = 0;
+        stateStr = 'Standby (0 W)';
+      }
+    } else if (cat === 'laundry' || rawType.includes('washer') || rawType.includes('dryer') || nameLower.includes('laveuse') || nameLower.includes('sécheuse')) {
+      icon = '🧺';
+      const isDryer = rawType.includes('dryer') || nameLower.includes('sécheuse') || nameLower.includes('dryer') || String(d.model_name || '').startsWith('RV');
+      catLabel = isDryer ? 'Dryer (LG ThinQ)' : 'Washer (LG ThinQ)';
+      if (d.is_running) {
+        const stepStr = String(d.current_step || d.run_state || '').toUpperCase();
+        if (isDryer) {
+          w = stepStr.includes('COOL') ? 250 : 2600;
+        } else {
+          w = stepStr.includes('SPIN') ? 450 : 250;
+        }
+        stateStr = `Running (${d.run_state || 'Cycle'}${d.remaining_min ? ' · ' + d.remaining_min + 'm left' : ''})`;
+      } else {
+        w = 0;
+        stateStr = 'Standby (0 W)';
+      }
+    } else {
+      // Dishwasher or other ThinQ
+      icon = '🍽️';
+      if (d.is_running) {
+        w = 750;
+        stateStr = `Running (${d.run_state || 'Active'})`;
+      }
     }
+
     categories.appliances.watts += w;
     rows.push({
-      name: `🧺 ${d.name || d.device_type || 'LG ThinQ'}`,
+      name: `${icon} ${nameStr}`,
       location: loc,
-      category: 'Appliance',
-      state: d.is_running ? `Running (${runState})` : 'Off / Standby',
+      category: catLabel,
+      state: stateStr,
       watts: w,
       source: 'estimated',
       sourceLabel: 'State Estimate',
+      alwaysVisible: true,
     });
   });
 
@@ -18795,7 +18873,9 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
 
   const sortedRows = [...data.rows].sort((a, b) => b.watts - a.watts);
   const activeRows = sortedRows.filter(r => r.watts > 0);
-  const visibleRows = _showIdleDisaggDevices ? sortedRows : activeRows;
+  const defaultRows = sortedRows.filter(r => r.watts > 0 || r.alwaysVisible);
+  const visibleRows = _showIdleDisaggDevices ? sortedRows : defaultRows;
+  const hiddenIdleCount = sortedRows.length - defaultRows.length;
 
   container.innerHTML = `
     <div>
@@ -18835,7 +18915,7 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
             Device-Level Power Estimates (${activeRows.length} active of ${sortedRows.length} tracked devices)
           </span>
           <button type="button" class="btn btn-ghost btn-tiny" id="disagg-toggle-idle-btn">
-            ${_showIdleDisaggDevices ? 'Hide Idle (0 W) Devices' : `Show All Devices (${sortedRows.length})`}
+            ${_showIdleDisaggDevices ? `Hide Idle Baseboards (${hiddenIdleCount})` : `Show All Zones (${sortedRows.length})`}
           </button>
         </div>
         <table class="disagg-table">
