@@ -7356,20 +7356,61 @@ async function renderHiloTab(force = false) {
     if (m.zigbee_channel) channel = m.zigbee_channel;
   });
 
+  const disagg = typeof computeWholeHomePowerBreakdown === 'function'
+    ? computeWholeHomePowerBreakdown(locFilter)
+    : null;
+  const normLoc = (locFilter || 'all').toLowerCase();
+  const hasLiveMeterReading = disagg ? disagg.hasLiveMeter : (totalW > 0);
+  const heroWatts = disagg ? disagg.effectiveTotalW : Math.round(totalW);
+
   const kpiPower = $('hilo-kpi-power');
-  if (kpiPower) kpiPower.textContent = Math.round(totalW).toLocaleString();
+  if (kpiPower) {
+    kpiPower.textContent = !hasLiveMeterReading
+      ? `~${heroWatts.toLocaleString()}`
+      : heroWatts.toLocaleString();
+  }
+
+  const kpiPowerSub = $('hilo-kpi-power-sub');
+  if (kpiPowerSub && disagg) {
+    if (normLoc === 'all') {
+      kpiPowerSub.textContent = `🏠 Maison (Compteur): ${disagg.maisonTotalW.toLocaleString()} W + 🌲 Chalet (Est.): ~${disagg.chaletTotalW.toLocaleString()} W`;
+    } else if (!hasLiveMeterReading) {
+      kpiPowerSub.textContent = `Estimation via appareils suivis (Compteur hors portée Zigbee)`;
+    } else {
+      kpiPowerSub.textContent = `Compteur Hydro-Québec via passerelle Hilo`;
+    }
+  }
 
   const liveIndicator = $('hilo-live-indicator');
-  if (liveIndicator) liveIndicator.style.display = hasOnlineMeter ? 'inline-block' : 'none';
+  if (liveIndicator) {
+    if (!hasLiveMeterReading) {
+      liveIndicator.style.display = 'inline-block';
+      liveIndicator.textContent = 'EST.';
+      liveIndicator.style.background = 'rgba(251,146,60,0.18)';
+      liveIndicator.style.color = '#fb923c';
+      liveIndicator.style.borderColor = 'rgba(251,146,60,0.35)';
+    } else {
+      liveIndicator.style.display = hasOnlineMeter ? 'inline-block' : 'none';
+      liveIndicator.textContent = normLoc === 'all' && !disagg?.chaletHasLiveMeter ? 'LIVE + EST.' : 'LIVE';
+      liveIndicator.style.background = '';
+      liveIndicator.style.color = '';
+      liveIndicator.style.borderColor = '';
+    }
+  }
 
   const kpiToday = $('hilo-kpi-today');
-  if (kpiToday) kpiToday.textContent = totalTodayKwh.toFixed(2);
+  if (kpiToday) kpiToday.textContent = hasLiveMeterReading ? totalTodayKwh.toFixed(2) : '—';
 
   const kpiStatus = $('hilo-kpi-status');
   if (kpiStatus) {
     if (filteredMeters.length > 0) {
-      kpiStatus.textContent = hasOnlineMeter ? (channel ? `Connecté (Canal ${channel})` : 'Connecté') : 'Déconnecté';
-      kpiStatus.style.color = hasOnlineMeter ? 'var(--accent, #10b981)' : 'var(--red, #ef4444)';
+      if (!hasLiveMeterReading) {
+        kpiStatus.textContent = 'Hors portée (Estimation)';
+        kpiStatus.style.color = '#fb923c';
+      } else {
+        kpiStatus.textContent = hasOnlineMeter ? (channel ? `Connecté (Canal ${channel})` : 'Connecté') : 'Déconnecté';
+        kpiStatus.style.color = hasOnlineMeter ? 'var(--accent, #10b981)' : 'var(--red, #ef4444)';
+      }
     } else {
       kpiStatus.textContent = 'Aucun compteur';
       kpiStatus.style.color = 'var(--text-dim, #94a3b8)';
@@ -7406,30 +7447,38 @@ async function renderHiloTab(force = false) {
 
   // Meter cards
   filteredMeters.forEach(m => {
-    const pwr = Math.round(m.power_w || 0);
-    const today = m.today_kwh != null ? m.today_kwh.toFixed(2) : '0.00';
+    const rawPwr = Math.round(m.power_w || 0);
+    const mLoc = (m.location_id || 'maison').toLowerCase();
+    const isZeroMeter = rawPwr <= 0;
+    const locEstW = disagg
+      ? (mLoc === 'chalet' ? disagg.chaletTrackedW : disagg.maisonTrackedW)
+      : 0;
+    const displayPwrStr = isZeroMeter ? `~${locEstW.toLocaleString()}` : rawPwr.toLocaleString();
+    const today = !isZeroMeter && m.today_kwh != null ? m.today_kwh.toFixed(2) : '—';
     html += `
-      <div class="hilo-meter-card">
+      <div class="hilo-meter-card" style="${isZeroMeter ? 'border-color:rgba(251,146,60,0.35);' : ''}">
         <div class="hilo-meter-header">
           <div>
-            <h3 class="hilo-meter-title">${escapeHtml(m.name || 'Compteur HQ')}</h3>
+            <h3 class="hilo-meter-title">${escapeHtml(m.name || 'Compteur HQ')} (${escapeHtml(m.location_name || m.location_id || 'Maison')})</h3>
             <span class="hilo-meter-sn">${escapeHtml(m.mac || m.device_sn)}</span>
           </div>
-          <span class="badge ${m.online ? 'badge-ok' : 'badge-err'}">${m.online ? 'En ligne' : 'Hors ligne'}</span>
+          <span class="badge ${isZeroMeter ? 'badge-warn' : (m.online ? 'badge-ok' : 'badge-err')}" style="${isZeroMeter ? 'background:rgba(251,146,60,0.16); color:#fb923c; border:1px solid rgba(251,146,60,0.35);' : ''}">
+            ${isZeroMeter ? 'Estimation (Compteur hors portée)' : (m.online ? 'Compteur en ligne' : 'Hors ligne')}
+          </span>
         </div>
         <div class="hilo-meter-metrics">
           <div>
-            <div class="hilo-meter-power">${pwr.toLocaleString()} <small style="font-size:14px; font-weight:400; color:var(--text-dim)">W</small></div>
-            <span class="hint" style="font-size:11px">Puissance totale maison</span>
+            <div class="hilo-meter-power" style="${isZeroMeter ? 'color:#fb923c;' : ''}">${displayPwrStr} <small style="font-size:14px; font-weight:400; color:var(--text-dim)">W${isZeroMeter ? ' (est.)' : ''}</small></div>
+            <span class="hint" style="font-size:11px">${isZeroMeter ? 'Somme estimée des appareils connus (Sinopé, Danby, etc.)' : 'Puissance totale mesurée (Compteur HQ)'}</span>
           </div>
           <div style="text-align:right">
-            <div class="hilo-meter-today" style="font-size:18px; font-weight:600; color:var(--text)">${today} <small style="font-size:12px; font-weight:400; color:var(--text-dim)">kWh</small></div>
-            <span class="hint" style="font-size:11px">Aujourd'hui</span>
+            <div class="hilo-meter-today" style="font-size:18px; font-weight:600; color:var(--text)">${today} <small style="font-size:12px; font-weight:400; color:var(--text-dim)">${today === '—' ? '' : 'kWh'}</small></div>
+            <span class="hint" style="font-size:11px">${isZeroMeter ? 'Compteur à 0 W' : "Aujourd'hui"}</span>
           </div>
         </div>
         <div class="hilo-meter-meta">
           <span>Lieu: <b>${escapeHtml(m.location_name || m.location_id || 'Maison')}</b></span>
-          <span>Zigbee SEP: <b>Canal ${m.zigbee_channel || '15'}</b></span>
+          <span>Source: <b>${isZeroMeter ? 'Appareils suivis (passerelle trop loin du compteur)' : `Zigbee SEP (Canal ${m.zigbee_channel || '15'})`}</b></span>
         </div>
       </div>
     `;
@@ -17704,20 +17753,47 @@ function updateTopbarHiloPill() {
   const txt = $('topbar-hilo-watts');
   if (!pill || !txt) return;
   const meters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
-  if (!meters.length) {
+  const sinopeDevs = (lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || [];
+  if (!meters.length && !sinopeDevs.length) {
     pill.hidden = true;
     return;
   }
-  const filtered = _globalLocation === 'all'
-    ? meters
-    : meters.filter(m => (m.location_id || '').toLowerCase() === _globalLocation);
-  if (!filtered.length) {
+
+  const disagg = typeof computeWholeHomePowerBreakdown === 'function'
+    ? computeWholeHomePowerBreakdown(_globalLocation)
+    : null;
+
+  if (!disagg) {
     pill.hidden = true;
     return;
   }
-  const totalW = Math.round(filtered.reduce((sum, m) => sum + (Number(m.power_w) || 0), 0));
-  const locPrefix = _globalLocation === 'all' ? '' : (_globalLocation === 'maison' ? 'Maison: ' : 'Chalet: ');
-  txt.textContent = `${locPrefix}${totalW.toLocaleString()} W`;
+
+  if (_globalLocation === 'maison') {
+    const valStr = disagg.hasLiveMeter
+      ? `${disagg.effectiveTotalW.toLocaleString()} W`
+      : `~${disagg.trackedTotalW.toLocaleString()} W (est.)`;
+    txt.textContent = `Maison: ${valStr}`;
+    pill.title = disagg.hasLiveMeter
+      ? `Maison Hilo Smart Meter (Measured): ${disagg.effectiveTotalW.toLocaleString()} W`
+      : `Maison Estimated Devices: ~${disagg.trackedTotalW.toLocaleString()} W`;
+  } else if (_globalLocation === 'chalet') {
+    const valStr = disagg.hasLiveMeter
+      ? `${disagg.effectiveTotalW.toLocaleString()} W`
+      : `~${disagg.trackedTotalW.toLocaleString()} W (est.)`;
+    txt.textContent = `Chalet: ${valStr}`;
+    pill.title = disagg.hasLiveMeter
+      ? `Chalet Hilo Smart Meter (Measured): ${disagg.effectiveTotalW.toLocaleString()} W`
+      : `Chalet Estimated Total (known devices, Hilo meter out of range): ~${disagg.trackedTotalW.toLocaleString()} W`;
+  } else {
+    const mPart = disagg.maisonHasLiveMeter
+      ? `${disagg.maisonTotalW.toLocaleString()} W`
+      : `~${disagg.maisonTotalW.toLocaleString()} W`;
+    const cPart = disagg.chaletHasLiveMeter
+      ? `${disagg.chaletTotalW.toLocaleString()} W`
+      : `~${disagg.chaletTotalW.toLocaleString()} W est.`;
+    txt.textContent = `${disagg.effectiveTotalW.toLocaleString()} W (🏠 ${mPart} · 🌲 ${cPart})`;
+    pill.title = `Combined Power: ${disagg.effectiveTotalW.toLocaleString()} W — Maison (${disagg.maisonHasLiveMeter ? 'Measured Meter' : 'Estimated'}): ${disagg.maisonTotalW.toLocaleString()} W + Chalet (${disagg.chaletHasLiveMeter ? 'Measured Meter' : 'Estimated Devices'}): ${disagg.chaletTotalW.toLocaleString()} W`;
+  }
   pill.hidden = false;
 }
 
@@ -17935,9 +18011,14 @@ function buildHousesSummaryStripHtml() {
     const locMidea = mideaDevs.filter(d => (d.location_id || '').toLowerCase() === lid);
     const locMeter = hiloMeters.find(m => (m.location_id || '').toLowerCase() === lid);
 
-    // Whole-home power (Hilo meter if available, else sum of Sinopé loads)
+    // Whole-home power: use live Hilo meter if > 0 W (Maison), else fallback to full estimated device breakdown (Chalet)
+    const locDisagg = typeof computeWholeHomePowerBreakdown === 'function'
+      ? computeWholeHomePowerBreakdown(lid)
+      : null;
     const sinopeW = Math.round(locSinope.reduce((s, d) => s + (d.power_w || 0), 0));
-    const totalW = locMeter && locMeter.power_w != null ? Math.round(locMeter.power_w) : sinopeW;
+    const hasLiveMeter = Boolean(locMeter && Number(locMeter.power_w) > 0);
+    const estDevicesW = locDisagg ? locDisagg.trackedTotalW : sinopeW;
+    const totalW = hasLiveMeter ? Math.round(Number(locMeter.power_w)) : estDevicesW;
 
     // Average indoor temperature across Daikin & Sinopé thermostats
     const temps = [
@@ -17988,9 +18069,9 @@ function buildHousesSummaryStripHtml() {
           </div>
         </div>
         <div class="house-kpis-row">
-          <div class="house-kpi-mini">
-            <span class="lbl">${locMeter ? '⚡ Hilo Meter' : '⚡ Heating Power'}</span>
-            <span class="val">${totalW.toLocaleString()} W</span>
+          <div class="house-kpi-mini" title="${hasLiveMeter ? 'Live whole-home usage measured by Hydro-Québec / Hilo smart meter' : 'Estimated total from all known devices at this location (Hilo meter out of range / 0 W)'}">
+            <span class="lbl">${hasLiveMeter ? '⚡ Hilo Meter (Known)' : '⚡ Est. Usage (Devices)'}</span>
+            <span class="val" style="color:${hasLiveMeter ? '#38bdf8' : '#fb923c'};">${hasLiveMeter ? `${totalW.toLocaleString()} W` : `~${totalW.toLocaleString()} W`}</span>
           </div>
           <div class="house-kpi-mini">
             <span class="lbl">🌡️ Avg Indoor</span>
@@ -18247,33 +18328,56 @@ function renderHomeOverviewTab() {
     const disagg = typeof computeWholeHomePowerBreakdown === 'function'
       ? computeWholeHomePowerBreakdown(_globalLocation)
       : null;
-    const meterTotalW = disagg ? disagg.meterTotalW : Math.round(fMeters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
+    const hasLiveMeter = disagg ? disagg.hasLiveMeter : fMeters.some(m => (Number(m.power_w) || 0) > 0);
+    const effectiveTotalW = disagg ? disagg.effectiveTotalW : Math.round(fMeters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
     const trackedW = disagg ? disagg.trackedTotalW : Math.round(fSinope.reduce((s, d) => s + (d.power_w || 0), 0));
-    const residualW = disagg ? disagg.residualW : Math.max(0, meterTotalW - trackedW);
+    const residualW = disagg ? disagg.residualW : Math.max(0, effectiveTotalW - trackedW);
     const meterTodayKwh = fMeters.reduce((s, m) => s + (Number(m.today_kwh) || 0), 0);
-    const denom = Math.max(1, fMeters.length ? Math.max(meterTotalW, trackedW) : trackedW);
+    const denom = Math.max(1, effectiveTotalW, trackedW);
     const segs = disagg ? [
       ...disagg.categories.filter(c => c.watts > 0).map(c => ({ label: c.label, watts: c.watts, color: c.color, pct: Math.max(2, (c.watts / denom) * 100) })),
-      ...(fMeters.length && residualW > 0 ? [{ label: '🏠 Base / Unmonitored', watts: residualW, color: '#475569', pct: Math.max(2, (residualW / denom) * 100) }] : []),
+      ...(hasLiveMeter && residualW > 0 ? [{ label: '🏠 Base / Unmonitored (Maison)', watts: residualW, color: '#475569', pct: Math.max(2, (residualW / denom) * 100) }] : []),
     ] : [];
 
+    let firstKpiLbl = 'Known Total (Hilo Meter)';
+    let firstKpiVal = `${effectiveTotalW.toLocaleString()} W`;
+    let firstKpiColor = '#38bdf8';
+    let firstKpiSub = '';
+
+    if (_globalLocation === 'chalet' || !hasLiveMeter) {
+      firstKpiLbl = 'Estimated Total (Chalet)';
+      firstKpiVal = `~${trackedW.toLocaleString()} W`;
+      firstKpiColor = '#fb923c';
+      firstKpiSub = `<span class="hint" style="font-size:10.5px;">Sum of known devices (meter out of range)</span>`;
+    } else if (_globalLocation === 'all' && disagg) {
+      firstKpiLbl = 'Total Usage (Known + Est.)';
+      firstKpiVal = `${effectiveTotalW.toLocaleString()} W`;
+      firstKpiSub = `<span class="hint" style="font-size:10.5px;">🏠 ${disagg.maisonTotalW.toLocaleString()} W meter + 🌲 ~${disagg.chaletTotalW.toLocaleString()} W est.</span>`;
+    } else {
+      firstKpiSub = `<span class="hint" style="font-size:10.5px;">Measured via Hydro-Québec meter</span>`;
+    }
+
     energyEl.innerHTML = `
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:12px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(145px, 1fr)); gap:12px;">
         <div class="house-kpi-mini">
-          <span class="lbl">Whole-Home Meter (Hilo)</span>
-          <span class="val" style="color:#38bdf8; font-size:18px;">${fMeters.length ? meterTotalW.toLocaleString() + ' W' : '—'}</span>
+          <span class="lbl">${firstKpiLbl}</span>
+          <span class="val" style="color:${firstKpiColor}; font-size:18px;">${firstKpiVal}</span>
+          ${firstKpiSub}
         </div>
         <div class="house-kpi-mini">
-          <span class="lbl">Tracked Devices (Est.)</span>
+          <span class="lbl">Tracked Devices (Known + Est.)</span>
           <span class="val" style="color:#fb923c; font-size:18px;">${trackedW.toLocaleString()} W</span>
+          <span class="hint" style="font-size:10.5px;">Sinopé, Daikin, Danby, LG ThinQ</span>
         </div>
         <div class="house-kpi-mini">
           <span class="lbl">Base / Unmonitored</span>
-          <span class="val" style="color:var(--text-dim); font-size:18px;">${fMeters.length ? residualW.toLocaleString() + ' W' : '—'}</span>
+          <span class="val" style="color:var(--text-dim); font-size:18px;">${hasLiveMeter ? residualW.toLocaleString() + ' W' : 'N/A (Est. mode)'}</span>
+          <span class="hint" style="font-size:10.5px;">${hasLiveMeter ? 'Maison Meter − Tracked' : 'No live meter at Chalet'}</span>
         </div>
         <div class="house-kpi-mini">
           <span class="lbl">Today Meter Energy</span>
-          <span class="val" style="font-size:18px;">${fMeters.length ? meterTodayKwh.toFixed(1) + ' kWh' : '—'}</span>
+          <span class="val" style="font-size:18px;">${hasLiveMeter ? meterTodayKwh.toFixed(1) + ' kWh' : '—'}</span>
+          <span class="hint" style="font-size:10.5px;">${hasLiveMeter ? 'Hydro-Québec cumulative' : 'Meter out of range'}</span>
         </div>
       </div>
       ${segs.length ? `
@@ -18568,7 +18672,8 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
   const normLoc = (locFilter || 'all').toLowerCase();
   const matchLoc = (itemLoc) => normLoc === 'all' || (itemLoc || 'maison').toLowerCase() === normLoc;
 
-  const meters = ((lastStatus && lastStatus.hilo_meters) || lastHiloMeters || []).filter(m => matchLoc(m.location_id));
+  const allMeters = (lastStatus && lastStatus.hilo_meters) || lastHiloMeters || [];
+  const meters = allMeters.filter(m => matchLoc(m.location_id));
   const sinopeDevs = ((lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || []).filter(d => matchLoc(d.location_id));
   const daikinDevs = ((lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || []).filter(d => matchLoc(d.location_id));
   const mideaDevs = ((lastStatus && lastStatus.midea_devices) || lastMideaDevices || []).filter(d => matchLoc(d.location_id));
@@ -18576,10 +18681,19 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
   const teslaDevs = ((lastStatus && lastStatus.tesla_devices) || lastTeslaDevices || []).filter(d => matchLoc(d.location_id));
   const kasaDevs = ((typeof _lastKasaDevices !== 'undefined' && _lastKasaDevices) || []).filter(d => matchLoc(d.location_id));
 
-  const meterTotalW = Math.round(meters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
-  const hasMeter = meters.length > 0;
+  // A Hilo meter is only treated as a live measured meter if its power_w > 0
+  // (At Chalet, the Hilo hub is out of Zigbee range of the Hydro-Québec meter so power_w is always 0)
+  const liveMeters = meters.filter(m => (Number(m.power_w) || 0) > 0);
+  const meterTotalW = Math.round(liveMeters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
+  const hasLiveMeter = liveMeters.length > 0;
+  const hasMeter = hasLiveMeter;
 
   const rows = [];
+  const locTracked = { maison: 0, chalet: 0 };
+  const addLocTracked = (locIdRaw, w) => {
+    const k = String(locIdRaw || 'maison').toLowerCase().includes('chalet') ? 'chalet' : 'maison';
+    locTracked[k] += (Number(w) || 0);
+  };
   const categories = {
     heating:      { key: 'heating',      label: '🔥 Sinopé Baseboards',       color: '#fb923c', watts: 0 },
     water_heater: { key: 'water_heater', label: '🚿 Water Heaters & Loads',   color: '#f59e0b', watts: 0 },
@@ -18597,6 +18711,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       const rated = d.load_watt ? Math.round(d.load_watt) : null;
       const w = Math.round(d.power_w || 0);
       categories.heating.watts += w;
+      addLocTracked(d.location_id || loc, w);
       rows.push({
         name: `🔥 ${d.name || d.device_sn}`,
         location: loc,
@@ -18610,6 +18725,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       const w = Math.round(d.power_w || 0);
       const rated = d.load_watt ? Math.round(d.load_watt) : 4500;
       categories.water_heater.watts += w;
+      addLocTracked(d.location_id || loc, w);
       rows.push({
         name: `🚿 ${d.name || 'Water Heater'}`,
         location: loc,
@@ -18643,6 +18759,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       stateStr = `Fan Circulating (${['Low', 'Med', 'High'][spd] || 'Low'})`;
     }
     categories.hvac.watts += w;
+    addLocTracked(d.location_id || loc, w);
     rows.push({
       name: `❄️ ${d.name || 'Daikin Heat Pump'}`,
       location: loc,
@@ -18663,6 +18780,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     // 50-pint dehumidifier draws ~480W with compressor running, ~45W fan only
     const w = isComp ? 480 : (isFanOnly ? 45 : 0);
     categories.dehum.watts += w;
+    addLocTracked(d.location_id || loc, w);
     rows.push({
       name: `💧 ${d.name || 'Danby Dehumidifier'}`,
       location: loc,
@@ -18680,6 +18798,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     const loc = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
     const w = Math.round(d.power_w || 0);
     categories.ev_battery.watts += w;
+    addLocTracked(d.location_id || loc, w);
     rows.push({
       name: `🚗 ${d.name || 'Tesla'}`,
       location: loc,
@@ -18697,6 +18816,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     const acInW = Math.round(t.ac_input_w != null ? t.ac_input_w : (t.input_power_w || 0));
     if (acInW > 0) {
       categories.ev_battery.watts += acInW;
+      addLocTracked('maison', acInW);
       rows.push({
         name: `🔋 Jackery Grid Charging`,
         location: 'Maison',
@@ -18728,7 +18848,6 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       w = d.online === false ? 0 : (d.express_freeze ? 140 : 65) + (d.door_opened ? 15 : 0);
       const fTemp = d.fridge_temp_c != null ? formatTemp(d.fridge_temp_c, 0) : '3°C';
       const fzTemp = d.freezer_temp_c != null ? formatTemp(d.freezer_temp_c, 0) : '-18°C';
-      const st = String(d.run_state || '').toUpperCase();
       stateStr = `Cooling (${fTemp} / ${fzTemp}${d.express_freeze ? ' · Express Freeze' : ''}${d.door_opened ? ' · ⚠️ Door Open' : ''})`;
       rows.push({
         name: `${icon} ${nameStr}`,
@@ -18741,6 +18860,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
         alwaysVisible: true,
       });
       categories.appliances.watts += w;
+      addLocTracked(d.location_id || loc, w);
       return;
     } else if (cat === 'cooking' || rawType.includes('oven') || rawType.includes('cooktop') || nameLower.includes('four') || nameLower.includes('plaque')) {
       icon = '🍳';
@@ -18795,6 +18915,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     }
 
     categories.appliances.watts += w;
+    addLocTracked(d.location_id || loc, w);
     rows.push({
       name: `${icon} ${nameStr}`,
       location: loc,
@@ -18810,10 +18931,12 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
   kasaDevs.forEach(d => {
     if (d.power_w != null && d.power_w > 0) {
       const w = Math.round(d.power_w);
+      const locStr = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
       categories.appliances.watts += w;
+      addLocTracked(d.location_id || locStr, w);
       rows.push({
         name: `🔌 ${d.alias || d.name || 'Kasa Plug'}`,
-        location: (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1),
+        location: locStr,
         category: 'Smart Plug',
         state: d.is_on ? 'ON' : 'OFF',
         watts: w,
@@ -18824,13 +18947,49 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
   });
 
   const trackedTotalW = Object.values(categories).reduce((s, c) => s + c.watts, 0);
-  const residualW = hasMeter ? Math.max(0, meterTotalW - trackedTotalW) : 0;
+
+  // Per-location live meter vs. estimated device totals
+  const maisonMeterObj = allMeters.find(m => (m.location_id || 'maison').toLowerCase() === 'maison');
+  const chaletMeterObj = allMeters.find(m => (m.location_id || '').toLowerCase() === 'chalet');
+  const maisonHasLiveMeter = Boolean(maisonMeterObj && Number(maisonMeterObj.power_w) > 0);
+  const chaletHasLiveMeter = Boolean(chaletMeterObj && Number(chaletMeterObj.power_w) > 0);
+
+  const maisonMeterW = maisonHasLiveMeter ? Math.round(Number(maisonMeterObj.power_w)) : 0;
+  const chaletMeterW = chaletHasLiveMeter ? Math.round(Number(chaletMeterObj.power_w)) : 0;
+
+  const maisonTotalW = maisonHasLiveMeter ? maisonMeterW : Math.round(locTracked.maison);
+  const chaletTotalW = chaletHasLiveMeter ? chaletMeterW : Math.round(locTracked.chalet);
+
+  // Residual unmonitored base load only applies to locations that have a live smart meter (e.g. Maison)
+  let residualW = 0;
+  let effectiveTotalW = trackedTotalW;
+  if (normLoc === 'maison') {
+    residualW = maisonHasLiveMeter ? Math.max(0, maisonMeterW - Math.round(locTracked.maison)) : 0;
+    effectiveTotalW = maisonHasLiveMeter ? Math.max(maisonMeterW, Math.round(locTracked.maison)) : Math.round(locTracked.maison);
+  } else if (normLoc === 'chalet') {
+    residualW = chaletHasLiveMeter ? Math.max(0, chaletMeterW - Math.round(locTracked.chalet)) : 0;
+    effectiveTotalW = chaletHasLiveMeter ? Math.max(chaletMeterW, Math.round(locTracked.chalet)) : Math.round(locTracked.chalet);
+  } else {
+    const maisonRes = maisonHasLiveMeter ? Math.max(0, maisonMeterW - Math.round(locTracked.maison)) : 0;
+    const chaletRes = chaletHasLiveMeter ? Math.max(0, chaletMeterW - Math.round(locTracked.chalet)) : 0;
+    residualW = maisonRes + chaletRes;
+    effectiveTotalW = (maisonHasLiveMeter ? Math.max(maisonMeterW, Math.round(locTracked.maison)) : Math.round(locTracked.maison))
+                    + (chaletHasLiveMeter ? Math.max(chaletMeterW, Math.round(locTracked.chalet)) : Math.round(locTracked.chalet));
+  }
 
   return {
     hasMeter,
+    hasLiveMeter,
     meterTotalW,
+    effectiveTotalW,
     trackedTotalW,
     residualW,
+    maisonHasLiveMeter,
+    chaletHasLiveMeter,
+    maisonTotalW,
+    chaletTotalW,
+    maisonTrackedW: Math.round(locTracked.maison),
+    chaletTrackedW: Math.round(locTracked.chalet),
     categories: Object.values(categories),
     rows,
   };
@@ -18841,15 +19000,29 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
   const badge = $('hilo-disagg-coverage-badge');
   if (!container) return;
 
-  const data = computeWholeHomePowerBreakdown(locFilter);
-  const denom = Math.max(1, data.hasMeter ? Math.max(data.meterTotalW, data.trackedTotalW) : data.trackedTotalW);
+  const normLoc = (locFilter || 'all').toLowerCase();
+  const data = computeWholeHomePowerBreakdown(normLoc);
+  const denom = Math.max(1, data.effectiveTotalW, data.trackedTotalW);
 
   if (badge) {
-    if (data.hasMeter && data.meterTotalW > 0) {
+    if (normLoc === 'chalet' && !data.chaletHasLiveMeter) {
+      badge.textContent = `🌲 Chalet Estimated Total: ~${data.trackedTotalW.toLocaleString()} W (Meter out of range)`;
+      badge.style.background = 'rgba(251,146,60,0.14)';
+      badge.style.color = '#fb923c';
+      badge.style.borderColor = 'rgba(251,146,60,0.35)';
+    } else if (normLoc === 'all') {
+      badge.textContent = `🏠 Maison (Known Meter): ${data.maisonTotalW.toLocaleString()} W · 🌲 Chalet (Est. Devices): ~${data.chaletTotalW.toLocaleString()} W`;
+      badge.style.background = 'rgba(56,189,248,0.12)';
+      badge.style.color = '#38bdf8';
+      badge.style.borderColor = 'rgba(56,189,248,0.3)';
+    } else if (data.hasLiveMeter && data.meterTotalW > 0) {
       const pctTracked = Math.min(100, Math.round((data.trackedTotalW / data.meterTotalW) * 100));
-      badge.textContent = `Meter: ${data.meterTotalW.toLocaleString()} W · Tracked: ${data.trackedTotalW.toLocaleString()} W (${pctTracked}%)`;
+      badge.textContent = `🏠 Known Meter: ${data.meterTotalW.toLocaleString()} W · Tracked Devices: ${data.trackedTotalW.toLocaleString()} W (${pctTracked}%)`;
+      badge.style.background = 'rgba(56,189,248,0.12)';
+      badge.style.color = '#38bdf8';
+      badge.style.borderColor = 'rgba(56,189,248,0.3)';
     } else {
-      badge.textContent = `Tracked Devices: ${data.trackedTotalW.toLocaleString()} W`;
+      badge.textContent = `Estimated Total (Tracked Devices): ~${data.trackedTotalW.toLocaleString()} W`;
     }
   }
 
@@ -18862,9 +19035,9 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
       pct: Math.max(1.5, (c.watts / denom) * 100),
     })),
   ];
-  if (data.hasMeter && data.residualW > 0) {
+  if (data.hasLiveMeter && data.residualW > 0) {
     segments.push({
-      label: '🏠 Unmonitored / Base Load (Fridges, Lights, Stove, Electronics)',
+      label: '🏠 Unmonitored / Base Load at Maison (Lights, Electronics, Untracked Circuits)',
       watts: data.residualW,
       color: '#475569',
       pct: Math.max(1.5, (data.residualW / denom) * 100),
@@ -18877,8 +19050,37 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
   const visibleRows = _showIdleDisaggDevices ? sortedRows : defaultRows;
   const hiddenIdleCount = sortedRows.length - defaultRows.length;
 
+  // Location comparison strip when viewing All Locations or Chalet
+  const locComparisonHtml = normLoc === 'all' ? `
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-radius:10px; background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.25);">
+        <div>
+          <div style="font-size:12px; font-weight:700; color:#38bdf8;">🏠 Maison — Known Total (Hilo Smart Meter)</div>
+          <div class="hint" style="font-size:11px;">Live Hydro-Québec meter (${data.maisonTrackedW.toLocaleString()} W devices + ${data.residualW.toLocaleString()} W base load)</div>
+        </div>
+        <strong style="font-family:var(--font-mono); font-size:16px; color:#38bdf8;">${data.maisonTotalW.toLocaleString()} W</strong>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-radius:10px; background:rgba(251,146,60,0.08); border:1px solid rgba(251,146,60,0.28);">
+        <div>
+          <div style="font-size:12px; font-weight:700; color:#fb923c;">🌲 Chalet — Estimated Total (Known Devices)</div>
+          <div class="hint" style="font-size:11px;">Sum of Sinopé + Danby + Water Heater (Hilo meter out of Zigbee range)</div>
+        </div>
+        <strong style="font-family:var(--font-mono); font-size:16px; color:#fb923c;">~${data.chaletTotalW.toLocaleString()} W</strong>
+      </div>
+    </div>
+  ` : (normLoc === 'chalet' && !data.chaletHasLiveMeter ? `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; margin-bottom:14px; border-radius:10px; background:rgba(251,146,60,0.08); border:1px solid rgba(251,146,60,0.28);">
+      <div>
+        <div style="font-size:12.5px; font-weight:700; color:#fb923c;">🌲 Chalet — Estimated Power from Known Devices</div>
+        <div class="hint" style="font-size:11.5px;">The Chalet Hilo hub is too far from the Hydro-Québec meter (0 W), so total usage is estimated from all tracked devices at Chalet.</div>
+      </div>
+      <strong style="font-family:var(--font-mono); font-size:17px; color:#fb923c;">~${data.chaletTotalW.toLocaleString()} W</strong>
+    </div>
+  ` : '');
+
   container.innerHTML = `
     <div>
+      ${locComparisonHtml}
       <!-- Stacked Proportion Bar -->
       <div class="disagg-stack-bar" title="Whole-home power breakdown">
         ${segments.length ? segments.map(s => `
@@ -18897,11 +19099,11 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
             <strong style="font-family:var(--font-mono);">${c.watts.toLocaleString()} W</strong>
           </div>
         `).join('')}
-        ${data.hasMeter ? `
+        ${data.hasLiveMeter ? `
           <div class="disagg-cat-pill">
             <div style="display:flex; align-items:center; gap:7px; min-width:0;">
               <span class="disagg-cat-dot" style="background:#475569;"></span>
-              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Difference between Hilo smart meter and tracked devices (lighting, fridge, oven, electronics, etc.)">🏠 Base / Unmonitored</span>
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Difference between Maison Hilo smart meter and tracked devices (lighting, electronics, untracked circuits)">🏠 Base / Unmonitored (Maison)</span>
             </div>
             <strong style="font-family:var(--font-mono); color:var(--text-dim);">${data.residualW.toLocaleString()} W</strong>
           </div>
@@ -18943,11 +19145,11 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
                 </tr>
               `;
             }).join('')}
-            ${data.hasMeter ? `
+            ${data.hasLiveMeter ? `
               <tr style="background:rgba(255,255,255,0.02);">
                 <td style="font-weight:600;">🏠 Unmonitored / Base Load (Residual)</td>
-                <td><span class="hint">${locFilter === 'all' ? 'All' : escapeHtml(locFilter.toUpperCase())}</span></td>
-                <td class="hint">Fridges, stove, lighting, pumps, IT &amp; untracked circuits</td>
+                <td><span class="hint">Maison</span></td>
+                <td class="hint">Lighting, electronics, pumps &amp; untracked circuits (Hilo Meter − Tracked)</td>
                 <td><span class="disagg-source-tag residual">Hilo Meter − Tracked</span></td>
                 <td style="text-align:right; font-family:var(--font-mono); font-weight:700;">${data.residualW.toLocaleString()} W</td>
                 <td style="text-align:right; font-family:var(--font-mono); color:var(--text-dim);">${denom > 0 ? Math.round((data.residualW / denom) * 100) : 0}%</td>
