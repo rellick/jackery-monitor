@@ -18276,8 +18276,8 @@ function renderHomeOverviewTab() {
       html += `</div>`;
     }
 
-    // Sinopé Water Heaters & Load Controllers (Calypso RM3500WF)
-    const controllers = fSinope.filter(d => d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35')));
+    // Sinopé Water Heaters & Load Controllers (Calypso RM3500WF) — exclude leak sensors & valves
+    const controllers = fSinope.filter(d => d.device_type !== 'leak_sensor' && d.device_type !== 'valve' && (d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35'))));
     if (controllers.length) {
       html += `<div class="home-climate-section-title"><span>🚿 Water Heater Controllers &amp; Heavy Loads</span><span>${controllers.length} unit(s)</span></div>`;
       html += `<div class="home-climate-grid">`;
@@ -18447,7 +18447,7 @@ function renderUnifiedClimateTab() {
   const fMidea = filterLoc(mideaDevs);
   const fSinopeAll = filterLoc(sinopeDevs);
   const fSinope = fSinopeAll.filter(d => d.device_type === 'thermostat');
-  const fSinopeCtrls = fSinopeAll.filter(d => d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35')));
+  const fSinopeCtrls = fSinopeAll.filter(d => d.device_type !== 'leak_sensor' && d.device_type !== 'valve' && (d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35'))));
 
   container.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:18px;">
@@ -18703,8 +18703,9 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     appliances:   { key: 'appliances',   label: '🧺 Appliances & Smart Plugs', color: '#4ade80', watts: 0 },
   };
 
-  // 1. Sinopé Thermostats & Controllers
+  // 1. Sinopé Thermostats & Controllers (explicitly skip battery-powered leak sensors & valves)
   sinopeDevs.forEach(d => {
+    if (d.device_type === 'leak_sensor' || d.device_type === 'valve' || (d.model && d.model.startsWith('WL'))) return;
     const loc = (d.location_name || d.location_id || 'Maison');
     if (d.device_type === 'thermostat') {
       const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));

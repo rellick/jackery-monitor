@@ -556,14 +556,17 @@ class SinopeClient:
         else:
             is_on = None
 
-        # Detect water heater controller (RM3500WF, Calypso, etc.)
+        # Detect water heater controller (RM3500WF, Calypso, etc.) — never match leak sensors or valves
         is_water_heater = bool(
-            sku.startswith("RM")
-            or sig_model.startswith("RM")
-            or "calypso" in model.lower()
-            or "chauffe-eau" in dev_name.lower()
-            or "water" in dev_name.lower()
-            or water_temp_c is not None
+            device_type not in ("leak_sensor", "valve")
+            and (
+                sku.startswith("RM")
+                or sig_model.startswith("RM")
+                or "calypso" in model.lower()
+                or "chauffe-eau" in dev_name.lower()
+                or "water" in dev_name.lower()
+                or water_temp_c is not None
+            )
         )
 
         # Compute active power
