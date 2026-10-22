@@ -7379,6 +7379,11 @@ async function renderHiloTab(force = false) {
   const kpiDevicesCount = $('hilo-kpi-devices-count');
   if (kpiDevicesCount) kpiDevicesCount.textContent = filteredDevices.length;
 
+  // Power Disaggregation & Device Estimates Card
+  if (typeof renderHiloDisaggregation === 'function') {
+    renderHiloDisaggregation(locFilter);
+  }
+
   // Power History Chart
   loadAndDrawHiloMeterChart(force);
 
@@ -18239,30 +18244,43 @@ function renderHomeOverviewTab() {
   // 3. Whole-Home Energy Summary
   const energyEl = $('home-energy-summary');
   if (energyEl) {
-    const sinopeTotalW = Math.round(fSinope.reduce((s, d) => s + (d.power_w || 0), 0));
-    const mideaTotalW = Math.round(fMidea.reduce((s, d) => s + (d.power && d.compressor_running ? 480 : (d.power ? 45 : 0)), 0));
-    const meterTotalW = Math.round(fMeters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
+    const disagg = typeof computeWholeHomePowerBreakdown === 'function'
+      ? computeWholeHomePowerBreakdown(_globalLocation)
+      : null;
+    const meterTotalW = disagg ? disagg.meterTotalW : Math.round(fMeters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
+    const trackedW = disagg ? disagg.trackedTotalW : Math.round(fSinope.reduce((s, d) => s + (d.power_w || 0), 0));
+    const residualW = disagg ? disagg.residualW : Math.max(0, meterTotalW - trackedW);
     const meterTodayKwh = fMeters.reduce((s, m) => s + (Number(m.today_kwh) || 0), 0);
+    const denom = Math.max(1, fMeters.length ? Math.max(meterTotalW, trackedW) : trackedW);
+    const segs = disagg ? [
+      ...disagg.categories.filter(c => c.watts > 0).map(c => ({ label: c.label, watts: c.watts, color: c.color, pct: Math.max(2, (c.watts / denom) * 100) })),
+      ...(fMeters.length && residualW > 0 ? [{ label: '🏠 Base / Unmonitored', watts: residualW, color: '#475569', pct: Math.max(2, (residualW / denom) * 100) }] : []),
+    ] : [];
 
     energyEl.innerHTML = `
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:12px;">
         <div class="house-kpi-mini">
           <span class="lbl">Whole-Home Meter (Hilo)</span>
           <span class="val" style="color:#38bdf8; font-size:18px;">${fMeters.length ? meterTotalW.toLocaleString() + ' W' : '—'}</span>
         </div>
         <div class="house-kpi-mini">
-          <span class="lbl">Sinopé Heating &amp; Loads</span>
-          <span class="val" style="color:#fb923c; font-size:18px;">${sinopeTotalW.toLocaleString()} W</span>
+          <span class="lbl">Tracked Devices (Est.)</span>
+          <span class="val" style="color:#fb923c; font-size:18px;">${trackedW.toLocaleString()} W</span>
         </div>
         <div class="house-kpi-mini">
-          <span class="lbl">Dehumidifiers (Est.)</span>
-          <span class="val" style="font-size:18px;">${mideaTotalW.toLocaleString()} W</span>
+          <span class="lbl">Base / Unmonitored</span>
+          <span class="val" style="color:var(--text-dim); font-size:18px;">${fMeters.length ? residualW.toLocaleString() + ' W' : '—'}</span>
         </div>
         <div class="house-kpi-mini">
           <span class="lbl">Today Meter Energy</span>
           <span class="val" style="font-size:18px;">${fMeters.length ? meterTodayKwh.toFixed(1) + ' kWh' : '—'}</span>
         </div>
       </div>
+      ${segs.length ? `
+        <div class="disagg-stack-bar" style="height:12px; margin-top:12px;" title="Click Details to see per-device power breakdown">
+          ${segs.map(s => `<div class="disagg-segment" style="width:${s.pct.toFixed(1)}%; background:${s.color};" title="${escapeHtml(s.label)}: ${s.watts.toLocaleString()} W"></div>`).join('')}
+        </div>
+      ` : ''}
     `;
   }
 
@@ -18542,4 +18560,329 @@ function renderUnifiedSchedulesTab() {
 $('auto-schedules-refresh-btn')?.addEventListener('click', () => {
   renderUnifiedSchedulesTab();
 });
+
+// ---- Step 4: Whole-Home Power Disaggregation & Device Estimates (Hilo vs Tracked Devices) ----
+let _showIdleDisaggDevices = false;
+
+function computeWholeHomePowerBreakdown(locFilter = 'all') {
+  const normLoc = (locFilter || 'all').toLowerCase();
+  const matchLoc = (itemLoc) => normLoc === 'all' || (itemLoc || 'maison').toLowerCase() === normLoc;
+
+  const meters = ((lastStatus && lastStatus.hilo_meters) || lastHiloMeters || []).filter(m => matchLoc(m.location_id));
+  const sinopeDevs = ((lastStatus && lastStatus.sinope_devices) || lastSinopeDevices || []).filter(d => matchLoc(d.location_id));
+  const daikinDevs = ((lastStatus && lastStatus.daikin_devices) || lastDaikinDevices || []).filter(d => matchLoc(d.location_id));
+  const mideaDevs = ((lastStatus && lastStatus.midea_devices) || lastMideaDevices || []).filter(d => matchLoc(d.location_id));
+  const thinqDevs = ((lastStatus && lastStatus.thinq_devices) || lastThinqDevices || []).filter(d => matchLoc(d.location_id));
+  const teslaDevs = ((lastStatus && lastStatus.tesla_devices) || lastTeslaDevices || []).filter(d => matchLoc(d.location_id));
+  const kasaDevs = ((typeof _lastKasaDevices !== 'undefined' && _lastKasaDevices) || []).filter(d => matchLoc(d.location_id));
+
+  const meterTotalW = Math.round(meters.reduce((s, m) => s + (Number(m.power_w) || 0), 0));
+  const hasMeter = meters.length > 0;
+
+  const rows = [];
+  const categories = {
+    heating:      { key: 'heating',      label: '🔥 Sinopé Baseboards',       color: '#fb923c', watts: 0 },
+    water_heater: { key: 'water_heater', label: '🚿 Water Heaters & Loads',   color: '#f59e0b', watts: 0 },
+    hvac:         { key: 'hvac',         label: '❄️ Daikin Heat Pump',        color: '#38bdf8', watts: 0 },
+    dehum:        { key: 'dehum',        label: '💧 Danby Dehumidifiers',     color: '#2dd4bf', watts: 0 },
+    ev_battery:   { key: 'ev_battery',   label: '🚗 EV & Jackery Charging',   color: '#a855f7', watts: 0 },
+    appliances:   { key: 'appliances',   label: '🧺 Appliances & Smart Plugs', color: '#4ade80', watts: 0 },
+  };
+
+  // 1. Sinopé Thermostats & Controllers
+  sinopeDevs.forEach(d => {
+    const loc = (d.location_name || d.location_id || 'Maison');
+    if (d.device_type === 'thermostat') {
+      const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));
+      const rated = d.load_watt ? Math.round(d.load_watt) : null;
+      const w = Math.round(d.power_w || 0);
+      categories.heating.watts += w;
+      rows.push({
+        name: `🔥 ${d.name || d.device_sn}`,
+        location: loc,
+        category: 'Sinopé Baseboard',
+        state: pct > 0 ? `Heating (${pct}% duty${rated ? ' of ' + rated + ' W' : ''})` : `Idle (${d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—'} / target ${d.setpoint_c != null ? formatTemp(d.setpoint_c, 1) : '—'})`,
+        watts: w,
+        source: 'measured',
+        sourceLabel: 'Duty % × Load',
+      });
+    } else if (d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35'))) {
+      const w = Math.round(d.power_w || 0);
+      const rated = d.load_watt ? Math.round(d.load_watt) : 4500;
+      categories.water_heater.watts += w;
+      rows.push({
+        name: `🚿 ${d.name || 'Water Heater'}`,
+        location: loc,
+        category: 'Water Heater / Controller',
+        state: !d.is_on ? 'Relay Off' : (w > 10 ? `Reheating (${rated} W rated)` : `Armed / Standby (${d.water_temperature_c != null ? formatTemp(d.water_temperature_c, 1) : 'Tank OK'})`),
+        watts: w,
+        source: 'measured',
+        sourceLabel: 'Measured (RM3500WF)',
+      });
+    }
+  });
+
+  // 2. Daikin Heat Pumps (State-based estimate)
+  daikinDevs.forEach(d => {
+    const loc = (d.location_name || d.location_id || 'Maison');
+    const eq = d.equipment_status;
+    let w = 0;
+    let stateStr = d.equipment_status_desc || 'Idle';
+    if (eq === 3) {
+      // Heating: scale estimate slightly with outdoor temp if available
+      const outT = d.temp_outdoor_c != null ? Number(d.temp_outdoor_c) : 5;
+      w = outT < -5 ? 1650 : (outT < 5 ? 1250 : 950);
+      stateStr = `Heating (Indoor ${d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—'}, Out ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'})`;
+    } else if (eq === 1 || eq === 2) {
+      w = 1050;
+      stateStr = `Cooling / Dehum`;
+    } else if (eq === 4 || d.fan_circulate === 1) {
+      const spd = d.fan_circulate_speed || 0;
+      w = spd === 2 ? 140 : (spd === 1 ? 95 : 65);
+      stateStr = `Fan Circulating (${['Low', 'Med', 'High'][spd] || 'Low'})`;
+    }
+    categories.hvac.watts += w;
+    rows.push({
+      name: `❄️ ${d.name || 'Daikin Heat Pump'}`,
+      location: loc,
+      category: 'Heat Pump (HVAC)',
+      state: stateStr,
+      watts: w,
+      source: 'estimated',
+      sourceLabel: 'State Estimate',
+    });
+  });
+
+  // 3. Danby / Midea Dehumidifiers (State-based estimate)
+  mideaDevs.forEach(d => {
+    const loc = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
+    const isComp = Boolean(d.power && d.compressor_running && !d.tank_full);
+    const isFanOnly = Boolean(d.power && !d.compressor_running && !d.tank_full);
+    // 50-pint dehumidifier draws ~480W with compressor running, ~45W fan only
+    const w = isComp ? 480 : (isFanOnly ? 45 : 0);
+    categories.dehum.watts += w;
+    rows.push({
+      name: `💧 ${d.name || 'Danby Dehumidifier'}`,
+      location: loc,
+      category: 'Dehumidifier',
+      state: !d.power ? 'Off' : (d.tank_full ? 'Tank Full (Paused)' : (isComp ? `Compressor On (${d.current_humidity || '—'}% → ${d.target_humidity || 50}%)` : `Fan Only (${d.current_humidity || '—'}% RH)`)),
+      watts: w,
+      source: 'estimated',
+      sourceLabel: 'State Estimate',
+    });
+  });
+
+  // 4. Tesla EV & Wall Connector + Jackery AC Input
+  teslaDevs.forEach(d => {
+    const loc = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
+    const w = Math.round(d.power_w || 0);
+    categories.ev_battery.watts += w;
+    rows.push({
+      name: `🚗 ${d.name || 'Tesla'}`,
+      location: loc,
+      category: 'EV / Charger',
+      state: w > 50 ? `Charging (${(w / 1000).toFixed(1)} kW)` : (d.charging_state || 'Standby'),
+      watts: w,
+      source: 'measured',
+      sourceLabel: 'Telemetry',
+    });
+  });
+
+  if (lastStatus && lastStatus.telemetry && matchLoc('maison')) {
+    const t = lastStatus.telemetry;
+    const acInW = Math.round(t.ac_input_w != null ? t.ac_input_w : (t.input_power_w || 0));
+    if (acInW > 0) {
+      categories.ev_battery.watts += acInW;
+      rows.push({
+        name: `🔋 Jackery Grid Charging`,
+        location: 'Maison',
+        category: 'Battery Storage',
+        state: `Charging (${t.battery_percent != null ? t.battery_percent + '% SOC' : 'Active'})`,
+        watts: acInW,
+        source: 'measured',
+        sourceLabel: 'Telemetry',
+      });
+    }
+  }
+
+  // 5. LG ThinQ Appliances & Kasa Smart Plugs
+  thinqDevs.forEach(d => {
+    const loc = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
+    let w = 0;
+    const runState = String(d.run_state || d.state || 'Standby');
+    if (d.is_running) {
+      const dtype = String(d.device_type || '').toLowerCase();
+      if (dtype.includes('dryer')) w = 2400;
+      else if (dtype.includes('washer')) w = 350;
+      else if (dtype.includes('dish')) w = 750;
+      else w = 400;
+    }
+    categories.appliances.watts += w;
+    rows.push({
+      name: `🧺 ${d.name || d.device_type || 'LG ThinQ'}`,
+      location: loc,
+      category: 'Appliance',
+      state: d.is_running ? `Running (${runState})` : 'Off / Standby',
+      watts: w,
+      source: 'estimated',
+      sourceLabel: 'State Estimate',
+    });
+  });
+
+  kasaDevs.forEach(d => {
+    if (d.power_w != null && d.power_w > 0) {
+      const w = Math.round(d.power_w);
+      categories.appliances.watts += w;
+      rows.push({
+        name: `🔌 ${d.alias || d.name || 'Kasa Plug'}`,
+        location: (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1),
+        category: 'Smart Plug',
+        state: d.is_on ? 'ON' : 'OFF',
+        watts: w,
+        source: 'measured',
+        sourceLabel: 'Smart Plug',
+      });
+    }
+  });
+
+  const trackedTotalW = Object.values(categories).reduce((s, c) => s + c.watts, 0);
+  const residualW = hasMeter ? Math.max(0, meterTotalW - trackedTotalW) : 0;
+
+  return {
+    hasMeter,
+    meterTotalW,
+    trackedTotalW,
+    residualW,
+    categories: Object.values(categories),
+    rows,
+  };
+}
+
+function renderHiloDisaggregation(locFilter = _globalLocation) {
+  const container = $('hilo-disaggregation-container');
+  const badge = $('hilo-disagg-coverage-badge');
+  if (!container) return;
+
+  const data = computeWholeHomePowerBreakdown(locFilter);
+  const denom = Math.max(1, data.hasMeter ? Math.max(data.meterTotalW, data.trackedTotalW) : data.trackedTotalW);
+
+  if (badge) {
+    if (data.hasMeter && data.meterTotalW > 0) {
+      const pctTracked = Math.min(100, Math.round((data.trackedTotalW / data.meterTotalW) * 100));
+      badge.textContent = `Meter: ${data.meterTotalW.toLocaleString()} W · Tracked: ${data.trackedTotalW.toLocaleString()} W (${pctTracked}%)`;
+    } else {
+      badge.textContent = `Tracked Devices: ${data.trackedTotalW.toLocaleString()} W`;
+    }
+  }
+
+  // Stacked visual bar segments
+  const segments = [
+    ...data.categories.filter(c => c.watts > 0).map(c => ({
+      label: c.label,
+      watts: c.watts,
+      color: c.color,
+      pct: Math.max(1.5, (c.watts / denom) * 100),
+    })),
+  ];
+  if (data.hasMeter && data.residualW > 0) {
+    segments.push({
+      label: '🏠 Unmonitored / Base Load (Fridges, Lights, Stove, Electronics)',
+      watts: data.residualW,
+      color: '#475569',
+      pct: Math.max(1.5, (data.residualW / denom) * 100),
+    });
+  }
+
+  const sortedRows = [...data.rows].sort((a, b) => b.watts - a.watts);
+  const activeRows = sortedRows.filter(r => r.watts > 0);
+  const visibleRows = _showIdleDisaggDevices ? sortedRows : activeRows;
+
+  container.innerHTML = `
+    <div>
+      <!-- Stacked Proportion Bar -->
+      <div class="disagg-stack-bar" title="Whole-home power breakdown">
+        ${segments.length ? segments.map(s => `
+          <div class="disagg-segment" style="width:${s.pct.toFixed(1)}%; background:${s.color};" title="${escapeHtml(s.label)}: ${s.watts.toLocaleString()} W"></div>
+        `).join('') : `<div class="disagg-segment" style="width:100%; background:#334155;"></div>`}
+      </div>
+
+      <!-- Category Breakdown Pills -->
+      <div class="disagg-legend-grid">
+        ${data.categories.map(c => `
+          <div class="disagg-cat-pill">
+            <div style="display:flex; align-items:center; gap:7px; min-width:0;">
+              <span class="disagg-cat-dot" style="background:${c.color};"></span>
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.label}</span>
+            </div>
+            <strong style="font-family:var(--font-mono);">${c.watts.toLocaleString()} W</strong>
+          </div>
+        `).join('')}
+        ${data.hasMeter ? `
+          <div class="disagg-cat-pill">
+            <div style="display:flex; align-items:center; gap:7px; min-width:0;">
+              <span class="disagg-cat-dot" style="background:#475569;"></span>
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Difference between Hilo smart meter and tracked devices (lighting, fridge, oven, electronics, etc.)">🏠 Base / Unmonitored</span>
+            </div>
+            <strong style="font-family:var(--font-mono); color:var(--text-dim);">${data.residualW.toLocaleString()} W</strong>
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Per-Device Breakdown Table -->
+      <div class="disagg-devices-table-wrap">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+          <span style="font-size:12.5px; font-weight:600; color:var(--text-dim);">
+            Device-Level Power Estimates (${activeRows.length} active of ${sortedRows.length} tracked devices)
+          </span>
+          <button type="button" class="btn btn-ghost btn-tiny" id="disagg-toggle-idle-btn">
+            ${_showIdleDisaggDevices ? 'Hide Idle (0 W) Devices' : `Show All Devices (${sortedRows.length})`}
+          </button>
+        </div>
+        <table class="disagg-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Location</th>
+              <th>Current State</th>
+              <th>Method</th>
+              <th style="text-align:right;">Est. Power</th>
+              <th style="text-align:right;">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${visibleRows.map(r => {
+              const sharePct = denom > 0 && r.watts > 0 ? `${Math.round((r.watts / denom) * 100)}%` : '0%';
+              return `
+                <tr style="${r.watts === 0 ? 'opacity:0.58;' : ''}">
+                  <td style="font-weight:600;">${escapeHtml(r.name)}</td>
+                  <td><span class="hint">${escapeHtml(r.location)}</span></td>
+                  <td>${escapeHtml(r.state)}</td>
+                  <td><span class="disagg-source-tag ${r.source}">${escapeHtml(r.sourceLabel)}</span></td>
+                  <td style="text-align:right; font-family:var(--font-mono); font-weight:700;">${r.watts.toLocaleString()} W</td>
+                  <td style="text-align:right; font-family:var(--font-mono); color:var(--text-dim);">${sharePct}</td>
+                </tr>
+              `;
+            }).join('')}
+            ${data.hasMeter ? `
+              <tr style="background:rgba(255,255,255,0.02);">
+                <td style="font-weight:600;">🏠 Unmonitored / Base Load (Residual)</td>
+                <td><span class="hint">${locFilter === 'all' ? 'All' : escapeHtml(locFilter.toUpperCase())}</span></td>
+                <td class="hint">Fridges, stove, lighting, pumps, IT &amp; untracked circuits</td>
+                <td><span class="disagg-source-tag residual">Hilo Meter − Tracked</span></td>
+                <td style="text-align:right; font-family:var(--font-mono); font-weight:700;">${data.residualW.toLocaleString()} W</td>
+                <td style="text-align:right; font-family:var(--font-mono); color:var(--text-dim);">${denom > 0 ? Math.round((data.residualW / denom) * 100) : 0}%</td>
+              </tr>
+            ` : ''}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  $('disagg-toggle-idle-btn')?.addEventListener('click', () => {
+    _showIdleDisaggDevices = !_showIdleDisaggDevices;
+    renderHiloDisaggregation(locFilter);
+  });
+}
+
 

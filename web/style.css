@@ -6217,6 +6217,106 @@ body.device-switching .tab-panel { opacity: .45; pointer-events: none;
   border-color: rgba(56, 189, 248, 0.45);
 }
 
+/* Whole-Home Power Disaggregation Bar & Device Estimates Table */
+.disagg-stack-bar {
+  display: flex;
+  width: 100%;
+  height: 22px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-elev-2, #1a1f26);
+  border: 1px solid var(--border, #232a33);
+  gap: 1px;
+}
+
+.disagg-segment {
+  height: 100%;
+  transition: width .3s ease;
+  min-width: 2px;
+}
+
+.disagg-legend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.disagg-cat-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: var(--bg-elev-2, #1a1f26);
+  border: 1px solid var(--border-soft, rgba(255,255,255,0.06));
+  font-size: 12px;
+}
+
+.disagg-cat-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.disagg-devices-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+}
+
+.disagg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.disagg-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.disagg-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.disagg-source-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.disagg-source-tag.measured {
+  background: rgba(74, 222, 128, 0.14);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.disagg-source-tag.estimated {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.disagg-source-tag.residual {
+  background: rgba(148, 163, 184, 0.14);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
 /* Hide redundant per-tab location pill bars now that the topbar has the global location switcher */
 #sinope-loc-pills,
 #daikin-loc-pills,
