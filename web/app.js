@@ -4653,7 +4653,7 @@ function initSinopeTab() {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = '<span class="poll-icon">🔄</span> Poll now';
+        btn.innerHTML = '<span class="poll-icon">🔄</span> Actualiser';
       }
       renderSinopeTab();
     }
@@ -4682,28 +4682,28 @@ function buildLocationChartHtml(lid, locName) {
     <div class="sinope-loc-chart-card card" id="sinope-loc-card-${escapeHtml(lid)}">
       <div class="sinope-loc-chart-header">
         <div class="sinope-loc-chart-info">
-          <span class="sinope-loc-chart-title">📊 ${escapeHtml(locName)} Total Energy &amp; Power Draw</span>
+          <span class="sinope-loc-chart-title">📊 ${escapeHtml(locName)} — Énergie totale et puissance</span>
           <div class="sinope-loc-chart-stats">
-            <span class="sinope-chart-stat"><span class="lbl">Now:</span> <b id="sinope-loc-now-${escapeHtml(lid)}">—</b></span>
-            <span class="sinope-chart-stat"><span class="lbl">Period Energy:</span> <b id="sinope-loc-energy-${escapeHtml(lid)}">—</b></span>
-            <span class="sinope-chart-stat"><span class="lbl">Peak:</span> <b id="sinope-loc-peak-${escapeHtml(lid)}">—</b></span>
+            <span class="sinope-chart-stat"><span class="lbl">Maintenant :</span> <b id="sinope-loc-now-${escapeHtml(lid)}">—</b></span>
+            <span class="sinope-chart-stat"><span class="lbl">Énergie période :</span> <b id="sinope-loc-energy-${escapeHtml(lid)}">—</b></span>
+            <span class="sinope-chart-stat"><span class="lbl">Pointe :</span> <b id="sinope-loc-peak-${escapeHtml(lid)}">—</b></span>
           </div>
         </div>
         <div class="range-picker sinope-loc-range-picker" data-loc="${escapeHtml(lid)}">
           <button type="button" class="sinope-loc-range-btn ${currentHours === 6 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="6">6h</button>
           <button type="button" class="sinope-loc-range-btn ${currentHours === 12 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="12">12h</button>
           <button type="button" class="sinope-loc-range-btn ${currentHours === 24 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="24">24h</button>
-          <button type="button" class="sinope-loc-range-btn ${currentHours === 168 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="168">7d</button>
+          <button type="button" class="sinope-loc-range-btn ${currentHours === 168 ? 'on' : ''}" data-loc="${escapeHtml(lid)}" data-hours="168">7j</button>
         </div>
       </div>
       <div class="sinope-chart-canvas-wrap">
         <canvas id="sinope-chart-loc-${escapeHtml(lid)}" class="chart sinope-chart"></canvas>
       </div>
       <div class="legend sinope-chart-legend" id="sinope-legend-loc-${escapeHtml(lid)}">
-        <span class="legend-item"><i style="background:#38ef7d"></i> Total Load (W)</span>
+        <span class="legend-item"><i style="background:#38ef7d"></i> Charge totale (W)</span>
         <span class="legend-item"><i style="background:#ff7a18"></i> Thermostats (W)</span>
-        <span class="legend-item"><i style="background:#38bdf8"></i> Controllers (W)</span>
-        <span class="legend-item" id="sinope-legend-temp-${escapeHtml(lid)}"><i style="background:#a78bfa; border-radius:50%"></i> Avg Temp</span>
+        <span class="legend-item"><i style="background:#38bdf8"></i> Contrôleurs (W)</span>
+        <span class="legend-item" id="sinope-legend-temp-${escapeHtml(lid)}"><i style="background:#a78bfa; border-radius:50%"></i> Temp. moy.</span>
       </div>
     </div>
   `;
@@ -4724,7 +4724,7 @@ function drawSinopeLocationChart(locId, hist, hours) {
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Accumulating historical telemetry data for this location…', w / 2, h / 2);
+    ctx.fillText('Accumulation des données télémétriques pour cet emplacement…', w / 2, h / 2);
     return;
   }
 
@@ -4836,16 +4836,16 @@ function drawSinopeLocationChart(locId, hist, hours) {
 
     let rows = `
       <div class="cht-ts">${escapeHtml(tsStr)}</div>
-      <div class="cht-row"><i style="background:#38ef7d"></i> Total Load: <b>${totW.toLocaleString()} W</b></div>
-      <div class="cht-row"><i style="background:#ff7a18"></i> Thermostats: <b>${thW.toLocaleString()} W</b></div>
-      <div class="cht-row"><i style="background:#38bdf8"></i> Controllers: <b>${ctW.toLocaleString()} W</b></div>
-      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Interval Energy: <b>${totWh}</b></div>
+      <div class="cht-row"><i style="background:#38ef7d"></i> Charge totale : <b>${totW.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:#ff7a18"></i> Thermostats : <b>${thW.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:#38bdf8"></i> Contrôleurs : <b>${ctW.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Énergie intervalle : <b>${totWh}</b></div>
     `;
     if (tStr != null) {
-      rows += `<div class="cht-row"><i style="background:#a78bfa; border-radius:50%"></i> Avg Temp: <b>${tStr}</b></div>`;
+      rows += `<div class="cht-row"><i style="background:#a78bfa; border-radius:50%"></i> Temp. moy. : <b>${tStr}</b></div>`;
     }
     if (count > 0) {
-      rows += `<div class="cht-row" style="font-size:11px; opacity:0.8"><i style="background:transparent"></i> Devices: <b>${count}</b></div>`;
+      rows += `<div class="cht-row" style="font-size:11px; opacity:0.8"><i style="background:transparent"></i> Appareils : <b>${count}</b></div>`;
     }
     return rows;
   }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
@@ -4915,7 +4915,7 @@ function drawSinopeDeviceChart(sn, hist, hours) {
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Accumulating history for this device…', w / 2, h / 2);
+    ctx.fillText('Accumulation de l\'historique pour cet appareil…', w / 2, h / 2);
     return;
   }
 
@@ -5010,19 +5010,19 @@ function drawSinopeDeviceChart(sn, hist, hours) {
     const pwr = Math.round(p.power_w || 0);
     const wh = p.energy_wh != null ? (p.energy_wh >= 1000 ? (p.energy_wh / 1000).toFixed(2) + ' kWh' : Math.round(p.energy_wh) + ' Wh') : '—';
     const tStr = p.temp_c != null ? formatTemp(p.temp_c, 1) : null;
-    const stateStr = (!isThermostat) ? (pwr > 10 ? '⚡ ON' : '○ Standby') : null;
-    const tempLabel = isWaterHeater ? 'Tank Temp' : 'Room Temp';
+    const stateStr = (!isThermostat) ? (pwr > 10 ? '⚡ ACTIF' : '○ Veille') : null;
+    const tempLabel = isWaterHeater ? 'Temp. réservoir' : 'Temp. pièce';
 
     let rows = `
       <div class="cht-ts">${escapeHtml(tsStr)}</div>
-      <div class="cht-row"><i style="background:${primaryColor}"></i> Power: <b>${pwr.toLocaleString()} W</b></div>
-      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Interval Energy: <b>${wh}</b></div>
+      <div class="cht-row"><i style="background:${primaryColor}"></i> Puissance : <b>${pwr.toLocaleString()} W</b></div>
+      <div class="cht-row"><i style="background:transparent; border:1px solid #64748b"></i> Énergie intervalle : <b>${wh}</b></div>
     `;
     if (tStr != null && hasTemps) {
-      rows += `<div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> ${tempLabel}: <b>${tStr}</b></div>`;
+      rows += `<div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> ${tempLabel} : <b>${tStr}</b></div>`;
     }
     if (stateStr != null) {
-      rows += `<div class="cht-row"><i style="background:${pwr > 10 ? '#38ef7d' : '#64748b'}"></i> State: <b>${stateStr}</b></div>`;
+      rows += `<div class="cht-row"><i style="background:${pwr > 10 ? '#38ef7d' : '#64748b'}"></i> État : <b>${stateStr}</b></div>`;
     }
     return rows;
   }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
@@ -5096,11 +5096,11 @@ function renderSinopeTab() {
   if (pollTimeEl) {
     if (_lastSinopePollTs) {
       const elapsedM = Math.max(0, Math.round((Date.now() - _lastSinopePollTs) / 60000));
-      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+      pollTimeEl.textContent = elapsedM === 0 ? 'Dernière màj : à l\'instant' : `Dernière màj : il y a ${elapsedM} min`;
     } else if (devices.length) {
-      pollTimeEl.textContent = 'Last update: active';
+      pollTimeEl.textContent = 'Dernière màj : actif';
     } else {
-      pollTimeEl.textContent = 'Last update: —';
+      pollTimeEl.textContent = 'Dernière màj : —';
     }
   }
 
@@ -5157,24 +5157,24 @@ function renderSinopeTab() {
   const kpiHeatSub = $('sinope-kpi-heating-sub');
   if (kpiHeatCount) kpiHeatCount.textContent = heatingCount;
   if (kpiHeatTotal) kpiHeatTotal.textContent = `/ ${thermostats.length}`;
-  if (kpiHeatSub) kpiHeatSub.textContent = `${heatingCount} heating now`;
+  if (kpiHeatSub) kpiHeatSub.textContent = `${heatingCount} en chauffe`;
 
   const kpiCtrlCount = $('sinope-kpi-ctrl-count');
   const kpiCtrlTotal = $('sinope-kpi-ctrl-total');
   const kpiCtrlSub = $('sinope-kpi-ctrl-sub');
   if (kpiCtrlCount) kpiCtrlCount.textContent = activeCtrlCount;
   if (kpiCtrlTotal) kpiCtrlTotal.textContent = `/ ${controllers.length}`;
-  if (kpiCtrlSub) kpiCtrlSub.textContent = `${activeCtrlCount} active load`;
+  if (kpiCtrlSub) kpiCtrlSub.textContent = `${activeCtrlCount} charge${activeCtrlCount > 1 ? 's' : ''} active${activeCtrlCount > 1 ? 's' : ''}`;
 
   const kpiAvgTemp = $('sinope-kpi-avg-temp');
   const kpiTempSub = $('sinope-kpi-temp-sub');
   if (temps.length) {
     const avgC = temps.reduce((a, b) => a + b, 0) / temps.length;
     if (kpiAvgTemp) kpiAvgTemp.textContent = isF ? (avgC * 9/5 + 32).toFixed(1) : avgC.toFixed(1);
-    if (kpiTempSub) kpiTempSub.textContent = `Across ${temps.length} zones`;
+    if (kpiTempSub) kpiTempSub.textContent = `Sur ${temps.length} zone${temps.length > 1 ? 's' : ''}`;
   } else {
     if (kpiAvgTemp) kpiAvgTemp.textContent = '—';
-    if (kpiTempSub) kpiTempSub.textContent = 'No temp sensors';
+    if (kpiTempSub) kpiTempSub.textContent = 'Aucune sonde de temp.';
   }
 
   const kpiWaterStatus = $('sinope-kpi-water-status');
@@ -5182,17 +5182,17 @@ function renderSinopeTab() {
   const totalWaterDevs = valves.length + leakSensors.length;
   if (kpiWaterStatus) {
     if (leakAlertCount > 0) {
-      kpiWaterStatus.textContent = 'LEAK ALERT';
+      kpiWaterStatus.textContent = 'ALERTE FUITE';
       kpiWaterStatus.style.color = '#ef4444';
-      if (kpiWaterSub) kpiWaterSub.textContent = `${leakAlertCount} sensor(s) triggered!`;
+      if (kpiWaterSub) kpiWaterSub.textContent = `${leakAlertCount} détecteur(s) déclenché(s) !`;
     } else if (totalWaterDevs > 0) {
-      kpiWaterStatus.textContent = 'All Dry';
+      kpiWaterStatus.textContent = 'Tout au sec';
       kpiWaterStatus.style.color = '#38ef7d';
-      if (kpiWaterSub) kpiWaterSub.textContent = `${valves.length} valve${valves.length > 1 ? 's' : ''}, ${leakSensors.length} sensor${leakSensors.length > 1 ? 's' : ''}`;
+      if (kpiWaterSub) kpiWaterSub.textContent = `${valves.length} valve${valves.length > 1 ? 's' : ''}, ${leakSensors.length} détecteur${leakSensors.length > 1 ? 's' : ''}`;
     } else {
       kpiWaterStatus.textContent = '—';
       kpiWaterStatus.style.color = '';
-      if (kpiWaterSub) kpiWaterSub.textContent = 'No water devices';
+      if (kpiWaterSub) kpiWaterSub.textContent = 'Aucun appareil d\'eau';
     }
   }
 
@@ -5201,11 +5201,11 @@ function renderSinopeTab() {
     container.innerHTML = `
       <div class="sinope-empty-card">
         <span style="font-size:36px">❄️</span>
-        <h3>No Sinopé Devices Found</h3>
-        <p>If you haven't configured your Sinopé / Neviweb account yet, add your credentials in Settings. Otherwise, click Poll Now to scan your account.</p>
+        <h3>Aucun appareil Sinopé trouvé</h3>
+        <p>Si vous n'avez pas encore configuré votre compte Sinopé / Neviweb, ajoutez vos identifiants dans Paramètres. Sinon, cliquez sur Actualiser pour balayer votre compte.</p>
         <div style="display:flex; gap:10px; margin-top:8px">
-          <button type="button" class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-sinope')?.classList.remove('collapsed'); document.getElementById('settings-card-sinope')?.scrollIntoView({behavior:'smooth'});">Configure in Settings</button>
-          <button type="button" class="btn btn-ghost" onclick="$('sinope-tab-poll-btn')?.click()">Poll Now</button>
+          <button type="button" class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-sinope')?.classList.remove('collapsed'); document.getElementById('settings-card-sinope')?.scrollIntoView({behavior:'smooth'});">Configurer dans Paramètres</button>
+          <button type="button" class="btn btn-ghost" onclick="$('sinope-tab-poll-btn')?.click()">Actualiser</button>
         </div>
       </div>
     `;
@@ -5218,8 +5218,8 @@ function renderSinopeTab() {
     container.innerHTML = `
       <div class="sinope-empty-card">
         <span style="font-size:32px">🏠</span>
-        <h3>No devices at ${escapeHtml(locName)}</h3>
-        <p>There are no Sinopé devices registered under the location "${escapeHtml(locName)}". Switch to "All Locations" to view other devices.</p>
+        <h3>Aucun appareil à ${escapeHtml(locName)}</h3>
+        <p>Il n'y a aucun appareil Sinopé enregistré sous l'emplacement « ${escapeHtml(locName)} ». Passez à « Tous les emplacements » pour voir les autres appareils.</p>
       </div>
     `;
     return;
@@ -5259,10 +5259,10 @@ function renderSinopeTab() {
         <div class="sinope-dev-metrics">
           <div class="sinope-temp-row" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span class="sinope-temp-cur">${curDisplay}</span>
-            <div class="sinope-setpoint-stepper" title="Adjust setpoint in 0.5°C increments (duty cycle % below is read-only for power analysis)">
-              <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="-0.5" data-sinope-cur="${setC}" ${!d.is_online ? 'disabled' : ''} aria-label="Decrease setpoint by 0.5°C">−</button>
+            <div class="sinope-setpoint-stepper" title="Ajuster la consigne par paliers de 0,5°C (le % de chauffe ci-dessous est en lecture seule)">
+              <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="-0.5" data-sinope-cur="${setC}" ${!d.is_online ? 'disabled' : ''} aria-label="Diminuer la consigne de 0,5°C">−</button>
               <span class="sinope-step-val" id="sinope-sp-val-${devIdEsc}" data-setpoint-c="${setC}">${setDisplay}</span>
-              <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="0.5" data-sinope-cur="${setC}" ${!d.is_online ? 'disabled' : ''} aria-label="Increase setpoint by 0.5°C">+</button>
+              <button type="button" class="sinope-step-btn" data-sinope-step-id="${devIdEsc}" data-sinope-delta="0.5" data-sinope-cur="${setC}" ${!d.is_online ? 'disabled' : ''} aria-label="Augmenter la consigne de 0,5°C">+</button>
             </div>
           </div>
           <span class="sinope-power-val">${pwr} W</span>
@@ -5271,61 +5271,61 @@ function renderSinopeTab() {
 
       const pct = Math.min(100, Math.max(0, d.heat_level_pct || 0));
       dutyHtml = `
-        <div class="sinope-duty-track" title="Read-only heating duty cycle (${pct}%) recorded for NILM power analysis">
+        <div class="sinope-duty-track" title="Cycle de chauffe en lecture seule (${pct}%) enregistré pour l'analyse de puissance">
           <div class="sinope-duty-bar" style="width: ${pct}%;"></div>
         </div>
         <div class="sinope-duty-label">
-          <span>🔥 ${pct}% duty cycle (read-only)</span>
-          <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated' : ''}</span>
+          <span>🔥 ${pct}% cycle de chauffe (lecture seule)</span>
+          <span>${d.load_watt ? Math.round(d.load_watt) + ' W nominal' : ''}</span>
         </div>
       `;
 
       if (!d.is_online) {
-        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+        statusBadge = `<span class="sinope-badge off">⚠️ Hors ligne</span>`;
       } else if (isHeating) {
-        statusBadge = `<span class="sinope-badge heating">🔥 ${pct}% heat</span>`;
+        statusBadge = `<span class="sinope-badge heating">🔥 ${pct}% chauffe</span>`;
       } else {
-        statusBadge = `<span class="sinope-badge idle">Idle</span>`;
+        statusBadge = `<span class="sinope-badge idle">Au repos</span>`;
       }
     } else if (d.is_water_heater || (d.model && d.model.startsWith('RM35')) || d.water_temperature_c != null) {
       const waterC = d.water_temperature_c;
       const waterDisplay = waterC != null ? formatTemp(waterC, 1) : '—';
-      const todayKwhStr = d.today_kwh != null ? `${d.today_kwh.toFixed(1)} kWh today` : '';
+      const todayKwhStr = d.today_kwh != null ? `${d.today_kwh.toFixed(1)} kWh auj.` : '';
       const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
       metricsHtml = `
         <div class="sinope-dev-metrics">
           <div class="sinope-temp-row" style="display:flex; align-items:center; gap:8px;">
             <span class="sinope-temp-cur">💧 ${waterDisplay}</span>
             <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
-              ${d.is_on ? '⚡ Armed (Turn Off)' : '○ Off (Turn On)'}
+              ${d.is_on ? '⚡ Armé (Couper)' : '○ Coupé (Activer)'}
             </button>
           </div>
-          <span class="sinope-power-val">${pwr > 10 ? pwr + ' W' : (todayKwhStr || 'Standby')}</span>
+          <span class="sinope-power-val">${pwr > 10 ? pwr + ' W' : (todayKwhStr || 'Veille')}</span>
         </div>
       `;
       dutyHtml = `
         <div class="sinope-duty-label" style="margin-top:6px">
-          <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated element' : 'Calypso Water Heater'}</span>
-          <span>${todayKwhStr ? todayKwhStr : (d.is_on ? 'Relay Active' : 'Relay Off')}</span>
+          <span>${d.load_watt ? Math.round(d.load_watt) + ' W élément nominal' : 'Chauffe-eau Calypso'}</span>
+          <span>${todayKwhStr ? todayKwhStr : (d.is_on ? 'Relais actif' : 'Relais coupé')}</span>
         </div>
       `;
       if (!d.is_online) {
-        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+        statusBadge = `<span class="sinope-badge off">⚠️ Hors ligne</span>`;
       } else if (!d.is_on) {
-        statusBadge = `<span class="sinope-badge off">○ Disabled / Peak Shed</span>`;
+        statusBadge = `<span class="sinope-badge off">○ Désactivé / Délestage</span>`;
       } else if (pwr > 10) {
-        statusBadge = `<span class="sinope-badge heating">🔥 Reheating (${pwr} W)</span>`;
+        statusBadge = `<span class="sinope-badge heating">🔥 En chauffe (${pwr} W)</span>`;
       } else {
-        statusBadge = `<span class="sinope-badge idle">⚡ Armed (Standby)</span>`;
+        statusBadge = `<span class="sinope-badge idle">⚡ Armé (Veille)</span>`;
       }
     } else if (d.device_type === 'controller') {
       const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
       metricsHtml = `
         <div class="sinope-dev-metrics">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '⚡ ON' : '○ OFF'}</span>
+            <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '⚡ ACTIF' : '○ ARRÊT'}</span>
             <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
-              ${d.is_on ? 'Turn Off' : 'Turn On'}
+              ${d.is_on ? 'Couper' : 'Activer'}
             </button>
           </div>
           <span class="sinope-power-val">${pwr} W</span>
@@ -5333,33 +5333,33 @@ function renderSinopeTab() {
       `;
       dutyHtml = `
         <div class="sinope-duty-label" style="margin-top:6px">
-          <span>${d.load_watt ? Math.round(d.load_watt) + ' W rated load' : 'Heavy Load Relay'}</span>
-          <span>${d.is_on ? 'Active' : 'Standby'}</span>
+          <span>${d.load_watt ? Math.round(d.load_watt) + ' W charge nominale' : 'Relais de puissance'}</span>
+          <span>${d.is_on ? 'Actif' : 'Veille'}</span>
         </div>
       `;
       if (!d.is_online) {
-        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+        statusBadge = `<span class="sinope-badge off">⚠️ Hors ligne</span>`;
       } else {
         statusBadge = d.is_on
-          ? `<span class="sinope-badge on">● Active Load</span>`
-          : `<span class="sinope-badge off">○ Standby</span>`;
+          ? `<span class="sinope-badge on">● Charge active</span>`
+          : `<span class="sinope-badge off">○ Veille</span>`;
       }
     } else if (d.device_type === 'valve') {
       metricsHtml = `
         <div class="sinope-dev-metrics">
-          <span class="sinope-temp-cur" style="font-size:17px">🛡️ Valve Open</span>
-          <span class="sinope-power-val" style="font-size:13px; color:var(--text-dim)">Main Line</span>
+          <span class="sinope-temp-cur" style="font-size:17px">🛡️ Valve ouverte</span>
+          <span class="sinope-power-val" style="font-size:13px; color:var(--text-dim)">Entrée principale</span>
         </div>
       `;
       dutyHtml = `
         <div class="sinope-duty-label" style="margin-top:6px">
-          <span>Sedna Smart Valve</span>
-          <span>Auto-shutoff</span>
+          <span>Valve intelligente Sedna</span>
+          <span>Fermeture auto</span>
         </div>
       `;
       statusBadge = d.is_online
-        ? `<span class="sinope-badge valve-open">💧 Protected</span>`
-        : `<span class="sinope-badge off">⚠️ Offline</span>`;
+        ? `<span class="sinope-badge valve-open">💧 Protégé</span>`
+        : `<span class="sinope-badge off">⚠️ Hors ligne</span>`;
     } else if (d.device_type === 'leak_sensor') {
       const curC = d.room_temp_c;
       const curDisplay = curC != null ? formatTemp(curC, 1) : '—';
@@ -5371,49 +5371,49 @@ function renderSinopeTab() {
         <div class="sinope-dev-metrics">
           <div class="sinope-temp-row">
             <span class="sinope-temp-cur">${curDisplay}</span>
-            <span class="sinope-temp-target">ambient</span>
+            <span class="sinope-temp-target">ambiant</span>
           </div>
           <span class="sinope-power-val" style="font-size:13px; color:var(--text-dim)">🔋 ${battDisplay}</span>
         </div>
       `;
       dutyHtml = `
         <div class="sinope-duty-label" style="margin-top:6px">
-          <span>Water Leak Detector</span>
-          <span>${d.is_online ? 'Signal OK' : 'Offline'}</span>
+          <span>Détecteur de fuite d'eau</span>
+          <span>${d.is_online ? 'Signal OK' : 'Hors ligne'}</span>
         </div>
       `;
       if (isLeakAlert) {
-        statusBadge = `<span class="sinope-badge leak-alert">🚨 LEAK DETECTED</span>`;
+        statusBadge = `<span class="sinope-badge leak-alert">🚨 FUITE DÉTECTÉE</span>`;
       } else if (!d.is_online) {
-        statusBadge = `<span class="sinope-badge off">⚠️ Offline</span>`;
+        statusBadge = `<span class="sinope-badge off">⚠️ Hors ligne</span>`;
       } else {
-        statusBadge = `<span class="sinope-badge leak-dry">✓ Dry</span>`;
+        statusBadge = `<span class="sinope-badge leak-dry">✓ Au sec</span>`;
       }
     } else {
       // Generic switch / load
       metricsHtml = `
         <div class="sinope-dev-metrics">
-          <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '● ON' : '○ OFF'}</span>
+          <span class="sinope-temp-cur" style="font-size:17px">${d.is_on ? '● ACTIF' : '○ ARRÊT'}</span>
           <span class="sinope-power-val">${pwr} W</span>
         </div>
       `;
       dutyHtml = `
         <div class="sinope-duty-label" style="margin-top:6px">
-          <span>Smart Load</span>
-          <span>${d.is_on ? 'Active' : 'Standby'}</span>
+          <span>Charge intelligente</span>
+          <span>${d.is_on ? 'Actif' : 'Veille'}</span>
         </div>
       `;
       statusBadge = d.is_on
-        ? `<span class="sinope-badge on">● Active</span>`
-        : `<span class="sinope-badge off">○ Standby</span>`;
+        ? `<span class="sinope-badge on">● Actif</span>`
+        : `<span class="sinope-badge off">○ Veille</span>`;
     }
 
     if (d.dr_status && d.dr_status.toLowerCase() === 'active') {
-      statusBadge += ` <span class="sinope-badge dr-peak" title="Hydro-Québec Peak Event">⚠️ DR Peak</span>`;
+      statusBadge += ` <span class="sinope-badge dr-peak" title="Événement de pointe Hydro-Québec">⚠️ Pointe HQ</span>`;
     }
 
     const devName = escapeHtml(d.name || d.device_sn);
-    const devModel = escapeHtml(d.model || (d.device_type === 'thermostat' ? 'Thermostat' : 'Controller'));
+    const devModel = escapeHtml(d.model || (d.device_type === 'thermostat' ? 'Thermostat' : 'Contrôleur'));
     const roomBadge = (d.room_name && d.room_name.toLowerCase() !== (d.name || '').toLowerCase())
       ? ` · ${escapeHtml(d.room_name)}`
       : '';
@@ -5424,11 +5424,11 @@ function renderSinopeTab() {
       <div class="sinope-dev-history-drawer" id="sinope-history-drawer-${snEsc}" ${isExpanded ? '' : 'hidden'}>
         <div class="sinope-dev-history-header">
           <div class="sinope-dev-history-title-row">
-            <span class="sinope-dev-history-title">📈 ${devName} History</span>
+            <span class="sinope-dev-history-title">📈 Historique — ${devName}</span>
             <div class="sinope-dev-history-stats" id="sinope-dev-stats-${snEsc}">
-              <span class="sinope-chart-stat"><span class="lbl">Period Energy:</span> <b id="sinope-dev-energy-${snEsc}">—</b></span>
-              <span class="sinope-chart-stat"><span class="lbl">Peak:</span> <b id="sinope-dev-peak-${snEsc}">—</b></span>
-              ${d.device_type === 'thermostat' ? `<span class="sinope-chart-stat"><span class="lbl">Avg Temp:</span> <b id="sinope-dev-avgtemp-${snEsc}">—</b></span>` : ''}
+              <span class="sinope-chart-stat"><span class="lbl">Énergie période :</span> <b id="sinope-dev-energy-${snEsc}">—</b></span>
+              <span class="sinope-chart-stat"><span class="lbl">Pointe :</span> <b id="sinope-dev-peak-${snEsc}">—</b></span>
+              ${d.device_type === 'thermostat' ? `<span class="sinope-chart-stat"><span class="lbl">Temp. moy. :</span> <b id="sinope-dev-avgtemp-${snEsc}">—</b></span>` : ''}
             </div>
           </div>
           <div class="sinope-dev-history-controls">
@@ -5436,17 +5436,17 @@ function renderSinopeTab() {
               <button type="button" class="sinope-dev-range-btn ${devHours === 6 ? 'on' : ''}" data-sn="${snEsc}" data-hours="6">6h</button>
               <button type="button" class="sinope-dev-range-btn ${devHours === 12 ? 'on' : ''}" data-sn="${snEsc}" data-hours="12">12h</button>
               <button type="button" class="sinope-dev-range-btn ${devHours === 24 ? 'on' : ''}" data-sn="${snEsc}" data-hours="24">24h</button>
-              <button type="button" class="sinope-dev-range-btn ${devHours === 168 ? 'on' : ''}" data-sn="${snEsc}" data-hours="168">7d</button>
+              <button type="button" class="sinope-dev-range-btn ${devHours === 168 ? 'on' : ''}" data-sn="${snEsc}" data-hours="168">7j</button>
             </div>
-            <button type="button" class="btn-ghost btn-tiny sinope-dev-history-close" data-sn="${snEsc}" title="Close history">✕</button>
+            <button type="button" class="btn-ghost btn-tiny sinope-dev-history-close" data-sn="${snEsc}" title="Fermer l'historique">✕</button>
           </div>
         </div>
         <div class="sinope-chart-canvas-wrap">
           <canvas id="chart-sinope-dev-${snEsc}" class="chart sinope-dev-chart"></canvas>
         </div>
         <div class="legend sinope-chart-legend">
-          <span class="legend-item"><i style="background:${d.device_type === 'thermostat' ? '#ff7a18' : '#38ef7d'}"></i> Power (W)</span>
-          ${d.device_type === 'thermostat' ? `<span class="legend-item"><i style="background:#38bdf8; border-radius:50%"></i> Room Temp</span>` : ''}
+          <span class="legend-item"><i style="background:${d.device_type === 'thermostat' ? '#ff7a18' : '#38ef7d'}"></i> Puissance (W)</span>
+          ${d.device_type === 'thermostat' ? `<span class="legend-item"><i style="background:#38bdf8; border-radius:50%"></i> Temp. pièce</span>` : ''}
         </div>
       </div>
     ` : '';
@@ -5463,10 +5463,10 @@ function renderSinopeTab() {
         ${metricsHtml}
         ${dutyHtml}
         <div class="sinope-dev-footer">
-          <span>${locLabel} · ${canShowHistory ? (pwr > 0 ? (pwr / 1000).toFixed(2) + ' kW' : '0 W') : (d.device_type === 'valve' ? 'Valve' : 'Sensor')}</span>
+          <span>${locLabel} · ${canShowHistory ? (pwr > 0 ? (pwr / 1000).toFixed(2) + ' kW' : '0 W') : (d.device_type === 'valve' ? 'Valve' : 'Détecteur')}</span>
           ${canShowHistory ? `
-            <button type="button" class="btn-sinope-history ${isExpanded ? 'active' : ''}" data-sn="${snEsc}" title="Toggle device history">
-              ${isExpanded ? '📉 Hide History' : '📈 History'}
+            <button type="button" class="btn-sinope-history ${isExpanded ? 'active' : ''}" data-sn="${snEsc}" title="Afficher/masquer l'historique">
+              ${isExpanded ? '📉 Masquer l\'historique' : '📈 Historique'}
             </button>
           ` : ''}
         </div>
@@ -5485,8 +5485,8 @@ function renderSinopeTab() {
     if (therms.length) {
       out += `
         <div class="sinope-group-title">
-          <span>🌡️ Thermostats &amp; Climate</span>
-          <span class="hint">${therms.length} device${therms.length > 1 ? 's' : ''}</span>
+          <span>🌡️ Thermostats et climatisation</span>
+          <span class="hint">${therms.length} appareil${therms.length > 1 ? 's' : ''}</span>
         </div>
         <div class="sinope-loads-grid">${therms.map(buildDeviceCardHtml).join('')}</div>
       `;
@@ -5494,8 +5494,8 @@ function renderSinopeTab() {
     if (ctrls.length) {
       out += `
         <div class="sinope-group-title">
-          <span>⚡ Electrical Controllers</span>
-          <span class="hint">${ctrls.length} device${ctrls.length > 1 ? 's' : ''}</span>
+          <span>⚡ Contrôleurs électriques</span>
+          <span class="hint">${ctrls.length} appareil${ctrls.length > 1 ? 's' : ''}</span>
         </div>
         <div class="sinope-loads-grid">${ctrls.map(buildDeviceCardHtml).join('')}</div>
       `;
@@ -5503,8 +5503,8 @@ function renderSinopeTab() {
     if (water.length) {
       out += `
         <div class="sinope-group-title">
-          <span>💧 Water Protection &amp; Safety</span>
-          <span class="hint">${water.length} device${water.length > 1 ? 's' : ''}</span>
+          <span>💧 Protection d'eau et sécurité</span>
+          <span class="hint">${water.length} appareil${water.length > 1 ? 's' : ''}</span>
         </div>
         <div class="sinope-loads-grid">${water.map(buildDeviceCardHtml).join('')}</div>
       `;
@@ -5544,14 +5544,14 @@ function renderSinopeTab() {
               <span>${lid === 'chalet' ? '🌲' : '🏠'} ${escapeHtml(locName)}</span>
               ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
               <div class="occupancy-system-row">
-                <span class="occupancy-system-label">🔥 Sinopé (Neviweb):</span>
-                <div class="occupancy-pill-group" title="Set Sinopé / Neviweb Home or Away mode for ${escapeHtml(locName)}">
-                  <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Home</button>
-                  <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Away</button>
+                <span class="occupancy-system-label">🔥 Sinopé (Neviweb) :</span>
+                <div class="occupancy-pill-group" title="Définir le mode Présent ou Absent Sinopé / Neviweb pour ${escapeHtml(locName)}">
+                  <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Présent</button>
+                  <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Absent</button>
                 </div>
               </div>
             </div>
-            <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${locDevs.length} devices)</span>
+            <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${locDevs.length} appareils)</span>
           </div>
           ${buildLocationChartHtml(lid, locName)}
           ${buildLocationDevicesHtml(locDevs)}
@@ -5576,14 +5576,14 @@ function renderSinopeTab() {
             <span>${lid === 'chalet' ? '🌲' : '🏠'} ${escapeHtml(locName)}</span>
             ${planName ? `<span class="sinope-location-plan">${escapeHtml(planName)}</span>` : ''}
             <div class="occupancy-system-row">
-              <span class="occupancy-system-label">🔥 Sinopé (Neviweb):</span>
-              <div class="occupancy-pill-group" title="Set Sinopé / Neviweb Home or Away mode for ${escapeHtml(locName)}">
-                <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Home</button>
-                <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Away</button>
+              <span class="occupancy-system-label">🔥 Sinopé (Neviweb) :</span>
+              <div class="occupancy-pill-group" title="Définir le mode Présent ou Absent Sinopé / Neviweb pour ${escapeHtml(locName)}">
+                <button type="button" class="occupancy-btn mode-home ${occMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Présent</button>
+                <button type="button" class="occupancy-btn mode-away ${occMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Absent</button>
               </div>
             </div>
           </div>
-          <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${filtered.length} devices)</span>
+          <span class="hint" style="font-weight:600; color:var(--text)">${locWatts.toLocaleString()} W total (${filtered.length} appareils)</span>
         </div>
         ${buildLocationChartHtml(lid, locName)}
         ${buildLocationDevicesHtml(filtered)}
@@ -5783,7 +5783,7 @@ function initDaikinTab() {
     const btn = $('daikin-tab-poll-btn');
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;"></span> Polling…';
+      btn.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;"></span> Actualisation…';
     }
     try {
       const r = await fetch('/api/daikin/poll', { method: 'POST' });
@@ -5798,7 +5798,7 @@ function initDaikinTab() {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = '<span class="poll-icon">🔄</span> Poll now';
+        btn.innerHTML = '<span class="poll-icon">🔄</span> Actualiser';
       }
       renderDaikinTab(true);
     }
@@ -5833,7 +5833,7 @@ function drawDaikinDeviceChart(devId, hist, hours) {
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Accumulating Daikin temperature history…', w / 2, h / 2);
+    ctx.fillText('Accumulation de l\'historique de température Daikin…', w / 2, h / 2);
     return;
   }
 
@@ -5910,7 +5910,7 @@ function drawDaikinDeviceChart(devId, hist, hours) {
 
   canvas._redraw = () => drawDaikinDeviceChart(devId, hist, hours);
 
-  const eqNames = { 0: 'Idle', 1: 'Cooling', 2: 'Overcooling', 3: 'Heating', 4: 'Fan Circulate', 5: 'Defrost' };
+  const eqNames = { 0: 'Au repos', 1: 'Climatisation', 2: 'Surrefroidissement', 3: 'Chauffage', 4: 'Ventilation', 5: 'Dégivrage' };
 
   _attachChartHover(canvas, plotHist, (idx) => {
     const p = plotHist[idx];
@@ -5920,16 +5920,16 @@ function drawDaikinDeviceChart(devId, hist, hours) {
                   d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const inT = p.temp_c != null ? formatTemp(p.temp_c, 1) : '—';
     const outT = p.outdoor_temp_c != null ? formatTemp(p.outdoor_temp_c, 1) : '—';
-    const eqSt = p.equipment_status != null ? (eqNames[p.equipment_status] || 'Unknown') : 'Idle';
+    const eqSt = p.equipment_status != null ? (eqNames[p.equipment_status] || 'Inconnu') : 'Au repos';
 
     let rows = `
       <div class="cht-ts">${escapeHtml(tsStr)}</div>
-      <div class="cht-row"><i style="background:#f97316; border-radius:50%"></i> Indoor: <b>${inT}</b></div>
-      <div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> Outdoor: <b>${outT}</b></div>
-      <div class="cht-row"><i style="background:#a855f7"></i> Equipment: <b>${escapeHtml(eqSt)}</b></div>
+      <div class="cht-row"><i style="background:#f97316; border-radius:50%"></i> Intérieur : <b>${inT}</b></div>
+      <div class="cht-row"><i style="background:#38bdf8; border-radius:50%"></i> Extérieur : <b>${outT}</b></div>
+      <div class="cht-row"><i style="background:#a855f7"></i> Équipement : <b>${escapeHtml(eqSt)}</b></div>
     `;
     if (p.power_w) {
-      rows += `<div class="cht-row"><i style="background:#4ade80"></i> Power est.: <b>${Math.round(p.power_w)} W</b></div>`;
+      rows += `<div class="cht-row"><i style="background:#4ade80"></i> Puissance est. : <b>${Math.round(p.power_w)} W</b></div>`;
     }
     return rows;
   }, () => ({ xs, padL, padR, w, h, baseY, padT, padB }));
@@ -5977,11 +5977,11 @@ function renderDaikinTab(force = false) {
   if (pollTimeEl) {
     if (_lastDaikinPollTs) {
       const elapsedM = Math.max(0, Math.round((Date.now() - _lastDaikinPollTs) / 60000));
-      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+      pollTimeEl.textContent = elapsedM === 0 ? 'Dernière màj : à l\'instant' : `Dernière màj : il y a ${elapsedM} min`;
     } else if (devices.length) {
-      pollTimeEl.textContent = 'Last update: active';
+      pollTimeEl.textContent = 'Dernière màj : actif';
     } else {
-      pollTimeEl.textContent = 'Last update: —';
+      pollTimeEl.textContent = 'Dernière màj : —';
     }
   }
 
@@ -6008,10 +6008,10 @@ function renderDaikinTab(force = false) {
     if (indoorTemps.length) {
       const avg = indoorTemps.reduce((a, b) => a + b, 0) / indoorTemps.length;
       kpiInTemp.textContent = isF ? (avg * 9/5 + 32).toFixed(1) : avg.toFixed(1);
-      if (kpiInSub) kpiInSub.textContent = `Across ${indoorTemps.length} thermostat${indoorTemps.length > 1 ? 's' : ''}`;
+      if (kpiInSub) kpiInSub.textContent = `Sur ${indoorTemps.length} thermostat${indoorTemps.length > 1 ? 's' : ''}`;
     } else {
       kpiInTemp.textContent = '—';
-      if (kpiInSub) kpiInSub.textContent = 'Living space';
+      if (kpiInSub) kpiInSub.textContent = 'Aire habitable';
     }
   }
 
@@ -6021,10 +6021,10 @@ function renderDaikinTab(force = false) {
     if (outdoorTemps.length) {
       const avg = outdoorTemps.reduce((a, b) => a + b, 0) / outdoorTemps.length;
       kpiOutTemp.textContent = isF ? (avg * 9/5 + 32).toFixed(1) : avg.toFixed(1);
-      if (kpiOutSub) kpiOutSub.textContent = 'Heat pump sensor';
+      if (kpiOutSub) kpiOutSub.textContent = 'Sonde thermopompe';
     } else {
       kpiOutTemp.textContent = '—';
-      if (kpiOutSub) kpiOutSub.textContent = 'Heat pump sensor';
+      if (kpiOutSub) kpiOutSub.textContent = 'Sonde thermopompe';
     }
   }
 
@@ -6035,7 +6035,7 @@ function renderDaikinTab(force = false) {
       const inStr = indoorHums.length ? `${Math.round(indoorHums[0])}%` : '—';
       const outStr = outdoorHums.length ? `${Math.round(outdoorHums[0])}%` : '—';
       kpiHum.textContent = `${inStr} / ${outStr}`;
-      if (kpiHumSub) kpiHumSub.textContent = 'Indoor / Outdoor';
+      if (kpiHumSub) kpiHumSub.textContent = 'Intérieur / Extérieur';
     } else {
       kpiHum.textContent = '—';
     }
@@ -6051,20 +6051,20 @@ function renderDaikinTab(force = false) {
     const isOff = filtered.every(d => d.mode === 0);
 
     if (isHeating) {
-      kpiEquip.textContent = '🔥 Heating';
-      if (kpiEquipSub) kpiEquipSub.textContent = 'Heat pump compressor active';
+      kpiEquip.textContent = '🔥 Chauffage';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Compresseur thermopompe actif';
     } else if (isCooling) {
-      kpiEquip.textContent = '❄️ Cooling';
-      if (kpiEquipSub) kpiEquipSub.textContent = 'Heat pump cooling cycle';
+      kpiEquip.textContent = '❄️ Climatisation';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Cycle de refroidissement actif';
     } else if (isFan) {
-      kpiEquip.textContent = '🔄 Fan';
-      if (kpiEquipSub) kpiEquipSub.textContent = 'Circulating indoor air';
+      kpiEquip.textContent = '🔄 Ventilation';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Brassage d\'air intérieur';
     } else if (isOff) {
-      kpiEquip.textContent = '○ Standby';
-      if (kpiEquipSub) kpiEquipSub.textContent = 'HVAC mode off';
+      kpiEquip.textContent = '○ Veille';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Mode CVC arrêté';
     } else {
-      kpiEquip.textContent = '○ Idle';
-      if (kpiEquipSub) kpiEquipSub.textContent = 'Setpoints satisfied';
+      kpiEquip.textContent = '○ Au repos';
+      if (kpiEquipSub) kpiEquipSub.textContent = 'Consignes atteintes';
     }
   }
 
@@ -6078,17 +6078,17 @@ function renderDaikinTab(force = false) {
       kpiMode.textContent = mDesc.charAt(0).toUpperCase() + mDesc.slice(1);
       const setpoints = [];
       if (first.mode === 1 && first.heat_setpoint_c != null) {
-        setpoints.push(`Heat: ${formatTemp(first.heat_setpoint_c, 1)}`);
+        setpoints.push(`Chauffe : ${formatTemp(first.heat_setpoint_c, 1)}`);
       } else if (first.mode === 2 && first.cool_setpoint_c != null) {
-        setpoints.push(`Cool: ${formatTemp(first.cool_setpoint_c, 1)}`);
+        setpoints.push(`Clim : ${formatTemp(first.cool_setpoint_c, 1)}`);
       } else if (first.mode === 3) {
-        if (first.heat_setpoint_c != null) setpoints.push(`H: ${formatTemp(first.heat_setpoint_c, 1)}`);
-        if (first.cool_setpoint_c != null) setpoints.push(`C: ${formatTemp(first.cool_setpoint_c, 1)}`);
+        if (first.heat_setpoint_c != null) setpoints.push(`C : ${formatTemp(first.heat_setpoint_c, 1)}`);
+        if (first.cool_setpoint_c != null) setpoints.push(`F : ${formatTemp(first.cool_setpoint_c, 1)}`);
       }
-      if (kpiModeSub) kpiModeSub.textContent = setpoints.length ? setpoints.join(' · ') : 'Target setpoints';
+      if (kpiModeSub) kpiModeSub.textContent = setpoints.length ? setpoints.join(' · ') : 'Consignes cibles';
     } else {
       kpiMode.textContent = '—';
-      if (kpiModeSub) kpiModeSub.textContent = 'Target setpoints';
+      if (kpiModeSub) kpiModeSub.textContent = 'Consignes cibles';
     }
   }
 
@@ -6142,9 +6142,9 @@ function renderDaikinTab(force = false) {
     container.innerHTML = `
       <div class="daikin-empty-card">
         <div style="font-size:36px; margin-bottom:4px">❄️🔥</div>
-        <h3>No Daikin Thermostats Found</h3>
-        <p>Connect your Daikin One account in <strong>Settings &rarr; Integrations &rarr; Daikin One account</strong> with your Integrator Token and API Key to monitor and control your heat pump.</p>
-        <button class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-daikin')?.classList.remove('collapsed'); document.getElementById('settings-card-daikin')?.scrollIntoView({behavior:'smooth'});">Go to Settings</button>
+        <h3>Aucun thermostat Daikin trouvé</h3>
+        <p>Connectez votre compte Daikin One dans <strong>Paramètres &rarr; Intégrations &rarr; Compte Daikin One</strong> avec votre jeton d'intégrateur et votre clé API pour surveiller et contrôler votre thermopompe.</p>
+        <button class="btn btn-primary" onclick="switchTab('settings'); selectSettingsSubtab('integrations'); document.getElementById('settings-card-daikin')?.classList.remove('collapsed'); document.getElementById('settings-card-daikin')?.scrollIntoView({behavior:'smooth'});">Aller aux Paramètres</button>
       </div>
     `;
     return;
@@ -6153,8 +6153,8 @@ function renderDaikinTab(force = false) {
   if (!filtered.length) {
     container.innerHTML = `
       <div class="daikin-empty-card">
-        <h3>No Thermostats at this Location</h3>
-        <p>No Daikin devices found for the <strong>${escapeHtml(locFilter)}</strong> location filter.</p>
+        <h3>Aucun thermostat à cet emplacement</h3>
+        <p>Aucun appareil Daikin trouvé pour le filtre d'emplacement <strong>${escapeHtml(locFilter)}</strong>.</p>
       </div>
     `;
     return;
@@ -6174,27 +6174,27 @@ function renderDaikinTab(force = false) {
 
     let badgeClass = 'idle';
     let badgeIcon = '○';
-    let badgeText = dev.equipment_status_desc || 'Idle';
+    let badgeText = dev.equipment_status_desc || 'Au repos';
     if (!dev.is_online) {
       badgeClass = 'off';
       badgeIcon = '⚠️';
-      badgeText = 'Offline';
+      badgeText = 'Hors ligne';
     } else if (isHeating) {
       badgeClass = 'heating';
       badgeIcon = '🔥';
-      badgeText = 'Heating';
+      badgeText = 'Chauffage';
     } else if (isCooling) {
       badgeClass = 'cooling';
       badgeIcon = '❄️';
-      badgeText = 'Cooling';
+      badgeText = 'Climatisation';
     } else if (isFan) {
       badgeClass = 'fan';
       badgeIcon = '🔄';
-      badgeText = 'Fan';
+      badgeText = 'Ventilation';
     } else if (isOff) {
       badgeClass = 'off';
       badgeIcon = '○';
-      badgeText = 'Off';
+      badgeText = 'Arrêt';
     }
 
     const indoorTempDisplay = dev.temp_indoor_c != null ? formatTemp(dev.temp_indoor_c, 1) : '—';
@@ -6202,11 +6202,11 @@ function renderDaikinTab(force = false) {
 
     let targetSub = '';
     if (dev.mode === 1 && dev.heat_setpoint_c != null) {
-      targetSub = `Target: ${formatTemp(dev.heat_setpoint_c, 1)}`;
+      targetSub = `Cible : ${formatTemp(dev.heat_setpoint_c, 1)}`;
     } else if (dev.mode === 2 && dev.cool_setpoint_c != null) {
-      targetSub = `Target: ${formatTemp(dev.cool_setpoint_c, 1)}`;
+      targetSub = `Cible : ${formatTemp(dev.cool_setpoint_c, 1)}`;
     } else if (dev.mode === 3) {
-      targetSub = `Auto: ${formatTemp(dev.heat_setpoint_c, 1)} – ${formatTemp(dev.cool_setpoint_c, 1)}`;
+      targetSub = `Auto : ${formatTemp(dev.heat_setpoint_c, 1)} – ${formatTemp(dev.cool_setpoint_c, 1)}`;
     }
 
     // Setpoints Controls HTML
@@ -6224,13 +6224,13 @@ function renderDaikinTab(force = false) {
       setpointsHtml = `
         <div class="daikin-setpoint-row">
           <div style="display:flex; flex-direction:column">
-            <span style="font-size:13px; font-weight:600; color:#fb923c">🔥 Heating Target</span>
-            <span class="hint" style="font-size:11px">Range: ${minDisplay} – ${maxDisplay}</span>
+            <span style="font-size:13px; font-weight:600; color:#fb923c">🔥 Consigne de chauffage</span>
+            <span class="hint" style="font-size:11px">Plage : ${minDisplay} – ${maxDisplay}</span>
           </div>
           <div class="daikin-sp-controls">
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="-0.5" title="Decrease temperature">−</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="-0.5" title="Diminuer la température">−</button>
             <span class="daikin-sp-val" id="daikin-sp-val-heat-${dev.id}">${heatDisplay}</span>
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="0.5" title="Increase temperature">+</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="0.5" title="Augmenter la température">+</button>
           </div>
         </div>
       `;
@@ -6239,13 +6239,13 @@ function renderDaikinTab(force = false) {
       setpointsHtml = `
         <div class="daikin-setpoint-row">
           <div style="display:flex; flex-direction:column">
-            <span style="font-size:13px; font-weight:600; color:#38bdf8">❄️ Cooling Target</span>
-            <span class="hint" style="font-size:11px">Range: ${minDisplay} – ${maxDisplay}</span>
+            <span style="font-size:13px; font-weight:600; color:#38bdf8">❄️ Consigne de climatisation</span>
+            <span class="hint" style="font-size:11px">Plage : ${minDisplay} – ${maxDisplay}</span>
           </div>
           <div class="daikin-sp-controls">
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="-0.5" title="Decrease temperature">−</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="-0.5" title="Diminuer la température">−</button>
             <span class="daikin-sp-val" id="daikin-sp-val-cool-${dev.id}">${coolDisplay}</span>
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="0.5" title="Increase temperature">+</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="0.5" title="Augmenter la température">+</button>
           </div>
         </div>
       `;
@@ -6254,24 +6254,24 @@ function renderDaikinTab(force = false) {
       setpointsHtml = `
         <div class="daikin-setpoint-row" style="margin-bottom:6px">
           <div style="display:flex; flex-direction:column">
-            <span style="font-size:13px; font-weight:600; color:#fb923c">🔥 Heat Setpoint</span>
-            <span class="hint" style="font-size:11px">Auto mode (${deltaDisplay} deadband)</span>
+            <span style="font-size:13px; font-weight:600; color:#fb923c">🔥 Consigne chauffage</span>
+            <span class="hint" style="font-size:11px">Mode Auto (zone morte ${deltaDisplay})</span>
           </div>
           <div class="daikin-sp-controls">
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="-0.5" title="Decrease heating target">−</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="-0.5" title="Diminuer la consigne de chauffage">−</button>
             <span class="daikin-sp-val">${heatDisplay}</span>
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="0.5" title="Increase heating target">+</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="heat" data-delta="0.5" title="Augmenter la consigne de chauffage">+</button>
           </div>
         </div>
         <div class="daikin-setpoint-row">
           <div style="display:flex; flex-direction:column">
-            <span style="font-size:13px; font-weight:600; color:#38bdf8">❄️ Cool Setpoint</span>
-            <span class="hint" style="font-size:11px">Auto mode (${deltaDisplay} deadband)</span>
+            <span style="font-size:13px; font-weight:600; color:#38bdf8">❄️ Consigne climatisation</span>
+            <span class="hint" style="font-size:11px">Mode Auto (zone morte ${deltaDisplay})</span>
           </div>
           <div class="daikin-sp-controls">
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="-0.5" title="Decrease cooling target">−</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="-0.5" title="Diminuer la consigne de climatisation">−</button>
             <span class="daikin-sp-val">${coolDisplay}</span>
-            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="0.5" title="Increase cooling target">+</button>
+            <button type="button" class="daikin-btn-step" data-dev="${dev.id}" data-type="cool" data-delta="0.5" title="Augmenter la consigne de climatisation">+</button>
           </div>
         </div>
       `;
@@ -6279,7 +6279,7 @@ function renderDaikinTab(force = false) {
       // Off mode
       setpointsHtml = `
         <div style="text-align:center; padding:8px 0;">
-          <span class="hint" style="font-size:12px">Thermostat mode is Off. Select Heat, Cool, or Auto above to adjust setpoints.</span>
+          <span class="hint" style="font-size:12px">Le mode du thermostat est Arrêt. Sélectionnez Chauffe, Clim ou Auto ci-dessus pour ajuster les consignes.</span>
         </div>
       `;
     }
@@ -6287,8 +6287,8 @@ function renderDaikinTab(force = false) {
     const isHistOpen = _daikinOpenDeviceHistories.has(dev.id);
     const histHours = _daikinDevHours[dev.id] || 24;
 
-    const speedLabels = ['Low', 'Medium', 'High'];
-    const curSpeedLabel = speedLabels[dev.fan_circulate_speed || 0] || 'Low';
+    const speedLabels = ['Faible', 'Moyenne', 'Élevée'];
+    const curSpeedLabel = speedLabels[dev.fan_circulate_speed || 0] || 'Faible';
     const circRuntime = dev.fan_circulate_runtime_1h_min != null ? dev.fan_circulate_runtime_1h_min : (dev.equipment_status === 4 ? 60 : 0);
     const totalRuntime = dev.fan_total_runtime_1h_min != null ? dev.fan_total_runtime_1h_min : circRuntime;
 
@@ -6298,8 +6298,8 @@ function renderDaikinTab(force = false) {
       const remSec = dev.air_clean.remaining_s != null ? dev.air_clean.remaining_s : 0;
       const prevCircIdx = dev.air_clean.previous_fan_circulate != null ? dev.air_clean.previous_fan_circulate : 0;
       const prevSpeedIdx = dev.air_clean.previous_fan_circulate_speed != null ? dev.air_clean.previous_fan_circulate_speed : 0;
-      const prevCircName = ['Auto', 'Always On', 'Fan Schedule'][prevCircIdx] || 'Auto';
-      const prevSpeedName = speedLabels[prevSpeedIdx] || 'Low';
+      const prevCircName = ['Auto', 'Toujours actif', 'Horaire ventil.'][prevCircIdx] || 'Auto';
+      const prevSpeedName = speedLabels[prevSpeedIdx] || 'Faible';
       const prevDesc = `${prevCircName} (${prevSpeedName})`;
 
       airCleanBannerHtml = `
@@ -6307,13 +6307,13 @@ function renderDaikinTab(force = false) {
           <div class="daikin-airclean-banner-left">
             <span class="daikin-airclean-pulse-icon">🫧</span>
             <div>
-              <div class="daikin-airclean-banner-title">Air Clean Active (Medium Fan)</div>
+              <div class="daikin-airclean-banner-title">Purification d'air active (Ventil. moyenne)</div>
               <div class="daikin-airclean-banner-sub">
-                ⏱️ <strong class="daikin-airclean-timer-text" data-dev="${dev.id}" data-expires="${dev.air_clean.expires_at || 0}">${formatAirCleanRemaining(remSec)}</strong> remaining &bull; Restores ${prevDesc}
+                ⏱️ <strong class="daikin-airclean-timer-text" data-dev="${dev.id}" data-expires="${dev.air_clean.expires_at || 0}">${formatAirCleanRemaining(remSec)}</strong> restant &bull; Rétablit ${prevDesc}
               </div>
             </div>
           </div>
-          <button type="button" class="daikin-airclean-cancel-btn" data-dev="${dev.id}" title="Cancel Air Clean and restore previous settings">Cancel</button>
+          <button type="button" class="daikin-airclean-cancel-btn" data-dev="${dev.id}" title="Annuler la purification d'air et rétablir les réglages précédents">Annuler</button>
         </div>
       `;
     }
@@ -6323,14 +6323,14 @@ function renderDaikinTab(force = false) {
       fanSchedHtml = `
         <div class="daikin-fan-sched-box">
           <div class="daikin-fan-sched-header">
-            <span class="daikin-fan-sched-title">🔄 Fan Schedule Active</span>
-            <span class="daikin-fan-runtime-badge">⏱️ ${circRuntime} min / hr active</span>
+            <span class="daikin-fan-sched-title">🔄 Horaire de ventilation actif</span>
+            <span class="daikin-fan-runtime-badge">⏱️ ${circRuntime} min / h actif</span>
           </div>
           <div class="daikin-fan-sched-desc">
-            Circulating air at <strong>${curSpeedLabel}</strong> speed. Thermostat automatically cycles the fan on schedule.
+            Brassage d'air à vitesse <strong>${curSpeedLabel}</strong>. Le thermostat active automatiquement le ventilateur selon l'horaire.
           </div>
           <div class="daikin-fan-sched-hint">
-            💡 <em>Hourly circulation interval (5, 15, 30, or 45 min/hr) is configured on your Daikin One thermostat under Menu &rarr; Settings &rarr; Circulate Air.</em>
+            💡 <em>L'intervalle de brassage horaire (5, 15, 30 ou 45 min/h) est configuré sur votre thermostat Daikin One sous Menu &rarr; Paramètres &rarr; Brassage d'air.</em>
           </div>
         </div>
       `;
@@ -6338,11 +6338,11 @@ function renderDaikinTab(force = false) {
       fanSchedHtml = `
         <div class="daikin-fan-sched-box always-on">
           <div class="daikin-fan-sched-header">
-            <span class="daikin-fan-sched-title">💨 Always On (Continuous Circulation)</span>
-            <span class="daikin-fan-runtime-badge">⏱️ ${totalRuntime} min / hr active</span>
+            <span class="daikin-fan-sched-title">💨 Toujours actif (Brassage continu)</span>
+            <span class="daikin-fan-runtime-badge">⏱️ ${totalRuntime} min / h actif</span>
           </div>
           <div class="daikin-fan-sched-desc">
-            Blower fan runs 24/7 at <strong>${curSpeedLabel}</strong> speed for whole-home continuous air circulation and filtration.
+            Le ventilateur fonctionne 24h/24 à vitesse <strong>${curSpeedLabel}</strong> pour une circulation et une filtration continues dans toute la maison.
           </div>
         </div>
       `;
@@ -6350,11 +6350,11 @@ function renderDaikinTab(force = false) {
       fanSchedHtml = `
         <div class="daikin-fan-sched-box auto">
           <div class="daikin-fan-sched-header">
-            <span class="daikin-fan-sched-title">○ Auto Fan Mode</span>
-            <span class="daikin-fan-runtime-badge">⏱️ ${totalRuntime} min / hr active</span>
+            <span class="daikin-fan-sched-title">○ Mode ventilateur Auto</span>
+            <span class="daikin-fan-runtime-badge">⏱️ ${totalRuntime} min / h actif</span>
           </div>
           <div class="daikin-fan-sched-desc">
-            Blower fan only runs when heating or cooling demands are active.
+            Le ventilateur ne fonctionne que lors d'une demande active de chauffage ou de climatisation.
           </div>
         </div>
       `;
@@ -6382,10 +6382,10 @@ function renderDaikinTab(force = false) {
           </div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <div class="occupancy-system-row">
-              <span class="occupancy-system-label">❄️ Daikin:</span>
-              <div class="occupancy-pill-group" title="Set Daikin Heat Pump Home or Away mode independently from Sinopé">
-                <button type="button" class="occupancy-btn mode-home ${daikinOccMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(devLocId)}" data-occ-sys="daikin" data-occ-mode="home">🏠 Home</button>
-                <button type="button" class="occupancy-btn mode-away ${daikinOccMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(devLocId)}" data-occ-sys="daikin" data-occ-mode="away">🚗 Away (${daikinAwayHeat}°C)</button>
+              <span class="occupancy-system-label">❄️ Daikin :</span>
+              <div class="occupancy-pill-group" title="Définir le mode Présent ou Absent de la thermopompe Daikin indépendamment de Sinopé">
+                <button type="button" class="occupancy-btn mode-home ${daikinOccMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(devLocId)}" data-occ-sys="daikin" data-occ-mode="home">🏠 Présent</button>
+                <button type="button" class="occupancy-btn mode-away ${daikinOccMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(devLocId)}" data-occ-sys="daikin" data-occ-mode="away">🚗 Absent (${daikinAwayHeat}°C)</button>
               </div>
             </div>
             <span class="daikin-badge ${badgeClass}">${badgeIcon} ${escapeHtml(badgeText)}</span>
@@ -6397,13 +6397,13 @@ function renderDaikinTab(force = false) {
           <div class="daikin-indoor-temp-block">
             <div class="daikin-indoor-temp-val">${indoorTempDisplay}</div>
             <div class="daikin-indoor-sub">
-              <span>💧 ${dev.hum_indoor != null ? Math.round(dev.hum_indoor) + '% humidity' : 'Indoor'}</span>
+              <span>💧 ${dev.hum_indoor != null ? Math.round(dev.hum_indoor) + '% humidité' : 'Intérieur'}</span>
               ${targetSub ? `<span>·</span><span>🎯 ${targetSub}</span>` : ''}
             </div>
           </div>
           ${dev.temp_outdoor_c != null ? `
             <div class="daikin-outdoor-widget">
-              <span class="daikin-outdoor-label">Outdoor Heat Pump Sensor</span>
+              <span class="daikin-outdoor-label">Sonde extérieure thermopompe</span>
               <div class="daikin-outdoor-chip">
                 <span>❄️ ${outdoorTempDisplay}</span>
                 ${dev.hum_outdoor != null ? `<span style="font-size:11px; opacity:0.8">· 💧 ${Math.round(dev.hum_outdoor)}%</span>` : ''}
@@ -6414,12 +6414,12 @@ function renderDaikinTab(force = false) {
 
         <!-- Mode Selector Buttons -->
         <div class="daikin-mode-group">
-          <button type="button" class="daikin-mode-btn mode-off ${dev.mode === 0 ? 'on' : ''}" data-dev="${dev.id}" data-mode="0">○ Off</button>
-          <button type="button" class="daikin-mode-btn mode-heat ${dev.mode === 1 ? 'on' : ''}" data-dev="${dev.id}" data-mode="1">🔥 Heat</button>
-          <button type="button" class="daikin-mode-btn mode-cool ${dev.mode === 2 ? 'on' : ''}" data-dev="${dev.id}" data-mode="2">❄️ Cool</button>
+          <button type="button" class="daikin-mode-btn mode-off ${dev.mode === 0 ? 'on' : ''}" data-dev="${dev.id}" data-mode="0">○ Arrêt</button>
+          <button type="button" class="daikin-mode-btn mode-heat ${dev.mode === 1 ? 'on' : ''}" data-dev="${dev.id}" data-mode="1">🔥 Chauffe</button>
+          <button type="button" class="daikin-mode-btn mode-cool ${dev.mode === 2 ? 'on' : ''}" data-dev="${dev.id}" data-mode="2">❄️ Clim</button>
           <button type="button" class="daikin-mode-btn mode-auto ${dev.mode === 3 ? 'on' : ''}" data-dev="${dev.id}" data-mode="3">⚡ Auto</button>
           ${dev.mode_em_heat_available ? `
-            <button type="button" class="daikin-mode-btn mode-emheat ${dev.mode === 4 ? 'on' : ''}" data-dev="${dev.id}" data-mode="4">🚨 Aux Heat</button>
+            <button type="button" class="daikin-mode-btn mode-emheat ${dev.mode === 4 ? 'on' : ''}" data-dev="${dev.id}" data-mode="4">🚨 Aux.</button>
           ` : ''}
         </div>
 
@@ -6431,34 +6431,34 @@ function renderDaikinTab(force = false) {
         <!-- Secondary Controls (Fan, Schedule) -->
         <div class="daikin-secondary-controls">
           <div class="daikin-ctrl-item">
-            <span class="daikin-ctrl-label">Fan:</span>
-            <select class="daikin-select daikin-fan-mode-select ${dev.fan_circulate > 0 ? 'on' : ''}" data-dev="${dev.id}" title="Fan Circulation Mode">
+            <span class="daikin-ctrl-label">Ventil. :</span>
+            <select class="daikin-select daikin-fan-mode-select ${dev.fan_circulate > 0 ? 'on' : ''}" data-dev="${dev.id}" title="Mode de brassage du ventilateur">
               <option value="0" ${dev.fan_circulate === 0 ? 'selected' : ''}>Auto</option>
-              <option value="1" ${dev.fan_circulate === 1 ? 'selected' : ''}>Always On</option>
-              <option value="2" ${dev.fan_circulate === 2 ? 'selected' : ''}>Fan Schedule</option>
+              <option value="1" ${dev.fan_circulate === 1 ? 'selected' : ''}>Toujours actif</option>
+              <option value="2" ${dev.fan_circulate === 2 ? 'selected' : ''}>Horaire ventil.</option>
             </select>
-            <select class="daikin-select daikin-fan-speed-select" data-dev="${dev.id}" title="Fan Circulation Speed">
-              <option value="0" ${dev.fan_circulate_speed === 0 ? 'selected' : ''}>Speed: Low</option>
-              <option value="1" ${dev.fan_circulate_speed === 1 ? 'selected' : ''}>Speed: Med</option>
-              <option value="2" ${dev.fan_circulate_speed === 2 ? 'selected' : ''}>Speed: High</option>
+            <select class="daikin-select daikin-fan-speed-select" data-dev="${dev.id}" title="Vitesse de brassage du ventilateur">
+              <option value="0" ${dev.fan_circulate_speed === 0 ? 'selected' : ''}>Vitesse : Faible</option>
+              <option value="1" ${dev.fan_circulate_speed === 1 ? 'selected' : ''}>Vitesse : Moy.</option>
+              <option value="2" ${dev.fan_circulate_speed === 2 ? 'selected' : ''}>Vitesse : Élevée</option>
             </select>
           </div>
 
           <div class="daikin-ctrl-item">
-            <span class="daikin-ctrl-label">Schedule:</span>
-            <button type="button" class="daikin-btn-subtle daikin-sched-btn ${dev.schedule_enabled ? 'on' : ''}" data-dev="${dev.id}" title="Follow Programmed Schedule">
-              ${dev.schedule_enabled ? '📅 Following' : '⏸️ Hold'}
+            <span class="daikin-ctrl-label">Horaire :</span>
+            <button type="button" class="daikin-btn-subtle daikin-sched-btn ${dev.schedule_enabled ? 'on' : ''}" data-dev="${dev.id}" title="Suivre l'horaire programmé">
+              ${dev.schedule_enabled ? '📅 Suivi actif' : '⏸️ Maintien'}
             </button>
           </div>
 
           <div class="daikin-ctrl-item">
-            <button type="button" class="daikin-btn-subtle daikin-airclean-btn ${isAirCleanActive ? 'on' : ''}" data-dev="${dev.id}" title="${isAirCleanActive ? 'Air Clean is running (Medium fan for 3h)' : 'Start Air Clean: continuous Medium fan for 3 hours, then restore previous settings'}">
-              🫧 Air Clean${isAirCleanActive ? ' (Active)' : ''}
+            <button type="button" class="daikin-btn-subtle daikin-airclean-btn ${isAirCleanActive ? 'on' : ''}" data-dev="${dev.id}" title="${isAirCleanActive ? 'Purification d\'air en cours (Ventil. moyenne pendant 3h)' : 'Démarrer la purification d\'air : ventilateur moyen continu pendant 3 heures, puis retour aux réglages précédents'}">
+              🫧 Purif. d'air${isAirCleanActive ? ' (Actif)' : ''}
             </button>
           </div>
 
           <button type="button" class="daikin-btn-subtle daikin-hist-toggle-btn" data-dev="${dev.id}">
-            📊 ${isHistOpen ? 'Hide History' : 'History'}
+            📊 ${isHistOpen ? 'Masquer l\'historique' : 'Historique'}
           </button>
         </div>
 
@@ -6471,12 +6471,12 @@ function renderDaikinTab(force = false) {
         <!-- History Drawer -->
         <div class="daikin-history-drawer" id="daikin-hist-drawer-${dev.id}" ${isHistOpen ? '' : 'hidden'}>
           <div class="daikin-history-header">
-            <span style="font-size:12px; font-weight:600; color:var(--text-dim, #94a3b8)">Indoor vs Outdoor Temperature History</span>
+            <span style="font-size:12px; font-weight:600; color:var(--text-dim, #94a3b8)">Historique de température intérieure vs extérieure</span>
             <div class="range-picker daikin-dev-range-picker" data-dev="${dev.id}">
               <button type="button" class="sinope-loc-range-btn ${histHours === 6 ? 'on' : ''}" data-dev="${dev.id}" data-hours="6">6h</button>
               <button type="button" class="sinope-loc-range-btn ${histHours === 12 ? 'on' : ''}" data-dev="${dev.id}" data-hours="12">12h</button>
               <button type="button" class="sinope-loc-range-btn ${histHours === 24 ? 'on' : ''}" data-dev="${dev.id}" data-hours="24">24h</button>
-              <button type="button" class="sinope-loc-range-btn ${histHours === 168 ? 'on' : ''}" data-dev="${dev.id}" data-hours="168">7d</button>
+              <button type="button" class="sinope-loc-range-btn ${histHours === 168 ? 'on' : ''}" data-dev="${dev.id}" data-hours="168">7j</button>
             </div>
           </div>
           <div style="position:relative; width:100%">
@@ -7033,7 +7033,7 @@ function drawHiloMeterChart(hist, hours) {
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Accumulating smart meter power history…', w / 2, h / 2);
+    ctx.fillText('Accumulation de l\'historique de puissance du compteur intelligent…', w / 2, h / 2);
     return;
   }
 
@@ -7184,7 +7184,7 @@ function initHiloTab() {
   // Tab poll button
   $('hilo-tab-poll-btn')?.addEventListener('click', async () => {
     const btn = $('hilo-tab-poll-btn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="poll-icon">⏳</span> Polling…'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="poll-icon">⏳</span> Actualisation…'; }
     try {
       const r = await fetch('/api/hilo/poll', { method: 'POST' });
       if (r.ok) {
@@ -7203,7 +7203,7 @@ function initHiloTab() {
     } catch (e) {
       console.warn('Hilo poll error:', e);
     } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = '<span class="poll-icon">🔄</span> Poll now'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = '<span class="poll-icon">🔄</span> Actualiser'; }
     }
   });
 
@@ -7257,11 +7257,11 @@ async function renderHiloTab(force = false) {
   if (pollTimeEl) {
     if (_lastHiloPollTs) {
       const elapsedM = Math.max(0, Math.round((Date.now() - _lastHiloPollTs) / 60000));
-      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+      pollTimeEl.textContent = elapsedM === 0 ? 'Dernière màj : à l\'instant' : `Dernière màj : il y a ${elapsedM} min`;
     } else if (meters.length) {
-      pollTimeEl.textContent = 'Last update: active';
+      pollTimeEl.textContent = 'Dernière màj : actif';
     } else {
-      pollTimeEl.textContent = 'Last update: —';
+      pollTimeEl.textContent = 'Dernière màj : —';
     }
   }
 
@@ -7760,11 +7760,11 @@ async function renderThinqTab(force = false) {
   if (pollTimeEl) {
     if (_lastThinqPollTs) {
       const elapsedM = Math.max(0, Math.round((Date.now() - _lastThinqPollTs) / 60000));
-      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+      pollTimeEl.textContent = elapsedM === 0 ? 'Dernière màj : à l\'instant' : `Dernière màj : il y a ${elapsedM} min`;
     } else if (devices.length) {
-      pollTimeEl.textContent = 'Last update: active';
+      pollTimeEl.textContent = 'Dernière màj : actif';
     } else {
-      pollTimeEl.textContent = 'Last update: —';
+      pollTimeEl.textContent = 'Dernière màj : —';
     }
   }
 
@@ -7792,10 +7792,10 @@ async function renderThinqTab(force = false) {
   }
   if (refrigEl) {
     if (anyDoorOpen) {
-      refrigEl.textContent = 'Door Ajar ⚠️';
+      refrigEl.textContent = 'Porte entrouverte ⚠️';
       refrigEl.style.color = '#ef4444';
     } else if (refrigList.length > 0) {
-      refrigEl.textContent = `${refrigList.length} Unit(s) OK`;
+      refrigEl.textContent = `${refrigList.length} appareil(s) OK`;
       refrigEl.style.color = '#10b981';
     } else {
       refrigEl.textContent = '—';
@@ -7815,10 +7815,10 @@ async function renderThinqTab(force = false) {
 
   // Group appliances by category
   const categories = [
-    { key: 'laundry', title: 'Laundry', icon: '🧺', items: filtered.filter(d => d.category === 'laundry') },
-    { key: 'refrigeration', title: 'Refrigeration', icon: '🧊', items: filtered.filter(d => d.category === 'refrigeration') },
-    { key: 'cooking', title: 'Cooking & Kitchen', icon: '🍳', items: filtered.filter(d => d.category === 'cooking') },
-    { key: 'other', title: 'Dishwashers & Climate', icon: '🍽️', items: filtered.filter(d => d.category !== 'laundry' && d.category !== 'refrigeration' && d.category !== 'cooking') },
+    { key: 'laundry', title: 'Buanderie', icon: '🧺', items: filtered.filter(d => d.category === 'laundry') },
+    { key: 'refrigeration', title: 'Réfrigération', icon: '🧊', items: filtered.filter(d => d.category === 'refrigeration') },
+    { key: 'cooking', title: 'Cuisson et cuisine', icon: '🍳', items: filtered.filter(d => d.category === 'cooking') },
+    { key: 'other', title: 'Lave-vaisselle et climatisation', icon: '🍽️', items: filtered.filter(d => d.category !== 'laundry' && d.category !== 'refrigeration' && d.category !== 'cooking') },
   ];
 
   let html = '';
@@ -7852,7 +7852,7 @@ async function renderThinqTab(force = false) {
 function renderThinqApplianceCard(d) {
   const isOnline = d.online !== false;
   const isRunning = !!(d.is_running || d.is_cooking);
-  const locLabel = (d.location_name || d.location_id || 'Home').toUpperCase();
+  const locLabel = (d.location_name || d.location_id || 'Maison').toUpperCase();
   const cardClasses = ['thinq-card'];
   if (isRunning) cardClasses.push('is-active');
   if (d.door_opened) cardClasses.push('door-alert');
@@ -7860,8 +7860,8 @@ function renderThinqApplianceCard(d) {
   let bodyHtml = '';
 
   if (d.category === 'laundry') {
-    const cycle = d.run_state || 'STANDBY';
-    const step = d.current_step || d.course || 'Ready';
+    const cycle = d.run_state || 'EN VEILLE';
+    const step = d.current_step || d.course || 'Prêt';
     let timeDisplay = '—';
     if (d.remaining_min != null && d.remaining_min > 0) {
       const h = Math.floor(d.remaining_min / 60);
@@ -7872,20 +7872,20 @@ function renderThinqApplianceCard(d) {
     bodyHtml = `
       <div class="thinq-stats-grid">
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Cycle State</span>
+          <span class="thinq-stat-label">État du cycle</span>
           <span class="thinq-stat-value" style="color:${isRunning ? '#3b82f6' : 'var(--text)'}">${escapeHtml(cycle)}</span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Remaining Time</span>
+          <span class="thinq-stat-label">Temps restant</span>
           <span class="thinq-stat-value" style="color:${isRunning ? 'var(--primary)' : 'var(--text)'}">${timeDisplay}</span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Sub-process / Step</span>
+          <span class="thinq-stat-label">Étape / Programme</span>
           <span class="thinq-stat-value">${escapeHtml(step)}</span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Door Status</span>
-          <span class="thinq-stat-value">${d.door_locked ? '🔒 Locked' : 'Unlocked'}</span>
+          <span class="thinq-stat-label">État de la porte</span>
+          <span class="thinq-stat-value">${d.door_locked ? '🔒 Verrouillée' : 'Déverrouillée'}</span>
         </div>
       </div>
     `;
@@ -7901,32 +7901,32 @@ function renderThinqApplianceCard(d) {
     bodyHtml = `
       ${d.door_opened ? `
         <div class="thinq-door-warning">
-          <span>⚠️</span> <span>Door is currently OPEN / AJAR</span>
+          <span>⚠️</span> <span>La porte est actuellement OUVERTE / ENTROUVERTE</span>
         </div>
       ` : ''}
       <div class="thinq-stats-grid">
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Fridge Compartment</span>
+          <span class="thinq-stat-label">Compartiment réfrigérateur</span>
           <span class="thinq-stat-value">${fridgeStr}</span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Freezer Compartment</span>
+          <span class="thinq-stat-label">Compartiment congélateur</span>
           <span class="thinq-stat-value">${freezerStr}</span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Express Freeze</span>
+          <span class="thinq-stat-label">Congélation express</span>
           <span class="thinq-stat-value" style="color:${d.express_freeze ? '#3b82f6' : 'var(--text-dim)'}">
-            ${d.express_freeze ? '❄️ Active' : 'Off'}
+            ${d.express_freeze ? '❄️ Actif' : 'Arrêt'}
           </span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Eco Mode</span>
-          <span class="thinq-stat-value">${d.eco_friendly ? '🌿 Eco Active' : 'Standard'}</span>
+          <span class="thinq-stat-label">Mode Éco</span>
+          <span class="thinq-stat-value">${d.eco_friendly ? '🌿 Éco actif' : 'Standard'}</span>
         </div>
       </div>
       <div class="thinq-controls-row">
         <button type="button" class="btn btn-ghost btn-tiny" onclick="toggleThinqExpressFreeze('${escapeHtml(d.device_id)}', '${escapeHtml(d.location_id)}', ${!d.express_freeze})">
-          ${d.express_freeze ? 'Stop Express Freeze' : '❄️ Start Express Freeze'}
+          ${d.express_freeze ? 'Arrêter Congélation express' : '❄️ Activer Congélation express'}
         </button>
       </div>
     `;
@@ -7941,7 +7941,7 @@ function renderThinqApplianceCard(d) {
           let cCurrent = c.current_temp_c != null ? formatTemp(c.current_temp_c, 0) : '—';
           if (cCurrent === '—') {
             if (c.state === 'PREHEATING') {
-              cCurrent = 'Preheating…';
+              cCurrent = 'Préchauffage…';
             } else if ((c.state === 'COOKING_IN_PROGRESS' || c.is_active) && c.target_temp_c != null) {
               cCurrent = formatTemp(c.target_temp_c, 0);
             }
@@ -7953,34 +7953,34 @@ function renderThinqApplianceCard(d) {
             cTimer = h > 0 ? `${h}h ${m}m` : `${m}m`;
           }
 
-          let cState = c.state || (c.is_active ? 'ON' : 'OFF');
+          let cState = c.state || (c.is_active ? 'ACTIF' : 'ARRÊT');
           if (c.cook_mode && (cState === 'COOKING_IN_PROGRESS' || cState === 'COOKING')) {
             cState = c.cook_mode.charAt(0).toUpperCase() + c.cook_mode.slice(1).toLowerCase();
           } else if (cState === 'COOKING_IN_PROGRESS') {
-            cState = c.target_temp_c != null ? 'Baking' : 'Active';
+            cState = c.target_temp_c != null ? 'Cuisson' : 'Actif';
           } else if (cState === 'PREHEATING') {
-            cState = 'Preheating';
+            cState = 'Préchauffage';
           } else if (cState === 'INITIAL') {
-            cState = 'Off';
+            cState = 'Arrêt';
           }
 
           cavitiesHtml += `
             <div class="thinq-cavity-card ${c.is_active ? 'is-active' : ''}">
               <div class="thinq-cavity-header">
                 <span class="thinq-cavity-title">🔲 ${escapeHtml(c.name)}</span>
-                <span class="thinq-pill ${c.is_active ? 'pill-active' : 'pill-offline'}">${c.is_active ? escapeHtml(cState) : 'OFF'}</span>
+                <span class="thinq-pill ${c.is_active ? 'pill-active' : 'pill-offline'}">${c.is_active ? escapeHtml(cState) : 'ARRÊT'}</span>
               </div>
               <div class="thinq-cavity-grid">
                 <div class="thinq-stat-item">
-                  <span class="thinq-stat-label">Target</span>
+                  <span class="thinq-stat-label">Cible</span>
                   <span class="thinq-stat-value">${cTarget}</span>
                 </div>
                 <div class="thinq-stat-item">
-                  <span class="thinq-stat-label">Current</span>
+                  <span class="thinq-stat-label">Actuelle</span>
                   <span class="thinq-stat-value" style="color:${c.is_active ? '#22c55e' : 'var(--text)'}">${cCurrent}</span>
                 </div>
                 <div class="thinq-stat-item">
-                  <span class="thinq-stat-label">Timer</span>
+                  <span class="thinq-stat-label">Minuterie</span>
                   <span class="thinq-stat-value" style="color:${c.remaining_min ? '#f59e0b' : 'var(--text)'}">${c.remaining_min ? '⏱ ' + cTimer : '—'}</span>
                 </div>
               </div>
@@ -8005,7 +8005,7 @@ function renderThinqApplianceCard(d) {
               <div class="thinq-burner-icon">${b.is_active ? '🔥' : '⭕'}</div>
               <div class="thinq-burner-name">${escapeHtml(b.name)}</div>
               <div class="thinq-burner-power" style="color:${b.is_active ? '#f97316' : 'var(--text-dim)'}">
-                ${b.power_level > 0 ? `Level ${b.power_level}` : (b.is_active ? escapeHtml(b.state) : 'Off')}
+                ${b.power_level > 0 ? `Niveau ${b.power_level}` : (b.is_active ? escapeHtml(b.state) : 'Arrêt')}
               </div>
               ${b.remaining_min ? `<div class="thinq-burner-timer">⏱ ${bTimer}</div>` : ''}
             </div>
@@ -8016,17 +8016,17 @@ function renderThinqApplianceCard(d) {
       }
     } else {
       // Single zone / fallback
-      let cookState = d.run_state || 'OFF';
+      let cookState = d.run_state || 'ARRÊT';
       if (cookState === 'COOKING_IN_PROGRESS') {
-        cookState = 'Cooking';
+        cookState = 'En cuisson';
       } else if (cookState === 'PREHEATING') {
-        cookState = 'Preheating';
+        cookState = 'Préchauffage';
       }
       const targetStr = d.target_temp_c != null ? formatTemp(d.target_temp_c, 0) : '—';
       let currentStr = d.current_temp_c != null ? formatTemp(d.current_temp_c, 0) : '—';
       if (currentStr === '—') {
         if (d.run_state === 'PREHEATING') {
-          currentStr = 'Preheating…';
+          currentStr = 'Préchauffage…';
         } else if ((d.run_state === 'COOKING_IN_PROGRESS' || d.is_cooking) && d.target_temp_c != null) {
           currentStr = formatTemp(d.target_temp_c, 0);
         }
@@ -8041,19 +8041,19 @@ function renderThinqApplianceCard(d) {
       bodyHtml = `
         <div class="thinq-stats-grid">
           <div class="thinq-stat-item">
-            <span class="thinq-stat-label">Operation</span>
+            <span class="thinq-stat-label">Opération</span>
             <span class="thinq-stat-value" style="color:${d.is_cooking ? '#f59e0b' : 'var(--text)'}">${escapeHtml(cookState)}</span>
           </div>
           <div class="thinq-stat-item">
-            <span class="thinq-stat-label">Target Temp</span>
+            <span class="thinq-stat-label">Temp. cible</span>
             <span class="thinq-stat-value">${targetStr}</span>
           </div>
           <div class="thinq-stat-item">
-            <span class="thinq-stat-label">Current Cavity</span>
+            <span class="thinq-stat-label">Cavité actuelle</span>
             <span class="thinq-stat-value" style="color:${d.is_cooking ? '#22c55e' : 'var(--text)'}">${currentStr}</span>
           </div>
           <div class="thinq-stat-item">
-            <span class="thinq-stat-label">Timer</span>
+            <span class="thinq-stat-label">Minuterie</span>
             <span class="thinq-stat-value">${timeDisplay}</span>
           </div>
         </div>
@@ -8061,7 +8061,7 @@ function renderThinqApplianceCard(d) {
     }
   } else {
     // Dishwasher / Climate / Other
-    const stateStr = d.run_state || 'STANDBY';
+    const stateStr = d.run_state || 'EN VEILLE';
     let timeDisplay = '—';
     if (d.remaining_min != null && d.remaining_min > 0) {
       const h = Math.floor(d.remaining_min / 60);
@@ -8072,11 +8072,11 @@ function renderThinqApplianceCard(d) {
     bodyHtml = `
       <div class="thinq-stats-grid">
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Status</span>
+          <span class="thinq-stat-label">État</span>
           <span class="thinq-stat-value">${escapeHtml(stateStr)}</span>
         </div>
         <div class="thinq-stat-item">
-          <span class="thinq-stat-label">Remaining Time</span>
+          <span class="thinq-stat-label">Temps restant</span>
           <span class="thinq-stat-value">${timeDisplay}</span>
         </div>
       </div>
@@ -8095,8 +8095,8 @@ function renderThinqApplianceCard(d) {
           </span>
         </div>
         <div class="thinq-card-badges">
-          ${isRunning ? '<span class="thinq-pill pill-active">Active</span>' : ''}
-          <span class="thinq-pill ${isOnline ? 'pill-online' : 'pill-offline'}">${isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+          ${isRunning ? '<span class="thinq-pill pill-active">Actif</span>' : ''}
+          <span class="thinq-pill ${isOnline ? 'pill-online' : 'pill-offline'}">${isOnline ? 'EN LIGNE' : 'HORS LIGNE'}</span>
         </div>
       </div>
       <div class="thinq-card-body">
@@ -9089,11 +9089,11 @@ async function renderMideaTab(force = false) {
   if (pollTimeEl) {
     if (_lastMideaPollTs) {
       const elapsedM = Math.max(0, Math.round((Date.now() - _lastMideaPollTs) / 60000));
-      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+      pollTimeEl.textContent = elapsedM === 0 ? 'Dernière màj : à l\'instant' : `Dernière màj : il y a ${elapsedM} min`;
     } else if (devices.length) {
-      pollTimeEl.textContent = 'Last update: active';
+      pollTimeEl.textContent = 'Dernière màj : actif';
     } else {
-      pollTimeEl.textContent = 'Last update: —';
+      pollTimeEl.textContent = 'Dernière màj : —';
     }
   }
 
@@ -10065,9 +10065,9 @@ async function renderTeslaTab(forceRefresh = false) {
   if (pollTimeEl) {
     if (_lastTeslaPollTs) {
       const elapsedM = Math.max(0, Math.round((Date.now() - _lastTeslaPollTs) / 60000));
-      pollTimeEl.textContent = elapsedM === 0 ? 'Last update: just now' : `Last update: ${elapsedM}m ago`;
+      pollTimeEl.textContent = elapsedM === 0 ? 'Dernière màj : à l\'instant' : `Dernière màj : il y a ${elapsedM} min`;
     } else {
-      pollTimeEl.textContent = 'Last update: active';
+      pollTimeEl.textContent = 'Dernière màj : actif';
     }
   }
 
@@ -10122,7 +10122,7 @@ async function renderTeslaTab(forceRefresh = false) {
   if (kpiPowerSubEl) {
     const activeCount = filteredWcs.filter(w => (w.is_charging ?? w.charging)).length +
                         filteredVehs.filter(v => (v.is_charging ?? (v.charging_state === 'Charging'))).length;
-    kpiPowerSubEl.textContent = activeCount > 0 ? `${activeCount} session(s) active` : 'EVSE idle';
+    kpiPowerSubEl.textContent = activeCount > 0 ? `${activeCount} session(s) active(s)` : 'Borne au repos';
   }
 
   // Model Y Battery SOC%
@@ -10139,9 +10139,9 @@ async function renderTeslaTab(forceRefresh = false) {
   }
   if (kpiBattSubEl) {
     if (primaryVeh && primaryVeh.battery_range_km != null) {
-      kpiBattSubEl.textContent = `~${Math.round(primaryVeh.battery_range_km)} km range`;
+      kpiBattSubEl.textContent = `~${Math.round(primaryVeh.battery_range_km)} km d'autonomie`;
     } else {
-      kpiBattSubEl.textContent = 'State of Charge';
+      kpiBattSubEl.textContent = 'État de charge';
     }
   }
 
@@ -10150,7 +10150,7 @@ async function renderTeslaTab(forceRefresh = false) {
   const kpiLocSubEl = $('tesla-kpi-location-sub');
   if (kpiLocEl) {
     if (primaryVeh) {
-      kpiLocEl.textContent = primaryVeh.location_name || primaryVeh.geofence_name || 'Away';
+      kpiLocEl.textContent = primaryVeh.location_name || primaryVeh.geofence_name || 'Ailleurs';
     } else {
       kpiLocEl.textContent = '—';
     }
@@ -10159,7 +10159,7 @@ async function renderTeslaTab(forceRefresh = false) {
     if (primaryVeh && primaryVeh.latitude && primaryVeh.longitude) {
       kpiLocSubEl.textContent = `${primaryVeh.latitude.toFixed(3)}°, ${primaryVeh.longitude.toFixed(3)}°`;
     } else {
-      kpiLocSubEl.textContent = 'GPS Geofence';
+      kpiLocSubEl.textContent = 'Géorepérage GPS';
     }
   }
 
@@ -10169,13 +10169,13 @@ async function renderTeslaTab(forceRefresh = false) {
   if (kpiChgEl) {
     const isVehChg = primaryVeh && (primaryVeh.is_charging ?? (primaryVeh.charging_state === 'Charging'));
     if (isVehChg) {
-      kpiChgEl.textContent = primaryVeh.charger_name || primaryVeh.inferred_charger?.name || 'Charging';
+      kpiChgEl.textContent = primaryVeh.charger_name || primaryVeh.inferred_charger?.name || 'En charge';
     } else {
       const activeWc = filteredWcs.find(w => (w.is_charging ?? w.charging));
       if (activeWc) {
         kpiChgEl.textContent = activeWc.name || activeWc.device_name;
       } else {
-        kpiChgEl.textContent = (primaryVeh?.charging_state === 'Disconnected') ? 'Disconnected' : 'Idle';
+        kpiChgEl.textContent = (primaryVeh?.charging_state === 'Disconnected') ? 'Débranché' : 'Au repos';
       }
     }
   }
@@ -10186,7 +10186,7 @@ async function renderTeslaTab(forceRefresh = false) {
       const a = primaryVeh.charger_actual_current || 0;
       kpiChgSubEl.textContent = `${v}V @ ${a}A · ${((primaryVeh.power_w || 0) / 1000).toFixed(1)} kW`;
     } else {
-      kpiChgSubEl.textContent = 'EVSE in use';
+      kpiChgSubEl.textContent = 'Borne utilisée';
     }
   }
 
@@ -10241,31 +10241,31 @@ function renderTeslaWallConnectorCard(wc) {
     if (isCharging && pwr > 0) {
       voltCurrHtml = `~240<small>V</small> · ${Math.round(pwr / 240)}<small>A</small>`;
     } else {
-      voltCurrHtml = `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(Cloud)</small></span>`;
+      voltCurrHtml = `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>( Infonuagique )</small></span>`;
     }
   }
 
   let lifetimeHtml = `${lifetimeKwh.toLocaleString([], { maximumFractionDigits: 1 })}<small>kWh</small>`;
   if (isCloudOnly && (wc.lifetime_energy_wh == null && wc.lifetime_kwh == null)) {
-    lifetimeHtml = `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(LAN only)</small></span>`;
+    lifetimeHtml = `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(LAN uniq.)</small></span>`;
   }
 
   let sessionHtml = `${sessionKwh.toFixed(2)}<small>kWh</small>`;
   if (isCloudOnly && (wc.session_energy_wh == null && wc.session_kwh == null)) {
-    sessionHtml = isCharging ? `${sessionKwh.toFixed(2)}<small>kWh</small>` : `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(Standby)</small></span>`;
+    sessionHtml = isCharging ? `${sessionKwh.toFixed(2)}<small>kWh</small>` : `<span style="font-size:12px; color:var(--text-dim, #94a3b8)">— <small>(Veille)</small></span>`;
   }
 
-  let contactorText = wc.contactor_closed ? 'Closed (Engaged)' : (isCloudOnly ? 'Standby (Cloud)' : 'Open');
+  let contactorText = wc.contactor_closed ? 'Fermé (Engagé)' : (isCloudOnly ? 'Veille (Cloud)' : 'Ouvert');
   let contactorColor = wc.contactor_closed ? '#38bdf8' : 'inherit';
 
   let badgeClass = 'tesla-badge-idle';
-  let badgeText = 'Idle';
+  let badgeText = 'Au repos';
   if (isCharging) {
     badgeClass = 'tesla-badge-charging';
-    badgeText = `⚡ Charging (${(pwr / 1000).toFixed(1)} kW)`;
+    badgeText = `⚡ En charge (${(pwr / 1000).toFixed(1)} kW)`;
   } else if (isConn) {
     badgeClass = 'tesla-badge-connected';
-    badgeText = 'Vehicle Connected';
+    badgeText = 'Véhicule branché';
   }
 
   return `
@@ -10276,7 +10276,7 @@ function renderTeslaWallConnectorCard(wc) {
           <div>
             <h3 class="tesla-card-name">${escapeHtml(devName)}</h3>
             <div class="tesla-card-meta">
-              <span class="tesla-loc-tag">${escapeHtml((wc.location_id || 'home').toUpperCase())}</span>
+              <span class="tesla-loc-tag">${escapeHtml((wc.location_id || 'maison').toUpperCase())}</span>
               <span>· ${wc.ip ? `IP: ${escapeHtml(wc.ip)}` : 'Tesla Cloud'}</span>
             </div>
           </div>
@@ -10287,45 +10287,45 @@ function renderTeslaWallConnectorCard(wc) {
       <div class="tesla-card-body">
         <div class="tesla-metrics-grid">
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Active Power</div>
+            <div class="tesla-metric-label">Puissance active</div>
             <div class="tesla-metric-val">${pwr >= 1000 ? (pwr / 1000).toFixed(2) + '<small>kW</small>' : Math.round(pwr) + '<small>W</small>'}</div>
           </div>
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Voltage & Current</div>
+            <div class="tesla-metric-label">Tension et courant</div>
             <div class="tesla-metric-val">${voltCurrHtml}</div>
           </div>
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Session Energy</div>
+            <div class="tesla-metric-label">Énergie de session</div>
             <div class="tesla-metric-val">${sessionHtml}</div>
           </div>
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Lifetime Energy</div>
+            <div class="tesla-metric-label">Énergie à vie</div>
             <div class="tesla-metric-val">${lifetimeHtml}</div>
           </div>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-dim, #94a3b8); margin-top:2px;">
-          <span>Contactor: <b style="color:${contactorColor}">${contactorText}</b></span>
-          ${wc.handle_temp_c != null ? `<span>Handle: <b>${Math.round(wc.handle_temp_c)}°C</b></span>` : ''}
+          <span>Contacteur : <b style="color:${contactorColor}">${contactorText}</b></span>
+          ${wc.handle_temp_c != null ? `<span>Poignée : <b>${Math.round(wc.handle_temp_c)}°C</b></span>` : ''}
         </div>
 
         <!-- History Chart Section -->
         <div style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <button type="button" class="btn btn-ghost btn-tiny tesla-toggle-hist-btn" data-sn="${escapeHtml(wc.device_sn)}" style="font-size:12px;">
-              <span>${isHistOpen ? '▼' : '▶'}</span> History
+              <span>${isHistOpen ? '▼' : '▶'}</span> Historique
             </button>
             <div class="tesla-dev-range-picker" data-sn="${escapeHtml(wc.device_sn)}" style="${isHistOpen ? 'display:flex; gap:4px;' : 'display:none;'}">
               <button class="btn btn-ghost btn-tiny ${curHours === 6 ? 'active' : ''}" data-hours="6" data-sn="${escapeHtml(wc.device_sn)}">6h</button>
               <button class="btn btn-ghost btn-tiny ${curHours === 24 ? 'active' : ''}" data-hours="24" data-sn="${escapeHtml(wc.device_sn)}">24h</button>
-              <button class="btn btn-ghost btn-tiny ${curHours === 168 ? 'active' : ''}" data-hours="168" data-sn="${escapeHtml(wc.device_sn)}">7d</button>
+              <button class="btn btn-ghost btn-tiny ${curHours === 168 ? 'active' : ''}" data-hours="168" data-sn="${escapeHtml(wc.device_sn)}">7j</button>
             </div>
           </div>
 
           <div id="tesla-hist-body-${escapeHtml(wc.device_sn)}" style="${isHistOpen ? 'display:block;' : 'display:none;'} margin-top:8px;">
             <canvas id="chart-tesla-dev-${escapeHtml(wc.device_sn)}" style="width:100%; height:160px; display:block;"></canvas>
             <div style="display:flex; justify-content:flex-end; gap:12px; font-size:11px; color:var(--text-dim, #94a3b8); margin-top:4px;">
-              <span><span style="display:inline-block; width:10px; height:2px; background:#38bdf8; vertical-align:middle;"></span> Power (kW)</span>
+              <span><span style="display:inline-block; width:10px; height:2px; background:#38bdf8; vertical-align:middle;"></span> Puissance (kW)</span>
             </div>
           </div>
         </div>
@@ -10342,9 +10342,9 @@ function renderTeslaVehicleCard(veh) {
   const curHours = _teslaDevHours[veh.device_sn] || 24;
   const devName = veh.name || veh.device_name || 'Tesla Model Y';
   const pwrW = veh.power_w || (veh.charger_power_kw ? veh.charger_power_kw * 1000 : 0);
-  const chgName = veh.charger_name || veh.inferred_charger?.name || (isCharging ? 'Charging' : 'Idle');
+  const chgName = veh.charger_name || veh.inferred_charger?.name || (isCharging ? 'En charge' : 'Au repos');
   const isMobile = veh.charger_type?.startsWith('mobile') || veh.inferred_charger?.is_mobile;
-  const locName = veh.location_name || veh.geofence_name || 'Away';
+  const locName = veh.location_name || veh.geofence_name || 'Ailleurs';
   const timeRem = veh.time_to_full_charge_hours ?? veh.time_to_full_charge_hrs ?? 0;
 
   let inferChipHtml = '';
@@ -10355,7 +10355,7 @@ function renderTeslaVehicleCard(veh) {
         <div style="flex:1;">
           <div style="font-weight:600; font-size:13px; color:#38bdf8;">${escapeHtml(chgName)}</div>
           <div style="font-size:11px; color:var(--text-dim, #94a3b8); margin-top:1px;">
-            ${escapeHtml(isMobile ? 'Mobile Connector inferred via GPS & demand pattern' : 'EVSE session')}
+            ${escapeHtml(isMobile ? 'Chargeur mobile déduit via GPS et profil de demande' : 'Session de recharge VÉ')}
           </div>
         </div>
         <span class="tesla-badge tesla-badge-charging">${(pwrW / 1000).toFixed(1)} kW</span>
@@ -10364,21 +10364,21 @@ function renderTeslaVehicleCard(veh) {
   }
 
   let badgeClass = 'tesla-badge-idle';
-  let badgeText = veh.charging_state || 'Standby';
+  let badgeText = veh.charging_state || 'Veille';
   if (veh.is_asleep) {
     badgeClass = 'tesla-badge-idle';
-    badgeText = '💤 Asleep';
+    badgeText = '💤 En veille';
   } else if (isCharging) {
     badgeClass = 'tesla-badge-charging';
     badgeText = `⚡ ${(pwrW / 1000).toFixed(1)} kW`;
   } else if (veh.charging_state === 'Complete') {
     badgeClass = 'tesla-badge-connected';
-    badgeText = 'Charge Complete';
+    badgeText = 'Recharge terminée';
   }
 
   const wakeBtnHtml = veh.is_asleep && veh.vin ? `
-    <button type="button" class="btn btn-ghost btn-tiny tesla-wake-vehicle-btn" data-vin="${escapeHtml(veh.vin)}" style="font-size:11px; padding:2px 8px; border-color:rgba(56,189,248,0.3); color:#38bdf8;" title="Wake car from sleep">
-      ⚡ Wake Up
+    <button type="button" class="btn btn-ghost btn-tiny tesla-wake-vehicle-btn" data-vin="${escapeHtml(veh.vin)}" style="font-size:11px; padding:2px 8px; border-color:rgba(56,189,248,0.3); color:#38bdf8;" title="Réveiller le véhicule">
+      ⚡ Réveiller
     </button>
   ` : '';
 
@@ -10391,7 +10391,7 @@ function renderTeslaVehicleCard(veh) {
             <h3 class="tesla-card-name">${escapeHtml(devName)}</h3>
             <div class="tesla-card-meta">
               <span class="tesla-loc-tag">${escapeHtml(locName.toUpperCase())}</span>
-              <span>· VIN: …${escapeHtml((veh.vin || '').slice(-6))}</span>
+              <span>· NIV: …${escapeHtml((veh.vin || '').slice(-6))}</span>
             </div>
           </div>
         </div>
@@ -10410,7 +10410,7 @@ function renderTeslaVehicleCard(veh) {
               <span style="font-size:13px; color:var(--text-dim, #94a3b8); margin-left:6px;">${rangeKm != null ? `${rangeKm} km est.` : '—'}</span>
             </div>
             <div style="font-size:12px; color:var(--text-dim, #94a3b8);">
-              Limit: <b>${veh.charge_limit_soc != null ? veh.charge_limit_soc + '%' : '—'}</b>
+              Limite : <b>${veh.charge_limit_soc != null ? veh.charge_limit_soc + '%' : '—'}</b>
             </div>
           </div>
           <div class="tesla-battery-bar-track">
@@ -10418,7 +10418,7 @@ function renderTeslaVehicleCard(veh) {
           </div>
           ${isCharging && timeRem > 0 ? `
             <div style="font-size:11px; color:#38bdf8; text-align:right; margin-top:2px;">
-              ~${timeRem.toFixed(1)}h remaining until full
+              ~${timeRem.toFixed(1)}h restant avant charge complète
             </div>
           ` : ''}
         </div>
@@ -10427,19 +10427,19 @@ function renderTeslaVehicleCard(veh) {
 
         <div class="tesla-metrics-grid">
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Charge Rate</div>
+            <div class="tesla-metric-label">Vitesse de charge</div>
             <div class="tesla-metric-val">${veh.charger_voltage || 0}<small>V</small> @ ${veh.charger_actual_current || 0}<small>A</small></div>
           </div>
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Power Draw</div>
+            <div class="tesla-metric-label">Puissance tirée</div>
             <div class="tesla-metric-val">${(pwrW / 1000).toFixed(1)}<small>kW</small></div>
           </div>
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Energy Added</div>
+            <div class="tesla-metric-label">Énergie ajoutée</div>
             <div class="tesla-metric-val">${(veh.charge_energy_added_kwh || 0).toFixed(1)}<small>kWh</small></div>
           </div>
           <div class="tesla-metric">
-            <div class="tesla-metric-label">Location / Geofence</div>
+            <div class="tesla-metric-label">Emplacement / Géorepérage</div>
             <div class="tesla-metric-val" style="font-size:14px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(locName)}</div>
           </div>
         </div>
@@ -10448,12 +10448,12 @@ function renderTeslaVehicleCard(veh) {
         <div style="margin-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <button type="button" class="btn btn-ghost btn-tiny tesla-toggle-hist-btn" data-sn="${escapeHtml(veh.device_sn)}" style="font-size:12px;">
-              <span>${isHistOpen ? '▼' : '▶'}</span> History
+              <span>${isHistOpen ? '▼' : '▶'}</span> Historique
             </button>
             <div class="tesla-dev-range-picker" data-sn="${escapeHtml(veh.device_sn)}" style="${isHistOpen ? 'display:flex; gap:4px;' : 'display:none;'}">
               <button class="btn btn-ghost btn-tiny ${curHours === 6 ? 'active' : ''}" data-hours="6" data-sn="${escapeHtml(veh.device_sn)}">6h</button>
               <button class="btn btn-ghost btn-tiny ${curHours === 24 ? 'active' : ''}" data-hours="24" data-sn="${escapeHtml(veh.device_sn)}">24h</button>
-              <button class="btn btn-ghost btn-tiny ${curHours === 168 ? 'active' : ''}" data-hours="168" data-sn="${escapeHtml(veh.device_sn)}">7d</button>
+              <button class="btn btn-ghost btn-tiny ${curHours === 168 ? 'active' : ''}" data-hours="168" data-sn="${escapeHtml(veh.device_sn)}">7j</button>
             </div>
           </div>
 
@@ -10461,7 +10461,7 @@ function renderTeslaVehicleCard(veh) {
             <canvas id="chart-tesla-dev-${escapeHtml(veh.device_sn)}" style="width:100%; height:160px; display:block;"></canvas>
             <div style="display:flex; justify-content:flex-end; gap:12px; font-size:11px; color:var(--text-dim, #94a3b8); margin-top:4px;">
               <span><span style="display:inline-block; width:10px; height:2px; background:#10b981; vertical-align:middle;"></span> SOC (%)</span>
-              <span><span style="display:inline-block; width:10px; height:2px; background:#38bdf8; vertical-align:middle;"></span> Power (kW)</span>
+              <span><span style="display:inline-block; width:10px; height:2px; background:#38bdf8; vertical-align:middle;"></span> Puissance (kW)</span>
             </div>
           </div>
         </div>
@@ -10478,7 +10478,7 @@ function wireTeslaCardListeners(container) {
       const vin = btn.dataset.vin;
       if (!vin) return;
       btn.disabled = true;
-      btn.textContent = '⏳ Waking...';
+      btn.textContent = '⏳ Réveil...';
       try {
         const res = await fetch(`/api/tesla/vehicle/${encodeURIComponent(vin)}/wake`, { method: 'POST' });
         if (res.ok) {
@@ -10490,14 +10490,14 @@ function wireTeslaCardListeners(container) {
           }
         } else {
           const err = await res.json().catch(() => ({}));
-          alert(`Wake command failed: ${err.detail || res.statusText}`);
+          alert(`Échec de la commande de réveil : ${err.detail || res.statusText}`);
           btn.disabled = false;
-          btn.textContent = '⚡ Wake Up';
+          btn.textContent = '⚡ Réveiller';
         }
       } catch (err) {
         console.warn('Wake request error:', err);
         btn.disabled = false;
-        btn.textContent = '⚡ Wake Up';
+        btn.textContent = '⚡ Réveiller';
       }
     });
   });
@@ -10814,9 +10814,9 @@ async function renderKasaTab(forceRefresh = false) {
   if ($('kasa-last-poll-time')) {
     if (_lastKasaPollTs > 0) {
       const d = new Date(_lastKasaPollTs);
-      $('kasa-last-poll-time').textContent = `Last update: ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+      $('kasa-last-poll-time').textContent = `Dernière màj : ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
     } else {
-      $('kasa-last-poll-time').textContent = 'Last update: active';
+      $('kasa-last-poll-time').textContent = 'Dernière màj : actif';
     }
   }
 
@@ -10868,8 +10868,8 @@ async function renderKasaTab(forceRefresh = false) {
     container.innerHTML = `
       <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 36px 20px;">
         <div style="font-size: 32px; margin-bottom: 8px;">🔍</div>
-        <h3 style="margin: 0 0 6px 0; font-size: 16px;">No devices match the selected filters</h3>
-        <p class="hint" style="margin: 0;">Try selecting "All Locations" or "All Types".</p>
+        <h3 style="margin: 0 0 6px 0; font-size: 16px;">Aucun appareil ne correspond aux filtres sélectionnés</h3>
+        <p class="hint" style="margin: 0;">Essayez de sélectionner « Tous les emplacements » ou « Tous les types ».</p>
       </div>
     `;
     return;
@@ -10881,10 +10881,10 @@ async function renderKasaTab(forceRefresh = false) {
     const isOn = !!d.is_on;
     const isOnline = d.online !== false && d.status !== 'offline';
     const icon = isSw ? (isOn ? '💡' : '🔘') : '🔌';
-    const typeLabel = isSw ? 'Switch' : 'Plug';
+    const typeLabel = isSw ? 'Interrupteur' : 'Prise';
     const typeClass = isSw ? 'switch' : 'plug';
     const alias = escapeHtml(d.alias || d.host);
-    const model = escapeHtml(d.model || 'Kasa Device');
+    const model = escapeHtml(d.model || 'Appareil Kasa');
     const host = escapeHtml(d.host);
     const locName = d.location_id ? (d.location_id.charAt(0).toUpperCase() + d.location_id.slice(1)) : 'Maison';
     const sn = d.device_sn || `kasa_${host.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
@@ -10896,9 +10896,9 @@ async function renderKasaTab(forceRefresh = false) {
     if (d.power_w != null) {
       powerText = `${d.power_w.toFixed(1)} W`;
     } else if (isSw) {
-      powerText = 'Switch only';
+      powerText = 'Interrupteur seul';
     } else {
-      powerText = 'No power meter';
+      powerText = 'Sans mesure W';
     }
 
     let runtimeText = '—';
@@ -10928,7 +10928,7 @@ async function renderKasaTab(forceRefresh = false) {
           <div class="kasa-card-badges">
             <span class="kasa-type-badge ${typeClass}">${typeLabel}</span>
             <span class="pill ${isOnline ? 'pill-online' : 'pill-offline'}" style="font-size:10px; padding:2px 6px;">
-              ${isOnline ? '● Online' : '○ Offline'}
+              ${isOnline ? '● En ligne' : '○ Hors ligne'}
             </span>
           </div>
         </div>
@@ -10936,21 +10936,21 @@ async function renderKasaTab(forceRefresh = false) {
         <div class="kasa-card-body">
           <div class="kasa-metrics-grid">
             <div class="kasa-metric">
-              <div class="kasa-metric-label">Status</div>
+              <div class="kasa-metric-label">État</div>
               <div class="kasa-metric-val" style="color:${isOn ? 'var(--accent, #10b981)' : 'var(--text-dim, #94a3b8)'}">
-                ${isOn ? '● Turned ON' : '○ Turned OFF'}
+                ${isOn ? '● Allumé (ON)' : '○ Éteint (OFF)'}
               </div>
             </div>
             <div class="kasa-metric">
-              <div class="kasa-metric-label">Power Draw</div>
+              <div class="kasa-metric-label">Puissance</div>
               <div class="kasa-metric-val">${powerText}</div>
             </div>
             <div class="kasa-metric">
-              <div class="kasa-metric-label">Today's Usage</div>
+              <div class="kasa-metric-label">Conso. aujourd'hui</div>
               <div class="kasa-metric-val" style="color:${energyText !== '—' ? 'var(--accent, #10b981)' : 'inherit'}">${energyText}</div>
             </div>
             <div class="kasa-metric">
-              <div class="kasa-metric-label">Location</div>
+              <div class="kasa-metric-label">Emplacement</div>
               <div class="kasa-metric-val">${escapeHtml(locName)}</div>
             </div>
           </div>
@@ -10959,13 +10959,13 @@ async function renderKasaTab(forceRefresh = false) {
             <button type="button" class="kasa-toggle-btn ${isOn ? 'is-on' : 'is-off'}"
                     data-host="${host}" data-on="${isOn ? 'true' : 'false'}"
                     onclick="toggleKasaDevice('${host}', ${!isOn}, this)">
-              <span>${isOn ? '⚡ Turn OFF' : '○ Turn ON'}</span>
+              <span>${isOn ? '⚡ Éteindre' : '○ Allumer'}</span>
             </button>
             <button type="button" class="btn btn-ghost btn-tiny ${isExpanded ? 'active' : ''}"
-                    onclick="toggleKasaDeviceHistory('${snEsc}', '${host}')" title="Toggle device history">
-              ${isExpanded ? '📉 Hide' : '📈 History'}
+                    onclick="toggleKasaDeviceHistory('${snEsc}', '${host}')" title="Afficher/masquer l'historique">
+              ${isExpanded ? '📉 Masquer' : '📈 Historique'}
             </button>
-            <button type="button" class="btn btn-ghost btn-tiny" title="Configure in Settings"
+            <button type="button" class="btn btn-ghost btn-tiny" title="Configurer dans Paramètres"
                     onclick="switchTab('settings'); selectSettingsSubtab('integrations'); $('settings-card-kasa')?.classList.remove('collapsed'); $('settings-card-kasa')?.scrollIntoView({behavior:'smooth'});">
               ⚙️
             </button>
@@ -10975,11 +10975,11 @@ async function renderKasaTab(forceRefresh = false) {
             <div class="kasa-dev-history-drawer" id="kasa-history-drawer-${snEsc}">
               <div class="kasa-dev-history-header">
                 <div class="kasa-dev-history-title-row">
-                  <span class="kasa-dev-history-title">📈 ${alias} History</span>
+                  <span class="kasa-dev-history-title">📈 Historique — ${alias}</span>
                   <div class="kasa-dev-history-stats" id="kasa-dev-stats-${snEsc}">
-                    <span><span class="lbl">Energy:</span> <b id="kasa-dev-energy-${snEsc}">—</b></span>
-                    <span><span class="lbl">Peak:</span> <b id="kasa-dev-peak-${snEsc}">—</b></span>
-                    <span><span class="lbl">Runtime:</span> <b id="kasa-dev-runtime-${snEsc}">—</b></span>
+                    <span><span class="lbl">Énergie :</span> <b id="kasa-dev-energy-${snEsc}">—</b></span>
+                    <span><span class="lbl">Pointe :</span> <b id="kasa-dev-peak-${snEsc}">—</b></span>
+                    <span><span class="lbl">Durée :</span> <b id="kasa-dev-runtime-${snEsc}">—</b></span>
                   </div>
                 </div>
                 <div class="kasa-dev-history-controls">
@@ -10987,16 +10987,16 @@ async function renderKasaTab(forceRefresh = false) {
                     <button type="button" class="kasa-dev-range-btn ${devHours === 6 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 6)">6h</button>
                     <button type="button" class="kasa-dev-range-btn ${devHours === 12 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 12)">12h</button>
                     <button type="button" class="kasa-dev-range-btn ${devHours === 24 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 24)">24h</button>
-                    <button type="button" class="kasa-dev-range-btn ${devHours === 168 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 168)">7d</button>
+                    <button type="button" class="kasa-dev-range-btn ${devHours === 168 ? 'on' : ''}" onclick="setKasaDevHistoryHours('${snEsc}', '${host}', 168)">7j</button>
                   </div>
-                  <button type="button" class="btn btn-ghost btn-tiny" onclick="toggleKasaDeviceHistory('${snEsc}', '${host}')" title="Close history">✕</button>
+                  <button type="button" class="btn btn-ghost btn-tiny" onclick="toggleKasaDeviceHistory('${snEsc}', '${host}')" title="Fermer l'historique">✕</button>
                 </div>
               </div>
               <div class="kasa-chart-canvas-wrap">
                 <canvas id="chart-kasa-dev-${snEsc}" class="kasa-dev-chart"></canvas>
               </div>
               <div class="kasa-chart-legend">
-                <span><i style="display:inline-block;width:8px;height:8px;background:#10b981;border-radius:2px;margin-right:4px;"></i> ${d.power_w != null ? 'Power (W)' : 'Active State (ON)'}</span>
+                <span><i style="display:inline-block;width:8px;height:8px;background:#10b981;border-radius:2px;margin-right:4px;"></i> ${d.power_w != null ? 'Puissance (W)' : 'État actif (ON)'}</span>
               </div>
             </div>
           ` : ''}
@@ -11660,19 +11660,19 @@ function applyStatus(s) {
     || s.device?.last_update_ts;
   const offAgo = offTs ? fmtDurationAgo(Math.max(0, Date.now() / 1000 - offTs)) : '';
 
-  let label = s.connection_status || 'unknown';
+  let label = s.connection_status || 'inconnu';
   if (s.connection_status === 'connected') {
     if (isDeviceOffline) {
       pill.classList.add('is-offline');
-      label = offAgo ? `device offline (${offAgo})` : 'device offline';
-      pill.title = offTs ? `Device disconnected from Wi-Fi at ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo})` : 'Device is offline (Wi-Fi disconnected)';
+      label = offAgo ? `appareil hors ligne (${offAgo})` : 'appareil hors ligne';
+      pill.title = offTs ? `Appareil déconnecté du Wi-Fi à ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo})` : 'L\'appareil est hors ligne (Wi-Fi déconnecté)';
     } else {
       pill.classList.add('is-connected');
-      label = 'connected';
+      label = 'connecté';
     }
   }
-  else if (['scanning', 'connecting'].includes(s.connection_status)) { pill.classList.add('is-connecting'); }
-  else if (s.connection_status === 'error') { pill.classList.add('is-error'); label = s.connection_error || 'error'; }
+  else if (['scanning', 'connecting'].includes(s.connection_status)) { pill.classList.add('is-connecting'); label = 'connexion…'; }
+  else if (s.connection_status === 'error') { pill.classList.add('is-error'); label = s.connection_error || 'erreur'; }
   txt.textContent = label;
 
   // Offline banner on Live tab
@@ -11682,12 +11682,12 @@ function applyStatus(s) {
       show(offlineBanner, true);
       const titleEl = $('device-offline-title');
       const detailEl = $('device-offline-detail');
-      const devName = s.device?.name || 'Battery';
-      if (titleEl) titleEl.textContent = `${devName} Disconnected from Wi-Fi`;
+      const devName = s.device?.name || 'Batterie';
+      if (titleEl) titleEl.textContent = `${devName} déconnectée du Wi-Fi`;
       if (detailEl) {
         detailEl.textContent = offTs
-          ? `Last reported fresh telemetry at ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo}). Values shown below reflect the last known snapshot.`
-          : 'This device is currently offline and not pushing updates. Values shown below reflect the last known snapshot.';
+          ? `Dernière télémétrie reçue à ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo}). Les valeurs affichées ci-dessous reflètent le dernier état connu.`
+          : 'Cet appareil est actuellement hors ligne et n\'envoie plus de mises à jour. Les valeurs affichées ci-dessous reflètent le dernier état connu.';
       }
     } else {
       show(offlineBanner, false);
@@ -11703,7 +11703,7 @@ function applyStatus(s) {
   // Source badges
   let srcLabel = s.source ? s.source.toUpperCase() : '—';
   if (isDeviceOffline) {
-    srcLabel = `${srcLabel} · OFFLINE`;
+    srcLabel = `${srcLabel} · HORS LIGNE`;
   }
   if ($('source-badge'))   $('source-badge').textContent = srcLabel;
   if ($('source-badge-2')) $('source-badge-2').textContent = srcLabel;
@@ -11758,24 +11758,24 @@ function applyStatus(s) {
   const ttEmpty = Number(t.time_remaining_h  ?? 0);
   let timeLabel;
   if (Math.abs(netW) < IDLE_W) {
-    timeLabel = 'Idle';
+    timeLabel = 'Au repos';
   } else if (netW > 0) {
     // Charging — show ETA to full so the label is never ambiguous
     if (ttFull > 0) {
-      timeLabel = `${fmt(ttFull, 1)} h until full`;
+      timeLabel = `${fmt(ttFull, 1)} h avant 100%`;
     } else {
       const wh = ((100 - soc) / 100) * capacityWh;
       const eta = wh / netW;
-      timeLabel = eta > 0 && isFinite(eta) ? `${fmt(eta, 1)} h until full` : 'Charging…';
+      timeLabel = eta > 0 && isFinite(eta) ? `${fmt(eta, 1)} h avant 100%` : 'En charge…';
     }
   } else {
     // Discharging — show ETA to empty
     if (ttEmpty > 0) {
-      timeLabel = `${fmt(ttEmpty, 1)} h until empty`;
+      timeLabel = `${fmt(ttEmpty, 1)} h d'autonomie`;
     } else {
       const wh = (soc / 100) * capacityWh;
       const eta = wh / Math.abs(netW);
-      timeLabel = eta > 0 && isFinite(eta) ? `${fmt(eta, 1)} h until empty` : 'Discharging…';
+      timeLabel = eta > 0 && isFinite(eta) ? `${fmt(eta, 1)} h d'autonomie` : 'En décharge…';
     }
   }
   $('battery-time').textContent = timeLabel;
@@ -11887,14 +11887,14 @@ function applyStatus(s) {
   // Device tab
   const dev = s.device || {};
   $('dev-name').textContent  = dev.name  || '—';
-  $('dev-model').textContent = dev.model_code != null ? `model ${dev.model_code}` : '—';
+  $('dev-model').textContent = dev.model_code != null ? `modèle ${dev.model_code}` : '—';
   $('dev-sn').textContent    = dev.device_sn || '—';
   if ($('dev-wifi-status')) {
     if (isDeviceOffline) {
-      const offDetail = offTs ? `since ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo})` : '';
-      $('dev-wifi-status').innerHTML = `<span style="color:#fbbf24">● Disconnected / Offline ${offDetail}</span>`;
+      const offDetail = offTs ? `depuis ${new Date(offTs * 1000).toLocaleTimeString()} (${offAgo})` : '';
+      $('dev-wifi-status').innerHTML = `<span style="color:#fbbf24">● Déconnecté / Hors ligne ${offDetail}</span>`;
     } else {
-      $('dev-wifi-status').innerHTML = '<span style="color:var(--accent)">● Connected (Online)</span>';
+      $('dev-wifi-status').innerHTML = '<span style="color:var(--accent)">● Connecté (En ligne)</span>';
     }
   }
   $('src-cloud').textContent = describeSrc(s.cloud);
@@ -17772,18 +17772,18 @@ function updateTopbarHiloPill() {
     const valStr = disagg.hasLiveMeter
       ? `${disagg.effectiveTotalW.toLocaleString()} W`
       : `~${disagg.trackedTotalW.toLocaleString()} W (est.)`;
-    txt.textContent = `Maison: ${valStr}`;
+    txt.textContent = `Maison : ${valStr}`;
     pill.title = disagg.hasLiveMeter
-      ? `Maison Hilo Smart Meter (Measured): ${disagg.effectiveTotalW.toLocaleString()} W`
-      : `Maison Estimated Devices: ~${disagg.trackedTotalW.toLocaleString()} W`;
+      ? `Compteur intelligent Hilo Maison (mesuré) : ${disagg.effectiveTotalW.toLocaleString()} W`
+      : `Appareils estimés Maison : ~${disagg.trackedTotalW.toLocaleString()} W`;
   } else if (_globalLocation === 'chalet') {
     const valStr = disagg.hasLiveMeter
       ? `${disagg.effectiveTotalW.toLocaleString()} W`
       : `~${disagg.trackedTotalW.toLocaleString()} W (est.)`;
-    txt.textContent = `Chalet: ${valStr}`;
+    txt.textContent = `Chalet : ${valStr}`;
     pill.title = disagg.hasLiveMeter
-      ? `Chalet Hilo Smart Meter (Measured): ${disagg.effectiveTotalW.toLocaleString()} W`
-      : `Chalet Estimated Total (known devices, Hilo meter out of range): ~${disagg.trackedTotalW.toLocaleString()} W`;
+      ? `Compteur intelligent Hilo Chalet (mesuré) : ${disagg.effectiveTotalW.toLocaleString()} W`
+      : `Total estimé au Chalet (appareils suivis, compteur Hilo hors de portée) : ~${disagg.trackedTotalW.toLocaleString()} W`;
   } else {
     const mPart = disagg.maisonHasLiveMeter
       ? `${disagg.maisonTotalW.toLocaleString()} W`
@@ -17792,7 +17792,7 @@ function updateTopbarHiloPill() {
       ? `${disagg.chaletTotalW.toLocaleString()} W`
       : `~${disagg.chaletTotalW.toLocaleString()} W est.`;
     txt.textContent = `${disagg.effectiveTotalW.toLocaleString()} W (🏠 ${mPart} · 🌲 ${cPart})`;
-    pill.title = `Combined Power: ${disagg.effectiveTotalW.toLocaleString()} W — Maison (${disagg.maisonHasLiveMeter ? 'Measured Meter' : 'Estimated'}): ${disagg.maisonTotalW.toLocaleString()} W + Chalet (${disagg.chaletHasLiveMeter ? 'Measured Meter' : 'Estimated Devices'}): ${disagg.chaletTotalW.toLocaleString()} W`;
+    pill.title = `Puissance combinée : ${disagg.effectiveTotalW.toLocaleString()} W — Maison (${disagg.maisonHasLiveMeter ? 'Compteur mesuré' : 'Estimé'}) : ${disagg.maisonTotalW.toLocaleString()} W + Chalet (${disagg.chaletHasLiveMeter ? 'Compteur mesuré' : 'Appareils estimés'}) : ${disagg.chaletTotalW.toLocaleString()} W`;
   }
   pill.hidden = false;
 }
@@ -17907,7 +17907,7 @@ async function setLocationOccupancyMode(locationId, mode, system = 'sinope', btn
     if (activeTab === 'daikin' && typeof renderDaikinTab === 'function') renderDaikinTab();
     if (activeTab === 'automation') renderUnifiedSchedulesTab();
   } catch (e) {
-    alert(`Failed to set ${lid} (${sys}) to ${mode.toUpperCase()}: ${e.message || e}`);
+    alert(`Impossible de basculer ${lid} (${sys}) en mode ${mode === 'away' ? 'ABSENT' : 'PRÉSENT'} : ${e.message || e}`);
   } finally {
     if (btnEl) btnEl.disabled = false;
   }
@@ -17939,7 +17939,7 @@ async function toggleSinopeController(devId, nextOn, btnEl = null) {
     if (activeTab === 'climate-all') renderUnifiedClimateTab(true);
     if (activeTab === 'sinope') renderSinopeTab();
   } catch (e) {
-    alert(`Failed to toggle Sinopé controller: ${e.message || e}`);
+    alert(`Impossible de commuter le contrôleur Sinopé : ${e.message || e}`);
   } finally {
     if (btnEl) btnEl.disabled = false;
   }
@@ -18051,39 +18051,39 @@ function buildHousesSummaryStripHtml() {
           </div>
           <div class="occupancy-system-stack">
             <div class="occupancy-system-row">
-              <span class="occupancy-system-label" title="Controls Sinopé thermostats &amp; synced live with Neviweb app">🔥 Sinopé:</span>
-              <div class="occupancy-pill-group" title="Switch Sinopé (Neviweb) ${escapeHtml(locName)} between Home and Away">
-                <button type="button" class="occupancy-btn mode-home ${sinopeMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Home</button>
-                <button type="button" class="occupancy-btn mode-away ${sinopeMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Away</button>
+              <span class="occupancy-system-label" title="Contrôle les thermostats Sinopé et se synchronise en direct avec l'application Neviweb">🔥 Sinopé :</span>
+              <div class="occupancy-pill-group" title="Basculer Sinopé (Neviweb) ${escapeHtml(locName)} entre Présent et Absent">
+                <button type="button" class="occupancy-btn mode-home ${sinopeMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="home">🏠 Présent</button>
+                <button type="button" class="occupancy-btn mode-away ${sinopeMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="sinope" data-occ-mode="away">🚗 Absent</button>
               </div>
             </div>
             ${locDaikin.length > 0 ? `
               <div class="occupancy-system-row">
-                <span class="occupancy-system-label" title="Controls Daikin Heat Pump independently from Sinopé">❄️ Daikin:</span>
-                <div class="occupancy-pill-group" title="Switch Daikin Heat Pump (${escapeHtml(locName)}) between Home (Schedule/Comfort) and Away (${daikinAwayHeat}°C)">
-                  <button type="button" class="occupancy-btn mode-home ${daikinMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="daikin" data-occ-mode="home">🏠 Home</button>
-                  <button type="button" class="occupancy-btn mode-away ${daikinMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="daikin" data-occ-mode="away">🚗 Away (${daikinAwayHeat}°C)</button>
+                <span class="occupancy-system-label" title="Contrôle la thermopompe Daikin indépendamment de Sinopé">❄️ Daikin :</span>
+                <div class="occupancy-pill-group" title="Basculer la thermopompe Daikin (${escapeHtml(locName)}) entre Présent (horaire/confort) et Absent (${daikinAwayHeat}°C)">
+                  <button type="button" class="occupancy-btn mode-home ${daikinMode === 'home' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="daikin" data-occ-mode="home">🏠 Présent</button>
+                  <button type="button" class="occupancy-btn mode-away ${daikinMode === 'away' ? 'on' : ''}" data-occ-loc="${escapeHtml(lid)}" data-occ-sys="daikin" data-occ-mode="away">🚗 Absent (${daikinAwayHeat}°C)</button>
                 </div>
               </div>
             ` : ''}
           </div>
         </div>
         <div class="house-kpis-row">
-          <div class="house-kpi-mini" title="${hasLiveMeter ? 'Live whole-home usage measured by Hydro-Québec / Hilo smart meter' : 'Estimated total from all known devices at this location (Hilo meter out of range / 0 W)'}">
-            <span class="lbl">${hasLiveMeter ? '⚡ Hilo Meter (Known)' : '⚡ Est. Usage (Devices)'}</span>
+          <div class="house-kpi-mini" title="${hasLiveMeter ? 'Consommation résidentielle mesurée en direct par le compteur intelligent Hydro-Québec / Hilo' : 'Total estimé à partir des appareils suivis à cet emplacement (compteur Hilo hors de portée / 0 W)'}">
+            <span class="lbl">${hasLiveMeter ? '⚡ Compteur Hilo (Mesuré)' : '⚡ Conso. estimée (Appareils)'}</span>
             <span class="val" style="color:${hasLiveMeter ? '#38bdf8' : '#fb923c'};">${hasLiveMeter ? `${totalW.toLocaleString()} W` : `~${totalW.toLocaleString()} W`}</span>
           </div>
           <div class="house-kpi-mini">
-            <span class="lbl">🌡️ Avg Indoor</span>
+            <span class="lbl">🌡️ Temp. moy.</span>
             <span class="val">${avgTempStr}</span>
           </div>
           <div class="house-kpi-mini">
-            <span class="lbl">💧 Avg Humidity</span>
+            <span class="lbl">💧 Humidité moy.</span>
             <span class="val">${avgHumStr}</span>
           </div>
           <div class="house-kpi-mini">
-            <span class="lbl">🔥 Active Climate</span>
-            <span class="val" style="font-size:12.5px;">${heatingCount}/${totalTherms} heat · ${dehumRunning} dehum</span>
+            <span class="lbl">🔥 Climat actif</span>
+            <span class="val" style="font-size:12.5px;">${heatingCount}/${totalTherms} chauff. · ${dehumRunning} déshum.</span>
           </div>
         </div>
       </div>
@@ -18126,14 +18126,14 @@ function renderHomeOverviewTab() {
       if (d.device_type === 'leak_sensor' && d.leak_status && !['ok', 'dry'].includes(d.leak_status.toLowerCase())) {
         alerts.push({
           level: 'danger',
-          text: `🚨 Water Leak Detected: ${d.name} (${d.location_name || d.location_id})`,
+          text: `🚨 Fuite d'eau détectée : ${d.name} (${d.location_name || d.location_id})`,
           tab: 'sinope',
         });
       }
       if (d.device_type === 'thermostat' && d.room_temp_c != null && d.room_temp_c < 5.0) {
         alerts.push({
           level: 'danger',
-          text: `❄️ Freeze Warning: ${d.name} is at ${formatTemp(d.room_temp_c, 1)} (${d.location_name || d.location_id})`,
+          text: `❄️ Alerte de gel : ${d.name} est à ${formatTemp(d.room_temp_c, 1)} (${d.location_name || d.location_id})`,
           tab: 'sinope',
         });
       }
@@ -18142,7 +18142,7 @@ function renderHomeOverviewTab() {
       if (d.tank_full) {
         alerts.push({
           level: 'warn',
-          text: `⚠️ Dehumidifier Water Tank Full: ${d.name} (${(d.location_id || 'maison').toUpperCase()}) — Empty bucket to resume`,
+          text: `⚠️ Bac du déshumidificateur plein : ${d.name} (${(d.location_id || 'maison').toUpperCase()}) — Videz le bac pour reprendre`,
           tab: 'midea',
         });
       }
@@ -18152,7 +18152,7 @@ function renderHomeOverviewTab() {
       if (prog && prog !== 'completed' && prog !== 'cancelled') {
         alerts.push({
           level: 'hilo',
-          text: `⚡ Défi Hilo (${prog.toUpperCase()}): ${ch.location_name || ch.location_id || ''}`,
+          text: `⚡ Défi Hilo (${prog.toUpperCase()}) : ${ch.location_name || ch.location_id || ''}`,
           tab: 'hilo',
         });
       }
@@ -18163,7 +18163,7 @@ function renderHomeOverviewTab() {
       alertsEl.innerHTML = alerts.map(a => `
         <div class="home-alert-banner ${a.level}">
           <span>${escapeHtml(a.text)}</span>
-          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('${a.tab}')">View &rarr;</button>
+          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('${a.tab}')">Voir &rarr;</button>
         </div>
       `).join('');
     } else {
@@ -18179,7 +18179,7 @@ function renderHomeOverviewTab() {
 
     // Daikin Heat Pumps + Danby Dehumidifiers
     if (fDaikin.length || fMidea.length) {
-      html += `<div class="home-climate-section-title"><span>❄️ Heat Pumps &amp; 💧 Dehumidifiers</span><span>${fDaikin.length + fMidea.length} unit(s)</span></div>`;
+      html += `<div class="home-climate-section-title"><span>❄️ Thermopompes &amp; 💧 Déshumidificateurs</span><span>${fDaikin.length + fMidea.length} appareil(s)</span></div>`;
       html += `<div class="home-climate-grid">`;
 
       fDaikin.forEach(d => {
@@ -18191,14 +18191,14 @@ function renderHomeOverviewTab() {
           <div class="quick-climate-card ${d.equipment_status === 1 || d.equipment_status === 3 ? 'is-active' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
               <div>
-                <div style="font-weight:600; font-size:13.5px;">❄️ ${escapeHtml(d.name || 'Daikin Heat Pump')}</div>
-                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · Outdoor: ${outTemp}</div>
+                <div style="font-weight:600; font-size:13.5px;">❄️ ${escapeHtml(d.name || 'Thermopompe Daikin')}</div>
+                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · Extérieur : ${outTemp}</div>
               </div>
-              <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Controls</button>
+              <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Contrôles</button>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
               <span style="font-size:22px; font-weight:700; font-family:var(--font-mono);">${inTemp}</span>
-              <span class="hint" style="font-size:12px;">Target: <b>${heatSp}</b> (${escapeHtml(d.mode_label || 'Heat')})</span>
+              <span class="hint" style="font-size:12px;">Cible : <b>${heatSp}</b> (${escapeHtml(d.mode_label || 'Chauffage')})</span>
             </div>
           </div>
         `;
@@ -18209,24 +18209,24 @@ function renderHomeOverviewTab() {
         const tgtHum = d.target_humidity ? Math.round(d.target_humidity) : 50;
         const isComp = Boolean(d.power && d.compressor_running);
         const locBadge = (d.location_id || 'maison').toUpperCase();
-        const statusTxt = !d.power ? 'Off' : (d.tank_full ? '⚠️ Tank Full' : (isComp ? '💧 Compressor On' : '🌪️ Fan Only'));
+        const statusTxt = !d.power ? 'Arrêt' : (d.tank_full ? '⚠️ Bac plein' : (isComp ? '💧 Compresseur actif' : '🌪️ Ventilateur seul'));
         html += `
           <div class="quick-climate-card ${isComp ? 'is-dehum-active' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
               <div>
-                <div style="font-weight:600; font-size:13.5px;">💧 ${escapeHtml(d.name || 'Danby Dehumidifier')}</div>
+                <div style="font-weight:600; font-size:13.5px;">💧 ${escapeHtml(d.name || 'Déshumidificateur Danby')}</div>
                 <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${statusTxt}</div>
               </div>
-              <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Schedule / More</button>
+              <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Horaire / Plus</button>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
               <div>
                 <span style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:#38bdf8;">${curHum}</span>
-                <span class="hint" style="font-size:11px; margin-left:4px;">RH</span>
+                <span class="hint" style="font-size:11px; margin-left:4px;">HR</span>
               </div>
               <div style="display:flex; align-items:center; gap:6px;">
-                <span class="hint" style="font-size:12px;">Target: <b>${tgtHum}%</b></span>
-                <button type="button" class="btn btn-tiny ${d.power ? 'btn-ghost' : 'btn-primary'}" onclick="switchTab('midea')">${d.power ? 'Adjust' : 'Turn On'}</button>
+                <span class="hint" style="font-size:12px;">Cible : <b>${tgtHum}%</b></span>
+                <button type="button" class="btn btn-tiny ${d.power ? 'btn-ghost' : 'btn-primary'}" onclick="switchTab('midea')">${d.power ? 'Ajuster' : 'Allumer'}</button>
               </div>
             </div>
           </div>
@@ -18239,7 +18239,7 @@ function renderHomeOverviewTab() {
     // Sinopé Thermostats (with direct 0.5°C stepper + read-only duty %)
     const therms = fSinope.filter(d => d.device_type === 'thermostat');
     if (therms.length) {
-      html += `<div class="home-climate-section-title"><span>🔥 Sinopé Baseboard Thermostats (0.5°C Controls)</span><span>${therms.length} zone(s)</span></div>`;
+      html += `<div class="home-climate-section-title"><span>🔥 Thermostats de plinthes Sinopé (contrôle par 0,5 °C)</span><span>${therms.length} zone(s)</span></div>`;
       html += `<div class="home-climate-grid">`;
       therms.forEach(d => {
         const curDisplay = d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—';
@@ -18255,7 +18255,7 @@ function renderHomeOverviewTab() {
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
               <div>
                 <div style="font-weight:600; font-size:13.5px;">${escapeHtml(d.name || d.device_sn)}</div>
-                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${pct}% duty (read-only)</div>
+                <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${pct}% cycle (lecture seule)</div>
               </div>
               <span style="font-family:var(--font-mono); font-size:12px; font-weight:600; color:${pct > 0 ? '#fb923c' : 'var(--text-dim)'};">${pwr} W</span>
             </div>
@@ -18279,13 +18279,13 @@ function renderHomeOverviewTab() {
     // Sinopé Water Heaters & Load Controllers (Calypso RM3500WF) — exclude leak sensors & valves
     const controllers = fSinope.filter(d => d.device_type !== 'leak_sensor' && d.device_type !== 'valve' && (d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35'))));
     if (controllers.length) {
-      html += `<div class="home-climate-section-title"><span>🚿 Water Heater Controllers &amp; Heavy Loads</span><span>${controllers.length} unit(s)</span></div>`;
+      html += `<div class="home-climate-section-title"><span>🚿 Contrôleurs de chauffe-eau &amp; charges lourdes</span><span>${controllers.length} appareil(s)</span></div>`;
       html += `<div class="home-climate-grid">`;
       controllers.forEach(d => {
-        const waterDisplay = d.water_temperature_c != null ? `💧 ${formatTemp(d.water_temperature_c, 1)}` : (d.is_on ? '⚡ Armed' : '○ Off');
+        const waterDisplay = d.water_temperature_c != null ? `💧 ${formatTemp(d.water_temperature_c, 1)}` : (d.is_on ? '⚡ Armé' : '○ Arrêt');
         const pwr = Math.round(d.power_w || 0);
-        const ratedW = d.load_watt ? `${Math.round(d.load_watt)} W rated` : 'Calypso RM3500WF';
-        const todayKwh = d.today_kwh != null ? ` · ${d.today_kwh.toFixed(1)} kWh today` : '';
+        const ratedW = d.load_watt ? `${Math.round(d.load_watt)} W nominal` : 'Calypso RM3500WF';
+        const todayKwh = d.today_kwh != null ? ` · ${d.today_kwh.toFixed(1)} kWh auj.` : '';
         const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
         const locBadge = (d.location_name || d.location_id || '').toUpperCase();
         const isReheating = Boolean(d.is_on && pwr > 10);
@@ -18294,20 +18294,20 @@ function renderHomeOverviewTab() {
           <div class="quick-climate-card ${isReheating ? 'is-active' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
               <div>
-                <div style="font-weight:600; font-size:13.5px;">🚿 ${escapeHtml(d.name || 'Water Heater')}</div>
+                <div style="font-weight:600; font-size:13.5px;">🚿 ${escapeHtml(d.name || 'Chauffe-eau')}</div>
                 <div class="hint" style="font-size:11px;">${escapeHtml(locBadge)} · ${ratedW}${todayKwh}</div>
               </div>
               <span style="font-family:var(--font-mono); font-size:12px; font-weight:600; color:${isReheating ? '#fb923c' : 'var(--text-dim)'};">
-                ${isReheating ? `${pwr} W` : (d.is_on ? 'Armed' : 'Off')}
+                ${isReheating ? `${pwr} W` : (d.is_on ? 'Armé' : 'Arrêt')}
               </span>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
               <span style="font-size:20px; font-weight:700; font-family:var(--font-mono);">${waterDisplay}</span>
               <div style="display:flex; align-items:center; gap:6px;">
                 <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
-                  ${d.is_on ? '⚡ Armed (Turn Off)' : '○ Off (Turn On)'}
+                  ${d.is_on ? '⚡ Armé (Éteindre)' : '○ Arrêt (Allumer)'}
                 </button>
-                <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('sinope')">History</button>
+                <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('sinope')">Historique</button>
               </div>
             </div>
           </div>
@@ -18317,7 +18317,7 @@ function renderHomeOverviewTab() {
     }
 
     if (!html) {
-      html = `<div class="hint" style="padding:18px; text-align:center;">Loading climate devices… Use the Climate &amp; Comfort tab to configure or poll devices.</div>`;
+      html = `<div class="hint" style="padding:18px; text-align:center;">Chargement des appareils climatiques… Utilisez l'onglet Climat &amp; Confort pour configurer ou sonder les appareils.</div>`;
     }
     climateEl.innerHTML = html;
   }
@@ -18336,25 +18336,25 @@ function renderHomeOverviewTab() {
     const denom = Math.max(1, effectiveTotalW, trackedW);
     const segs = disagg ? [
       ...disagg.categories.filter(c => c.watts > 0).map(c => ({ label: c.label, watts: c.watts, color: c.color, pct: Math.max(2, (c.watts / denom) * 100) })),
-      ...(hasLiveMeter && residualW > 0 ? [{ label: '🏠 Base / Unmonitored (Maison)', watts: residualW, color: '#475569', pct: Math.max(2, (residualW / denom) * 100) }] : []),
+      ...(hasLiveMeter && residualW > 0 ? [{ label: '🏠 Base / Non suivi (Maison)', watts: residualW, color: '#475569', pct: Math.max(2, (residualW / denom) * 100) }] : []),
     ] : [];
 
-    let firstKpiLbl = 'Known Total (Hilo Meter)';
+    let firstKpiLbl = 'Total connu (Compteur Hilo)';
     let firstKpiVal = `${effectiveTotalW.toLocaleString()} W`;
     let firstKpiColor = '#38bdf8';
     let firstKpiSub = '';
 
     if (_globalLocation === 'chalet' || !hasLiveMeter) {
-      firstKpiLbl = 'Estimated Total (Chalet)';
+      firstKpiLbl = 'Total estimé (Chalet)';
       firstKpiVal = `~${trackedW.toLocaleString()} W`;
       firstKpiColor = '#fb923c';
-      firstKpiSub = `<span class="hint" style="font-size:10.5px;">Sum of known devices (meter out of range)</span>`;
+      firstKpiSub = `<span class="hint" style="font-size:10.5px;">Somme des appareils connus (compteur hors de portée)</span>`;
     } else if (_globalLocation === 'all' && disagg) {
-      firstKpiLbl = 'Total Usage (Known + Est.)';
+      firstKpiLbl = 'Conso. totale (Connu + Est.)';
       firstKpiVal = `${effectiveTotalW.toLocaleString()} W`;
-      firstKpiSub = `<span class="hint" style="font-size:10.5px;">🏠 ${disagg.maisonTotalW.toLocaleString()} W meter + 🌲 ~${disagg.chaletTotalW.toLocaleString()} W est.</span>`;
+      firstKpiSub = `<span class="hint" style="font-size:10.5px;">🏠 ${disagg.maisonTotalW.toLocaleString()} W compteur + 🌲 ~${disagg.chaletTotalW.toLocaleString()} W est.</span>`;
     } else {
-      firstKpiSub = `<span class="hint" style="font-size:10.5px;">Measured via Hydro-Québec meter</span>`;
+      firstKpiSub = `<span class="hint" style="font-size:10.5px;">Mesuré par le compteur Hydro-Québec</span>`;
     }
 
     energyEl.innerHTML = `
@@ -18365,24 +18365,24 @@ function renderHomeOverviewTab() {
           ${firstKpiSub}
         </div>
         <div class="house-kpi-mini">
-          <span class="lbl">Tracked Devices (Known + Est.)</span>
+          <span class="lbl">Appareils suivis (Connu + Est.)</span>
           <span class="val" style="color:#fb923c; font-size:18px;">${trackedW.toLocaleString()} W</span>
           <span class="hint" style="font-size:10.5px;">Sinopé, Daikin, Danby, LG ThinQ</span>
         </div>
         <div class="house-kpi-mini">
-          <span class="lbl">Base / Unmonitored</span>
-          <span class="val" style="color:var(--text-dim); font-size:18px;">${hasLiveMeter ? residualW.toLocaleString() + ' W' : 'N/A (Est. mode)'}</span>
-          <span class="hint" style="font-size:10.5px;">${hasLiveMeter ? 'Maison Meter − Tracked' : 'No live meter at Chalet'}</span>
+          <span class="lbl">Base / Non suivi</span>
+          <span class="val" style="color:var(--text-dim); font-size:18px;">${hasLiveMeter ? residualW.toLocaleString() + ' W' : 'S/O (Mode est.)'}</span>
+          <span class="hint" style="font-size:10.5px;">${hasLiveMeter ? 'Compteur Maison − Suivis' : 'Aucun compteur en direct au Chalet'}</span>
         </div>
         <div class="house-kpi-mini">
-          <span class="lbl">Today Meter Energy</span>
+          <span class="lbl">Énergie compteur aujourd'hui</span>
           <span class="val" style="font-size:18px;">${hasLiveMeter ? meterTodayKwh.toFixed(1) + ' kWh' : '—'}</span>
-          <span class="hint" style="font-size:10.5px;">${hasLiveMeter ? 'Hydro-Québec cumulative' : 'Meter out of range'}</span>
+          <span class="hint" style="font-size:10.5px;">${hasLiveMeter ? 'Cumul Hydro-Québec' : 'Compteur hors de portée'}</span>
         </div>
       </div>
       ${segs.length ? `
-        <div class="disagg-stack-bar" style="height:12px; margin-top:12px;" title="Click Details to see per-device power breakdown">
-          ${segs.map(s => `<div class="disagg-segment" style="width:${s.pct.toFixed(1)}%; background:${s.color};" title="${escapeHtml(s.label)}: ${s.watts.toLocaleString()} W"></div>`).join('')}
+        <div class="disagg-stack-bar" style="height:12px; margin-top:12px;" title="Cliquez sur Détails pour voir la répartition par appareil">
+          ${segs.map(s => `<div class="disagg-segment" style="width:${s.pct.toFixed(1)}%; background:${s.color};" title="${escapeHtml(s.label)} : ${s.watts.toLocaleString()} W"></div>`).join('')}
         </div>
       ` : ''}
     `;
@@ -18398,30 +18398,30 @@ function renderHomeOverviewTab() {
       const soc = t.battery_percent != null ? `${t.battery_percent}%` : '—';
       const outW = t.output_power_w || 0;
       const inW = t.input_power_w || 0;
-      items.push(`🔋 <strong>Jackery Battery:</strong> SOC <b>${soc}</b> · In ${inW} W / Out ${outW} W`);
+      items.push(`🔋 <strong>Batterie Jackery :</strong> SOC <b>${soc}</b> · Entrée ${inW} W / Sortie ${outW} W`);
     }
     // Tesla EV
     fTesla.forEach(d => {
       if (d.device_type === 'vehicle' || d.battery_level != null) {
-        items.push(`🚗 <strong>${escapeHtml(d.name || 'Tesla Model Y')}:</strong> ${d.battery_level != null ? d.battery_level + '%' : '—'} (${escapeHtml(d.charging_state || 'Idle')})`);
+        items.push(`🚗 <strong>${escapeHtml(d.name || 'Tesla Model Y')} :</strong> ${d.battery_level != null ? d.battery_level + '%' : '—'} (${escapeHtml(d.charging_state || 'En veille')})`);
       } else if ((d.power_w || 0) > 50) {
-        items.push(`⚡ <strong>${escapeHtml(d.name || 'Wall Connector')}:</strong> Charging at ${Math.round(d.power_w)} W`);
+        items.push(`⚡ <strong>${escapeHtml(d.name || 'Wall Connector')} :</strong> En charge à ${Math.round(d.power_w)} W`);
       }
     });
     // Active ThinQ appliances
     fThinq.filter(d => d.is_running).forEach(d => {
-      items.push(`🧺 <strong>${escapeHtml(d.name || d.device_type)}:</strong> Running (${escapeHtml(d.run_state || 'Active')})`);
+      items.push(`🧺 <strong>${escapeHtml(d.name || d.device_type)} :</strong> En marche (${escapeHtml(d.run_state || 'Actif')})`);
     });
     // Water protection
     const leakSensors = fSinope.filter(d => d.device_type === 'leak_sensor');
     if (leakSensors.length) {
       const leaks = leakSensors.filter(d => d.leak_status && !['ok', 'dry'].includes(d.leak_status.toLowerCase())).length;
-      items.push(`💧 <strong>Water Protection:</strong> ${leaks === 0 ? `All Dry (${leakSensors.length} sensors OK)` : `🚨 ${leaks} LEAK ALERT`}`);
+      items.push(`💧 <strong>Protection dégât d'eau :</strong> ${leaks === 0 ? `Tout est sec (${leakSensors.length} capteurs OK)` : `🚨 ${leaks} ALERTE(S) DE FUITE`}`);
     }
 
     activeDevsEl.innerHTML = items.length
       ? `<ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13px;">${items.map(i => `<li>${i}</li>`).join('')}</ul>`
-      : `<div class="hint">No active appliances or EV sessions right now.</div>`;
+      : `<div class="hint">Aucun électroménager actif ou recharge VÉ en cours.</div>`;
   }
 }
 
@@ -18453,36 +18453,36 @@ function renderUnifiedClimateTab() {
     <div style="display:flex; flex-direction:column; gap:18px;">
       <section class="card">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>❄️ Daikin Heat Pumps (${fDaikin.length})</h2>
-          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('daikin')">Open Full Daikin Controls &amp; Air Clean &rarr;</button>
+          <h2>❄️ Thermopompes Daikin (${fDaikin.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('daikin')">Ouvrir les contrôles Daikin complets &rarr;</button>
         </div>
-        <p class="hint" style="margin:4px 0 10px;">Communicating heat pumps &amp; indoor/outdoor climate telemetry.</p>
+        <p class="hint" style="margin:4px 0 10px;">Thermopompes communicantes et télémétrie climatique intérieure/extérieure.</p>
         <div class="home-climate-grid">
           ${fDaikin.length ? fDaikin.map(d => `
             <div class="quick-climate-card">
               <div style="display:flex; justify-content:space-between;">
                 <strong>❄️ ${escapeHtml(d.name || 'Daikin')} (${escapeHtml((d.location_id || '').toUpperCase())})</strong>
-                <span class="hint">${escapeHtml(d.mode_label || 'Heat')}</span>
+                <span class="hint">${escapeHtml(d.mode_label || 'Chauffage')}</span>
               </div>
               <div style="font-size:22px; font-weight:700; font-family:var(--font-mono); margin:4px 0;">
                 ${d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—'}
-                <small class="hint">Indoor · Outdoor: ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'}</small>
+                <small class="hint">Intérieur · Extérieur : ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'}</small>
               </div>
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span class="hint">Heat Setpoint: <b>${d.heat_setpoint_c != null ? formatTemp(d.heat_setpoint_c, 1) : '—'}</b></span>
-                <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Adjust</button>
+                <span class="hint">Consigne chauff. : <b>${d.heat_setpoint_c != null ? formatTemp(d.heat_setpoint_c, 1) : '—'}</b></span>
+                <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Ajuster</button>
               </div>
             </div>
-          `).join('') : '<div class="hint">No Daikin heat pumps for this location filter.</div>'}
+          `).join('') : '<div class="hint">Aucune thermopompe Daikin pour ce filtre d\'emplacement.</div>'}
         </div>
       </section>
 
       <section class="card">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>💧 Danby Smart Dehumidifiers (${fMidea.length})</h2>
-          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('midea')">Open Full Dehumidifier Controls &amp; Schedules &rarr;</button>
+          <h2>💧 Déshumidificateurs intelligents Danby (${fMidea.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('midea')">Ouvrir les contrôles &amp; horaires Danby &rarr;</button>
         </div>
-        <p class="hint" style="margin:4px 0 10px;">Real-time ambient RH%, target humidity setpoints, compressor state, and water bucket monitoring.</p>
+        <p class="hint" style="margin:4px 0 10px;">Humidité relative ambiante en temps réel, consignes d'humidité, état du compresseur et surveillance du bac d'eau.</p>
         <div class="home-climate-grid">
           ${fMidea.length ? fMidea.map(d => {
             const isComp = Boolean(d.power && d.compressor_running);
@@ -18490,27 +18490,27 @@ function renderUnifiedClimateTab() {
               <div class="quick-climate-card ${isComp ? 'is-dehum-active' : ''}">
                 <div style="display:flex; justify-content:space-between;">
                   <strong>💧 ${escapeHtml(d.name || 'Danby')} (${escapeHtml((d.location_id || '').toUpperCase())})</strong>
-                  <span class="hint">${!d.power ? 'Off' : (d.tank_full ? '⚠️ Tank Full' : (isComp ? '💧 Compressor' : '🌪️ Fan Only'))}</span>
+                  <span class="hint">${!d.power ? 'Arrêt' : (d.tank_full ? '⚠️ Bac plein' : (isComp ? '💧 Compresseur' : '🌪️ Ventilateur seul'))}</span>
                 </div>
                 <div style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:#38bdf8; margin:4px 0;">
-                  ${d.current_humidity ? Math.round(d.current_humidity) + '%' : '—'} <small class="hint">Target: ${d.target_humidity || 50}%</small>
+                  ${d.current_humidity ? Math.round(d.current_humidity) + '%' : '—'} <small class="hint">Cible : ${d.target_humidity || 50}%</small>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <span class="hint">${d.schedule_enabled ? '📅 Schedule Active' : 'Manual Mode'}</span>
-                  <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Control</button>
+                  <span class="hint">${d.schedule_enabled ? '📅 Horaire actif' : 'Mode manuel'}</span>
+                  <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Contrôler</button>
                 </div>
               </div>
             `;
-          }).join('') : '<div class="hint">No Danby dehumidifiers for this location filter.</div>'}
+          }).join('') : '<div class="hint">Aucun déshumidificateur Danby pour ce filtre d\'emplacement.</div>'}
         </div>
       </section>
 
       <section class="card">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>🔥 Sinopé Baseboard Thermostats (${fSinope.length})</h2>
-          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('sinope')">Open Full Sinopé &amp; History Charts &rarr;</button>
+          <h2>🔥 Thermostats de plinthes Sinopé (${fSinope.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('sinope')">Ouvrir la vue Sinopé &amp; l'historique &rarr;</button>
         </div>
-        <p class="hint" style="margin:4px 0 10px;">Adjust setpoints in 0.5°C increments. Heating duty cycle (%) is displayed read-only and recorded continuously for power analysis.</p>
+        <p class="hint" style="margin:4px 0 10px;">Ajustez les consignes par pas de 0,5 °C. Le cycle de chauffe (%) est affiché en lecture seule et enregistré en continu pour l'analyse de puissance.</p>
         <div class="home-climate-grid">
           ${fSinope.length ? fSinope.map(d => {
             const curDisplay = d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—';
@@ -18524,7 +18524,7 @@ function renderUnifiedClimateTab() {
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                   <div>
                     <strong>${escapeHtml(d.name || d.device_sn)}</strong>
-                    <div class="hint" style="font-size:11px;">${escapeHtml((d.location_name || d.location_id || '').toUpperCase())} · ${pct}% duty</div>
+                    <div class="hint" style="font-size:11px;">${escapeHtml((d.location_name || d.location_id || '').toUpperCase())} · ${pct}% cycle</div>
                   </div>
                   <span style="font-family:var(--font-mono); font-size:12px; font-weight:600;">${pwr} W</span>
                 </div>
@@ -18541,46 +18541,46 @@ function renderUnifiedClimateTab() {
                 </div>
               </div>
             `;
-          }).join('') : '<div class="hint">No Sinopé thermostats for this location filter.</div>'}
+          }).join('') : '<div class="hint">Aucun thermostat Sinopé pour ce filtre d\'emplacement.</div>'}
         </div>
       </section>
 
       <section class="card">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-          <h2>🚿 Water Heater Controllers &amp; Heavy Loads (${fSinopeCtrls.length})</h2>
-          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('sinope')">Open Full Sinopé &amp; History Charts &rarr;</button>
+          <h2>🚿 Contrôleurs de chauffe-eau &amp; charges lourdes (${fSinopeCtrls.length})</h2>
+          <button type="button" class="btn btn-primary btn-tiny" onclick="switchTab('sinope')">Ouvrir la vue Sinopé &amp; l'historique &rarr;</button>
         </div>
-        <p class="hint" style="margin:4px 0 10px;">Sinopé Calypso (RM3500WF) water heater controllers with tank temperature, daily energy (kWh), and direct relay control.</p>
+        <p class="hint" style="margin:4px 0 10px;">Contrôleurs de chauffe-eau Sinopé Calypso (RM3500WF) avec température du réservoir, énergie quotidienne (kWh) et contrôle direct du relais.</p>
         <div class="home-climate-grid">
           ${fSinopeCtrls.length ? fSinopeCtrls.map(d => {
-            const waterDisplay = d.water_temperature_c != null ? `💧 ${formatTemp(d.water_temperature_c, 1)}` : (d.is_on ? '⚡ Armed' : '○ Off');
+            const waterDisplay = d.water_temperature_c != null ? `💧 ${formatTemp(d.water_temperature_c, 1)}` : (d.is_on ? '⚡ Armé' : '○ Arrêt');
             const pwr = Math.round(d.power_w || 0);
-            const ratedW = d.load_watt ? `${Math.round(d.load_watt)} W rated` : 'Calypso RM3500WF';
-            const todayKwh = d.today_kwh != null ? ` · ${d.today_kwh.toFixed(1)} kWh today` : '';
+            const ratedW = d.load_watt ? `${Math.round(d.load_watt)} W nominal` : 'Calypso RM3500WF';
+            const todayKwh = d.today_kwh != null ? ` · ${d.today_kwh.toFixed(1)} kWh auj.` : '';
             const devIdEsc = escapeHtml(String(d.id || d.device_sn.replace(/^sinope_/, '')));
             const isReheating = Boolean(d.is_on && pwr > 10);
             return `
               <div class="quick-climate-card ${isReheating ? 'is-active' : ''}">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                   <div>
-                    <strong>🚿 ${escapeHtml(d.name || 'Water Heater')}</strong>
+                    <strong>🚿 ${escapeHtml(d.name || 'Chauffe-eau')}</strong>
                     <div class="hint" style="font-size:11px;">${escapeHtml((d.location_name || d.location_id || '').toUpperCase())} · ${ratedW}${todayKwh}</div>
                   </div>
                   <span style="font-family:var(--font-mono); font-size:12px; font-weight:600; color:${isReheating ? '#fb923c' : 'var(--text-dim)'};">
-                    ${isReheating ? `${pwr} W` : (d.is_on ? 'Armed' : 'Off')}
+                    ${isReheating ? `${pwr} W` : (d.is_on ? 'Armé' : 'Arrêt')}
                   </span>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
                   <span style="font-size:20px; font-weight:700; font-family:var(--font-mono);">${waterDisplay}</span>
                   <div style="display:flex; align-items:center; gap:6px;">
                     <button type="button" class="btn btn-tiny sinope-ctrl-toggle-btn ${d.is_on ? 'btn-ghost' : 'btn-primary'}" data-sinope-ctrl-id="${devIdEsc}" data-sinope-next-on="${!d.is_on}" ${!d.is_online ? 'disabled' : ''}>
-                      ${d.is_on ? '⚡ Armed (Turn Off)' : '○ Off (Turn On)'}
+                      ${d.is_on ? '⚡ Armé (Éteindre)' : '○ Arrêt (Allumer)'}
                     </button>
                   </div>
                 </div>
               </div>
             `;
-          }).join('') : '<div class="hint">No water heater controllers for this location filter.</div>'}
+          }).join('') : '<div class="hint">Aucun contrôleur de chauffe-eau pour ce filtre d\'emplacement.</div>'}
         </div>
       </section>
     </div>
@@ -18605,7 +18605,7 @@ function renderUnifiedSchedulesTab() {
   container.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:18px;">
       <div>
-        <h3 style="margin:0 0 10px; font-size:14px;">🏠 House Occupancy Modes (Home / Away Setback)</h3>
+        <h3 style="margin:0 0 10px; font-size:14px;">🏠 Modes d'occupation des résidences (Présent / Absent)</h3>
         <div class="home-houses-grid">
           ${buildHousesSummaryStripHtml()}
         </div>
@@ -18613,8 +18613,8 @@ function renderUnifiedSchedulesTab() {
 
       <div style="padding-top:12px; border-top:1px solid var(--border-soft);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <h3 style="margin:0; font-size:14px;">💧 Danby Dehumidifier Weekly Schedules (${fMidea.length})</h3>
-          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Edit in Danby View &rarr;</button>
+          <h3 style="margin:0; font-size:14px;">💧 Horaires hebdomadaires des déshumidificateurs Danby (${fMidea.length})</h3>
+          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('midea')">Modifier dans la vue Danby &rarr;</button>
         </div>
         <div class="home-climate-grid">
           ${fMidea.length ? fMidea.map(d => {
@@ -18629,19 +18629,19 @@ function renderUnifiedSchedulesTab() {
                   <span class="hint">${escapeHtml((d.location_id || 'maison').toUpperCase())}</span>
                 </div>
                 <div style="font-size:13px; margin:4px 0; color:${schedEn ? 'var(--accent)' : 'var(--text-dim)'}; font-weight:600;">
-                  ${schedEn ? `✓ Schedule Enabled (${schedCount} event${schedCount === 1 ? '' : 's'})` : '⏸️ Schedule Disabled'}
+                  ${schedEn ? `✓ Horaire activé (${schedCount} événement${schedCount === 1 ? '' : 's'})` : '⏸️ Horaire désactivé'}
                 </div>
-                <button type="button" class="btn btn-ghost btn-tiny" onclick="_mideaOpenDeviceSchedules.add('${escapeHtml(devId)}'); switchTab('midea');">Configure Schedule &rarr;</button>
+                <button type="button" class="btn btn-ghost btn-tiny" onclick="_mideaOpenDeviceSchedules.add('${escapeHtml(devId)}'); switchTab('midea');">Configurer l'horaire &rarr;</button>
               </div>
             `;
-          }).join('') : '<div class="hint">No Danby dehumidifiers found.</div>'}
+          }).join('') : '<div class="hint">Aucun déshumidificateur Danby trouvé.</div>'}
         </div>
       </div>
 
       <div style="padding-top:12px; border-top:1px solid var(--border-soft);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <h3 style="margin:0; font-size:14px;">❄️ Daikin Thermostat Schedule State (${fDaikin.length})</h3>
-          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Open Daikin View &rarr;</button>
+          <h3 style="margin:0; font-size:14px;">❄️ État de l'horaire des thermostats Daikin (${fDaikin.length})</h3>
+          <button type="button" class="btn btn-ghost btn-tiny" onclick="switchTab('daikin')">Ouvrir la vue Daikin &rarr;</button>
         </div>
         <div class="home-climate-grid">
           ${fDaikin.length ? fDaikin.map(d => `
@@ -18651,10 +18651,10 @@ function renderUnifiedSchedulesTab() {
                 <span class="hint">${escapeHtml((d.location_id || 'maison').toUpperCase())}</span>
               </div>
               <div style="font-size:13px; margin:4px 0;">
-                Programmed Schedule: <b>${d.schedule_enabled ? '📅 Following Schedule' : '⏸️ Hold / Manual Setpoint'}</b>
+                Horaire programmé : <b>${d.schedule_enabled ? '📅 Suit l\'horaire' : '⏸️ Maintien / Consigne manuelle'}</b>
               </div>
             </div>
-          `).join('') : '<div class="hint">No Daikin thermostats found.</div>'}
+          `).join('') : '<div class="hint">Aucun thermostat Daikin trouvé.</div>'}
         </div>
       </div>
     </div>
@@ -18695,12 +18695,12 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     locTracked[k] += (Number(w) || 0);
   };
   const categories = {
-    heating:      { key: 'heating',      label: '🔥 Sinopé Baseboards',       color: '#fb923c', watts: 0 },
-    water_heater: { key: 'water_heater', label: '🚿 Water Heaters & Loads',   color: '#f59e0b', watts: 0 },
-    hvac:         { key: 'hvac',         label: '❄️ Daikin Heat Pump',        color: '#38bdf8', watts: 0 },
-    dehum:        { key: 'dehum',        label: '💧 Danby Dehumidifiers',     color: '#2dd4bf', watts: 0 },
-    ev_battery:   { key: 'ev_battery',   label: '🚗 EV & Jackery Charging',   color: '#a855f7', watts: 0 },
-    appliances:   { key: 'appliances',   label: '🧺 Appliances & Smart Plugs', color: '#4ade80', watts: 0 },
+    heating:      { key: 'heating',      label: '🔥 Plinthes Sinopé',          color: '#fb923c', watts: 0 },
+    water_heater: { key: 'water_heater', label: '🚿 Chauffe-eau & Charges',    color: '#f59e0b', watts: 0 },
+    hvac:         { key: 'hvac',         label: '❄️ Thermopompe Daikin',       color: '#38bdf8', watts: 0 },
+    dehum:        { key: 'dehum',        label: '💧 Déshumidificateurs Danby', color: '#2dd4bf', watts: 0 },
+    ev_battery:   { key: 'ev_battery',   label: '🚗 Recharge VÉ & Jackery',    color: '#a855f7', watts: 0 },
+    appliances:   { key: 'appliances',   label: '🧺 Électroménagers & Prises', color: '#4ade80', watts: 0 },
   };
 
   // 1. Sinopé Thermostats & Controllers (explicitly skip battery-powered leak sensors & valves)
@@ -18716,11 +18716,11 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       rows.push({
         name: `🔥 ${d.name || d.device_sn}`,
         location: loc,
-        category: 'Sinopé Baseboard',
-        state: pct > 0 ? `Heating (${pct}% duty${rated ? ' of ' + rated + ' W' : ''})` : `Idle (${d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—'} / target ${d.setpoint_c != null ? formatTemp(d.setpoint_c, 1) : '—'})`,
+        category: 'Plinthe Sinopé',
+        state: pct > 0 ? `Chauffage (${pct}% cycle${rated ? ' sur ' + rated + ' W' : ''})` : `En veille (${d.room_temp_c != null ? formatTemp(d.room_temp_c, 1) : '—'} / cible ${d.setpoint_c != null ? formatTemp(d.setpoint_c, 1) : '—'})`,
         watts: w,
         source: 'measured',
-        sourceLabel: 'Duty % × Load',
+        sourceLabel: '% Cycle × Charge',
       });
     } else if (d.device_type === 'controller' || d.is_water_heater || (d.model && d.model.startsWith('RM35'))) {
       const w = Math.round(d.power_w || 0);
@@ -18728,13 +18728,13 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       categories.water_heater.watts += w;
       addLocTracked(d.location_id || loc, w);
       rows.push({
-        name: `🚿 ${d.name || 'Water Heater'}`,
+        name: `🚿 ${d.name || 'Chauffe-eau'}`,
         location: loc,
-        category: 'Water Heater / Controller',
-        state: !d.is_on ? 'Relay Off' : (w > 10 ? `Reheating (${rated} W rated)` : `Armed / Standby (${d.water_temperature_c != null ? formatTemp(d.water_temperature_c, 1) : 'Tank OK'})`),
+        category: 'Chauffe-eau / Contrôleur',
+        state: !d.is_on ? 'Relais éteint' : (w > 10 ? `En chauffe (${rated} W nom.)` : `Armé / En veille (${d.water_temperature_c != null ? formatTemp(d.water_temperature_c, 1) : 'Réservoir OK'})`),
         watts: w,
         source: 'measured',
-        sourceLabel: 'Measured (RM3500WF)',
+        sourceLabel: 'Mesuré (RM3500WF)',
         alwaysVisible: true,
       });
     }
@@ -18745,30 +18745,30 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     const loc = (d.location_name || d.location_id || 'Maison');
     const eq = d.equipment_status;
     let w = 0;
-    let stateStr = d.equipment_status_desc || 'Idle';
+    let stateStr = d.equipment_status_desc || 'En veille';
     if (eq === 3) {
       // Heating: scale estimate slightly with outdoor temp if available
       const outT = d.temp_outdoor_c != null ? Number(d.temp_outdoor_c) : 5;
       w = outT < -5 ? 1650 : (outT < 5 ? 1250 : 950);
-      stateStr = `Heating (Indoor ${d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—'}, Out ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'})`;
+      stateStr = `Chauffage (Int. ${d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—'}, Ext. ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'})`;
     } else if (eq === 1 || eq === 2) {
       w = 1050;
-      stateStr = `Cooling / Dehum`;
+      stateStr = `Climatisation / Déshum.`;
     } else if (eq === 4 || d.fan_circulate === 1) {
       const spd = d.fan_circulate_speed || 0;
       w = spd === 2 ? 140 : (spd === 1 ? 95 : 65);
-      stateStr = `Fan Circulating (${['Low', 'Med', 'High'][spd] || 'Low'})`;
+      stateStr = `Ventilation (${['Bas', 'Moyen', 'Haut'][spd] || 'Bas'})`;
     }
     categories.hvac.watts += w;
     addLocTracked(d.location_id || loc, w);
     rows.push({
-      name: `❄️ ${d.name || 'Daikin Heat Pump'}`,
+      name: `❄️ ${d.name || 'Thermopompe Daikin'}`,
       location: loc,
-      category: 'Heat Pump (HVAC)',
+      category: 'Thermopompe (CVC)',
       state: stateStr,
       watts: w,
       source: 'estimated',
-      sourceLabel: 'State Estimate',
+      sourceLabel: 'Estimé selon l\'état',
       alwaysVisible: true,
     });
   });
@@ -18783,13 +18783,13 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     categories.dehum.watts += w;
     addLocTracked(d.location_id || loc, w);
     rows.push({
-      name: `💧 ${d.name || 'Danby Dehumidifier'}`,
+      name: `💧 ${d.name || 'Déshumidificateur Danby'}`,
       location: loc,
-      category: 'Dehumidifier',
-      state: !d.power ? 'Off' : (d.tank_full ? 'Tank Full (Paused)' : (isComp ? `Compressor On (${d.current_humidity || '—'}% → ${d.target_humidity || 50}%)` : `Fan Only (${d.current_humidity || '—'}% RH)`)),
+      category: 'Déshumidificateur',
+      state: !d.power ? 'Arrêt' : (d.tank_full ? 'Bac plein (en pause)' : (isComp ? `Compresseur actif (${d.current_humidity || '—'}% → ${d.target_humidity || 50}%)` : `Ventilateur seul (${d.current_humidity || '—'}% HR)`)),
       watts: w,
       source: 'estimated',
-      sourceLabel: 'State Estimate',
+      sourceLabel: 'Estimé selon l\'état',
       alwaysVisible: true,
     });
   });
@@ -18803,11 +18803,11 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     rows.push({
       name: `🚗 ${d.name || 'Tesla'}`,
       location: loc,
-      category: 'EV / Charger',
-      state: w > 50 ? `Charging (${(w / 1000).toFixed(1)} kW)` : (d.charging_state || 'Standby'),
+      category: 'VÉ / Borne',
+      state: w > 50 ? `En charge (${(w / 1000).toFixed(1)} kW)` : (d.charging_state || 'En veille'),
       watts: w,
       source: 'measured',
-      sourceLabel: 'Telemetry',
+      sourceLabel: 'Télémétrie',
       alwaysVisible: true,
     });
   });
@@ -18819,13 +18819,13 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       categories.ev_battery.watts += acInW;
       addLocTracked('maison', acInW);
       rows.push({
-        name: `🔋 Jackery Grid Charging`,
+        name: `🔋 Recharge secteur Jackery`,
         location: 'Maison',
-        category: 'Battery Storage',
-        state: `Charging (${t.battery_percent != null ? t.battery_percent + '% SOC' : 'Active'})`,
+        category: 'Stockage batterie',
+        state: `En charge (${t.battery_percent != null ? t.battery_percent + '% SOC' : 'Actif'})`,
         watts: acInW,
         source: 'measured',
-        sourceLabel: 'Telemetry',
+        sourceLabel: 'Télémétrie',
       });
     }
   }
@@ -18839,25 +18839,25 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     const rawType = String(d.raw_type || d.device_type || '').toLowerCase();
     let w = 0;
     let icon = '🧺';
-    let catLabel = 'LG ThinQ Appliance';
-    let stateStr = 'Off / Standby';
+    let catLabel = 'Électroménager LG ThinQ';
+    let stateStr = 'Arrêt / En veille';
 
     if (cat === 'refrigeration' || rawType.includes('fridge') || rawType.includes('refrig') || nameLower.includes('réfrig') || nameLower.includes('frigo')) {
       icon = '🧊';
-      catLabel = 'Refrigeration (LG ThinQ)';
+      catLabel = 'Réfrigération (LG ThinQ)';
       // Modern inverter fridge averages ~65W continuous (~140W in Express Freeze, +15W if door open)
       w = d.online === false ? 0 : (d.express_freeze ? 140 : 65) + (d.door_opened ? 15 : 0);
       const fTemp = d.fridge_temp_c != null ? formatTemp(d.fridge_temp_c, 0) : '3°C';
       const fzTemp = d.freezer_temp_c != null ? formatTemp(d.freezer_temp_c, 0) : '-18°C';
-      stateStr = `Cooling (${fTemp} / ${fzTemp}${d.express_freeze ? ' · Express Freeze' : ''}${d.door_opened ? ' · ⚠️ Door Open' : ''})`;
+      stateStr = `Refroidissement (${fTemp} / ${fzTemp}${d.express_freeze ? ' · Congélation express' : ''}${d.door_opened ? ' · ⚠️ Porte ouverte' : ''})`;
       rows.push({
         name: `${icon} ${nameStr}`,
         location: loc,
         category: catLabel,
-        state: d.online === false ? 'Offline' : stateStr,
+        state: d.online === false ? 'Hors ligne' : stateStr,
         watts: w,
         source: 'estimated',
-        sourceLabel: 'State Estimate',
+        sourceLabel: 'Estimé selon l\'état',
         alwaysVisible: true,
       });
       categories.appliances.watts += w;
@@ -18865,7 +18865,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       return;
     } else if (cat === 'cooking' || rawType.includes('oven') || rawType.includes('cooktop') || nameLower.includes('four') || nameLower.includes('plaque')) {
       icon = '🍳';
-      catLabel = 'Cooking (LG ThinQ)';
+      catLabel = 'Cuisson (LG ThinQ)';
       const zones = Array.isArray(d.sub_zones) ? d.sub_zones : [];
       const activeZones = zones.filter(z => z.is_active);
       if (d.is_cooking || activeZones.length > 0) {
@@ -18885,15 +18885,15 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
           const st = String(d.run_state || '').toUpperCase();
           w = st.includes('PREHEAT') ? 2400 : 1200;
         }
-        stateStr = `Active (${d.run_state || 'Cooking'})`;
+        stateStr = `En marche (${d.run_state || 'Cuisson'})`;
       } else {
         w = 0;
-        stateStr = 'Standby (0 W)';
+        stateStr = 'En veille (0 W)';
       }
     } else if (cat === 'laundry' || rawType.includes('washer') || rawType.includes('dryer') || nameLower.includes('laveuse') || nameLower.includes('sécheuse')) {
       icon = '🧺';
       const isDryer = rawType.includes('dryer') || nameLower.includes('sécheuse') || nameLower.includes('dryer') || String(d.model_name || '').startsWith('RV');
-      catLabel = isDryer ? 'Dryer (LG ThinQ)' : 'Washer (LG ThinQ)';
+      catLabel = isDryer ? 'Sécheuse (LG ThinQ)' : 'Laveuse (LG ThinQ)';
       if (d.is_running) {
         const stepStr = String(d.current_step || d.run_state || '').toUpperCase();
         if (isDryer) {
@@ -18901,17 +18901,17 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
         } else {
           w = stepStr.includes('SPIN') ? 450 : 250;
         }
-        stateStr = `Running (${d.run_state || 'Cycle'}${d.remaining_min ? ' · ' + d.remaining_min + 'm left' : ''})`;
+        stateStr = `En cours (${d.run_state || 'Cycle'}${d.remaining_min ? ' · ' + d.remaining_min + ' min rest.' : ''})`;
       } else {
         w = 0;
-        stateStr = 'Standby (0 W)';
+        stateStr = 'En veille (0 W)';
       }
     } else {
       // Dishwasher or other ThinQ
       icon = '🍽️';
       if (d.is_running) {
         w = 750;
-        stateStr = `Running (${d.run_state || 'Active'})`;
+        stateStr = `En cours (${d.run_state || 'Actif'})`;
       }
     }
 
@@ -18924,7 +18924,7 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       state: stateStr,
       watts: w,
       source: 'estimated',
-      sourceLabel: 'State Estimate',
+      sourceLabel: 'Estimé selon l\'état',
       alwaysVisible: true,
     });
   });
@@ -18936,13 +18936,13 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       categories.appliances.watts += w;
       addLocTracked(d.location_id || locStr, w);
       rows.push({
-        name: `🔌 ${d.alias || d.name || 'Kasa Plug'}`,
+        name: `🔌 ${d.alias || d.name || 'Prise Kasa'}`,
         location: locStr,
-        category: 'Smart Plug',
-        state: d.is_on ? 'ON' : 'OFF',
+        category: 'Prise intelligente',
+        state: d.is_on ? 'MARCHE' : 'ARRÊT',
         watts: w,
         source: 'measured',
-        sourceLabel: 'Smart Plug',
+        sourceLabel: 'Prise intelligente',
       });
     }
   });
@@ -19007,23 +19007,23 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
 
   if (badge) {
     if (normLoc === 'chalet' && !data.chaletHasLiveMeter) {
-      badge.textContent = `🌲 Chalet Estimated Total: ~${data.trackedTotalW.toLocaleString()} W (Meter out of range)`;
+      badge.textContent = `🌲 Total estimé au Chalet : ~${data.trackedTotalW.toLocaleString()} W (Compteur hors de portée)`;
       badge.style.background = 'rgba(251,146,60,0.14)';
       badge.style.color = '#fb923c';
       badge.style.borderColor = 'rgba(251,146,60,0.35)';
     } else if (normLoc === 'all') {
-      badge.textContent = `🏠 Maison (Known Meter): ${data.maisonTotalW.toLocaleString()} W · 🌲 Chalet (Est. Devices): ~${data.chaletTotalW.toLocaleString()} W`;
+      badge.textContent = `🏠 Maison (Compteur connu) : ${data.maisonTotalW.toLocaleString()} W · 🌲 Chalet (Appareils est.) : ~${data.chaletTotalW.toLocaleString()} W`;
       badge.style.background = 'rgba(56,189,248,0.12)';
       badge.style.color = '#38bdf8';
       badge.style.borderColor = 'rgba(56,189,248,0.3)';
     } else if (data.hasLiveMeter && data.meterTotalW > 0) {
       const pctTracked = Math.min(100, Math.round((data.trackedTotalW / data.meterTotalW) * 100));
-      badge.textContent = `🏠 Known Meter: ${data.meterTotalW.toLocaleString()} W · Tracked Devices: ${data.trackedTotalW.toLocaleString()} W (${pctTracked}%)`;
+      badge.textContent = `🏠 Compteur connu : ${data.meterTotalW.toLocaleString()} W · Appareils suivis : ${data.trackedTotalW.toLocaleString()} W (${pctTracked}%)`;
       badge.style.background = 'rgba(56,189,248,0.12)';
       badge.style.color = '#38bdf8';
       badge.style.borderColor = 'rgba(56,189,248,0.3)';
     } else {
-      badge.textContent = `Estimated Total (Tracked Devices): ~${data.trackedTotalW.toLocaleString()} W`;
+      badge.textContent = `Total estimé (Appareils suivis) : ~${data.trackedTotalW.toLocaleString()} W`;
     }
   }
 
@@ -19038,7 +19038,7 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
   ];
   if (data.hasLiveMeter && data.residualW > 0) {
     segments.push({
-      label: '🏠 Unmonitored / Base Load at Maison (Lights, Electronics, Untracked Circuits)',
+      label: '🏠 Charge de base / Non suivie à la Maison (Éclairage, électronique, circuits non suivis)',
       watts: data.residualW,
       color: '#475569',
       pct: Math.max(1.5, (data.residualW / denom) * 100),
@@ -19056,15 +19056,15 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:10px; margin-bottom:14px;">
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-radius:10px; background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.25);">
         <div>
-          <div style="font-size:12px; font-weight:700; color:#38bdf8;">🏠 Maison — Known Total (Hilo Smart Meter)</div>
-          <div class="hint" style="font-size:11px;">Live Hydro-Québec meter (${data.maisonTrackedW.toLocaleString()} W devices + ${data.residualW.toLocaleString()} W base load)</div>
+          <div style="font-size:12px; font-weight:700; color:#38bdf8;">🏠 Maison — Total connu (Compteur intelligent Hilo)</div>
+          <div class="hint" style="font-size:11px;">Compteur Hydro-Québec en direct (${data.maisonTrackedW.toLocaleString()} W appareils + ${data.residualW.toLocaleString()} W charge de base)</div>
         </div>
         <strong style="font-family:var(--font-mono); font-size:16px; color:#38bdf8;">${data.maisonTotalW.toLocaleString()} W</strong>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-radius:10px; background:rgba(251,146,60,0.08); border:1px solid rgba(251,146,60,0.28);">
         <div>
-          <div style="font-size:12px; font-weight:700; color:#fb923c;">🌲 Chalet — Estimated Total (Known Devices)</div>
-          <div class="hint" style="font-size:11px;">Sum of Sinopé + Danby + Water Heater (Hilo meter out of Zigbee range)</div>
+          <div style="font-size:12px; font-weight:700; color:#fb923c;">🌲 Chalet — Total estimé (Appareils connus)</div>
+          <div class="hint" style="font-size:11px;">Somme Sinopé + Danby + Chauffe-eau (compteur Hilo hors de portée Zigbee)</div>
         </div>
         <strong style="font-family:var(--font-mono); font-size:16px; color:#fb923c;">~${data.chaletTotalW.toLocaleString()} W</strong>
       </div>
@@ -19072,8 +19072,8 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
   ` : (normLoc === 'chalet' && !data.chaletHasLiveMeter ? `
     <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; margin-bottom:14px; border-radius:10px; background:rgba(251,146,60,0.08); border:1px solid rgba(251,146,60,0.28);">
       <div>
-        <div style="font-size:12.5px; font-weight:700; color:#fb923c;">🌲 Chalet — Estimated Power from Known Devices</div>
-        <div class="hint" style="font-size:11.5px;">The Chalet Hilo hub is too far from the Hydro-Québec meter (0 W), so total usage is estimated from all tracked devices at Chalet.</div>
+        <div style="font-size:12.5px; font-weight:700; color:#fb923c;">🌲 Chalet — Puissance estimée à partir des appareils connus</div>
+        <div class="hint" style="font-size:11.5px;">La passerelle Hilo du Chalet est trop éloignée du compteur Hydro-Québec (0 W); la consommation totale est donc estimée à partir de tous les appareils suivis au Chalet.</div>
       </div>
       <strong style="font-family:var(--font-mono); font-size:17px; color:#fb923c;">~${data.chaletTotalW.toLocaleString()} W</strong>
     </div>
@@ -19083,9 +19083,9 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
     <div>
       ${locComparisonHtml}
       <!-- Stacked Proportion Bar -->
-      <div class="disagg-stack-bar" title="Whole-home power breakdown">
+      <div class="disagg-stack-bar" title="Répartition de la puissance résidentielle">
         ${segments.length ? segments.map(s => `
-          <div class="disagg-segment" style="width:${s.pct.toFixed(1)}%; background:${s.color};" title="${escapeHtml(s.label)}: ${s.watts.toLocaleString()} W"></div>
+          <div class="disagg-segment" style="width:${s.pct.toFixed(1)}%; background:${s.color};" title="${escapeHtml(s.label)} : ${s.watts.toLocaleString()} W"></div>
         `).join('') : `<div class="disagg-segment" style="width:100%; background:#334155;"></div>`}
       </div>
 
@@ -19104,7 +19104,7 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
           <div class="disagg-cat-pill">
             <div style="display:flex; align-items:center; gap:7px; min-width:0;">
               <span class="disagg-cat-dot" style="background:#475569;"></span>
-              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Difference between Maison Hilo smart meter and tracked devices (lighting, electronics, untracked circuits)">🏠 Base / Unmonitored (Maison)</span>
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Différence entre le compteur intelligent Hilo de la Maison et les appareils suivis (éclairage, électronique, circuits non suivis)">🏠 Base / Non suivi (Maison)</span>
             </div>
             <strong style="font-family:var(--font-mono); color:var(--text-dim);">${data.residualW.toLocaleString()} W</strong>
           </div>
@@ -19115,21 +19115,21 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
       <div class="disagg-devices-table-wrap">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
           <span style="font-size:12.5px; font-weight:600; color:var(--text-dim);">
-            Device-Level Power Estimates (${activeRows.length} active of ${sortedRows.length} tracked devices)
+            Estimations de puissance par appareil (${activeRows.length} actif(s) sur ${sortedRows.length} appareils suivis)
           </span>
           <button type="button" class="btn btn-ghost btn-tiny" id="disagg-toggle-idle-btn">
-            ${_showIdleDisaggDevices ? `Hide Idle Baseboards (${hiddenIdleCount})` : `Show All Zones (${sortedRows.length})`}
+            ${_showIdleDisaggDevices ? `Masquer les plinthes en veille (${hiddenIdleCount})` : `Afficher toutes les zones (${sortedRows.length})`}
           </button>
         </div>
         <table class="disagg-table">
           <thead>
             <tr>
-              <th>Device</th>
-              <th>Location</th>
-              <th>Current State</th>
-              <th>Method</th>
-              <th style="text-align:right;">Est. Power</th>
-              <th style="text-align:right;">Share</th>
+              <th>Appareil</th>
+              <th>Emplacement</th>
+              <th>État actuel</th>
+              <th>Méthode</th>
+              <th style="text-align:right;">Puissance est.</th>
+              <th style="text-align:right;">Part</th>
             </tr>
           </thead>
           <tbody>
@@ -19148,10 +19148,10 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
             }).join('')}
             ${data.hasLiveMeter ? `
               <tr style="background:rgba(255,255,255,0.02);">
-                <td style="font-weight:600;">🏠 Unmonitored / Base Load (Residual)</td>
+                <td style="font-weight:600;">🏠 Charge de base / Non suivie (Résiduel)</td>
                 <td><span class="hint">Maison</span></td>
-                <td class="hint">Lighting, electronics, pumps &amp; untracked circuits (Hilo Meter − Tracked)</td>
-                <td><span class="disagg-source-tag residual">Hilo Meter − Tracked</span></td>
+                <td class="hint">Éclairage, électronique, pompes &amp; circuits non suivis (Compteur Hilo − Suivis)</td>
+                <td><span class="disagg-source-tag residual">Compteur Hilo − Suivis</span></td>
                 <td style="text-align:right; font-family:var(--font-mono); font-weight:700;">${data.residualW.toLocaleString()} W</td>
                 <td style="text-align:right; font-family:var(--font-mono); color:var(--text-dim);">${denom > 0 ? Math.round((data.residualW / denom) * 100) : 0}%</td>
               </tr>
