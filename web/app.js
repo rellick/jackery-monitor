@@ -504,6 +504,26 @@ document.querySelectorAll('.context-subtab').forEach((btn) => {
   });
 });
 
+const JACKERY_SPECIFIC_TABS = new Set(['live', 'energy', 'cost', 'forecast', 'device']);
+let _lastKnownJackeryDevices = [];
+let _lastKnownJackerySelectedId = null;
+
+function _syncJackeryTopbarVisibility(tabName) {
+  const isJackeryTab = JACKERY_SPECIFIC_TABS.has(tabName);
+  const wrap = $('device-picker');
+  if (wrap) {
+    show(wrap, isJackeryTab && _lastKnownJackeryDevices.length >= 2);
+  }
+  const reconnBtn = $('reconnect');
+  if (reconnBtn) {
+    reconnBtn.hidden = !isJackeryTab;
+  }
+  const logoutBtn = $('logout');
+  if (logoutBtn) {
+    logoutBtn.hidden = !(tabName === 'settings' || tabName === 'device');
+  }
+}
+
 function _syncPrimaryAndSubnavUI(name) {
   const primary = TAB_TO_PRIMARY[name] || 'home';
   if (primary && name) {
@@ -527,6 +547,7 @@ function _syncPrimaryAndSubnavUI(name) {
       }
     });
   }
+  _syncJackeryTopbarVisibility(name);
 }
 
 function switchTab(name, opts = {}) {
@@ -4562,11 +4583,14 @@ $('device-select')?.addEventListener('change', async (e) => {
 });
 
 function renderDevicePicker(devices, selectedId) {
+  _lastKnownJackeryDevices = Array.isArray(devices) ? devices : [];
+  _lastKnownJackerySelectedId = selectedId;
   const wrap = $('device-picker');
   const sel = $('device-select');
   if (!wrap || !sel) return;
+  const isJackeryTab = typeof JACKERY_SPECIFIC_TABS !== 'undefined' && JACKERY_SPECIFIC_TABS.has(activeTab);
   if (!devices || devices.length < 2) { show(wrap, false); return; }
-  show(wrap, true);
+  show(wrap, isJackeryTab);
   // Only rebuild if the option set changed (include online status in signature)
   const sig = devices.map(d => `${d.device_id}:${d.online}`).join('|') + '#' + (selectedId || '');
   if (sel.dataset.sig === sig) return;

@@ -80,7 +80,7 @@
         <span id="topbar-hilo-watts">— W</span>
       </button>
 
-      <label id="device-picker" class="device-picker" hidden>
+      <label id="device-picker" class="device-picker jackery-only-control" hidden>
         <span class="dp-label">Battery</span>
         <select id="device-select" class="device-select"></select>
       </label>
@@ -90,16 +90,16 @@
            expires). Pairs with body.device-switching, which dims the
            tab content so it's obvious the numbers on screen are the
            outgoing device's. -->
-      <span id="switch-pill" class="pill switch-pill" hidden>
+      <span id="switch-pill" class="pill switch-pill jackery-only-control" hidden>
         <span class="spinner" aria-hidden="true"></span>
         <span>loading device…</span>
       </span>
-      <span id="conn-pill" class="pill pill-conn">
+      <span id="conn-pill" class="pill pill-conn" title="System connection status">
         <span id="conn-dot" class="conn-dot"></span>
         <span id="conn-text">connecting…</span>
       </span>
-      <button id="reconnect" class="btn btn-ghost" title="Re-scan and reconnect">Reconnect</button>
-      <button id="logout" class="btn btn-ghost" title="Sign out">Sign out</button>
+      <button id="reconnect" class="btn btn-ghost jackery-only-control" hidden title="Re-scan and reconnect">Reconnect</button>
+      <button id="logout" class="btn btn-ghost jackery-only-control" hidden title="Sign out">Sign out</button>
     </div>
   </header>
 
