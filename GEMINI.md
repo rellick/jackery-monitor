@@ -23,15 +23,16 @@
 - **Change Uploads**: All changes should be uploaded to Gerrit (and pushed to the remote fork).
 
 ## Docker Compose Setup & Deployment
-- **Deployment File**: ALWAYS use `docker-compose.build.yml` for local development and running uncommitted code. (Do NOT use `docker-compose.yml`, which pulls pre-built GHCR images from upstream).
+- **CRITICAL — Deployment File**: ALWAYS pass `-f docker-compose.build.yml` on every `docker compose` command. NEVER run bare `docker compose up -d --build` (which defaults to `docker-compose.yml`, switches the port from `8000` to `8123`, pulls the upstream GHCR image, and unmounts `./web`).
 - **Build & Deploy Command**:
   ```bash
   docker compose -f docker-compose.build.yml up -d --build
   ```
 - **Live UI Editing**:
   - `./web` is volume-mounted directly to `/app/web` in `docker-compose.build.yml`.
-  - Edits to HTML/JS/CSS in `web/` take effect immediately upon browser reload (hard reload `Ctrl+Shift+R` to clear service worker / browser cache).
+  - Edits to HTML/JS/CSS in `web/` take effect immediately upon browser reload — **do NOT rebuild or restart containers for `web/` changes**.
   - Edits to Python modules (`server.py`, `energy_db.py`, etc.) require running the compose build/up command above.
+  - After any container rebuild, verify `curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/` returns `200` or `303`.
 
 ## Local Access & Testing
 - **Local Dashboard URL**: `http://192.168.86.135:8000` (or `http://localhost:8000`)
@@ -118,6 +119,15 @@
      - **Tesla EV Charging**: Preserve contactor state, grid voltage, vehicle current, battery SOC%, charging state, time to full charge, and inferred charger type (`wall_connector`, `mobile_connector_l1`, `mobile_connector_l2`, `supercharger`) in `state_json`.
   3. **High-Frequency Polling on Active States**: Pollers should dynamically accelerate polling (e.g. from 60s to 15s-30s) when appliances, vehicles, or cooking zones are actively running to capture sharp transition edges against whole-home smart meter demand.
 
-
-
+## UI/UX & Multi-Home Domain Invariants
+1. **Hilo Smart Meter `0 W` Fallback (Maison vs. Chalet)**:
+   - At **Maison**, the Hilo gateway is in Zigbee range of the Hydro-Québec smart meter (`power_w > 0`) and reports known whole-home usage.
+   - At **Chalet**, the Hilo gateway is registered in `hilo_meters`, but the Hydro-Québec meter is out of Zigbee range so `power_w` is always `0`.
+   - **Rule**: Only treat a Hilo meter as a live measured meter when `Number(m.power_w) > 0`. Whenever a location's meter is missing or reports `<= 0 W`, automatically substitute the **Estimated Total (`~X W est.`)** summed from all tracked/state-estimated devices at that location, and clearly label **Maison (Known Meter)** vs. **Chalet (Estimated Devices)** across the UI.
+2. **Sinopé Device Classification & Battery Leak Sensors (`WL4200S`)**:
+   - Battery-powered Sinopé water leak detectors (`device_type == "leak_sensor"`, `WL*`) are often named after the appliance they guard (e.g., `"Chauffe-eau"`, `"Eau chaude"`, `"Laveuse"`, `"Frigo"`).
+   - **Rule**: Never classify `leak_sensor` or `valve` (`VA*`) devices as `is_water_heater = True` or as load controllers regardless of their name, and always exclude them from power disaggregation estimates and water heater controller UI sections.
+3. **Independent Occupancy Modes & Climate Controls**:
+   - **Sinopé (`sinope_occupancy_mode`)** and **Daikin (`daikin_occupancy_mode`)** `Home / Away` states are controlled and displayed independently. Sinopé's mode is synced bi-directionally with Neviweb's location `mode` (`'home'` / `'away'`).
+   - Sinopé baseboard thermostats use `0.5°C` setpoint steppers in the UI while keeping heating duty cycle (`%`) strictly read-only.
 
