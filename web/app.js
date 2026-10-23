@@ -18839,17 +18839,6 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
       alwaysVisible: true,
     });
   });
-    rows.push({
-      name: `❄️ ${d.name || 'Thermopompe Daikin'}`,
-      location: loc,
-      category: 'Thermopompe (CVC)',
-      state: stateStr,
-      watts: w,
-      source: 'estimated',
-      sourceLabel: 'Estimé selon l\'état',
-      alwaysVisible: true,
-    });
-  });
 
   // 3. Danby / Midea Dehumidifiers (State-based estimate)
   mideaDevs.forEach(d => {
