@@ -2360,32 +2360,37 @@
           <span class="collapsible-chevron" aria-hidden="true">▾</span>
         </div>
         <p class="hint" style="margin:6px 0 12px">
-          Connectez votre thermostat intelligent Daikin One et votre thermopompe communicante via l'API officielle Daikin One Open. Les identifiants sont chiffrés avec AES-256-GCM et stockés localement.
+          Connectez votre thermostat intelligent Daikin One et votre thermopompe communicante. Le mot de passe de compte mobile active le mode natif <strong>Absence (la feuille verte)</strong> et la télémétrie complète. L'API officielle Open API (jeton + clé API) est conservée en <strong>relève automatique (fallback)</strong>.
         </p>
         <div class="settings-help-box" style="margin-bottom:12px; padding:10px 12px; border-radius:6px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); font-size:12px; line-height:1.5;">
-          <strong>Comment obtenir votre jeton d'intégrateur et votre clé API :</strong>
-          <ol style="margin:6px 0 0 18px; padding:0;">
-            <li>Dans l'application mobile (<em>SkyportHome</em> / <em>Daikin One</em>), ouvrez <strong>SkyportCare</strong> &rarr; <strong>home integration</strong> &rarr; <strong>get integration token</strong>.</li>
-            <li>Activez le menu développeur :
-              <br>&bull; <em>iOS :</em> Réglages de l'appareil &rarr; SkyportHome &rarr; activez <em>Developer Menu</em>.
-              <br>&bull; <em>Android :</em> Sous SkyportCare &rarr; home integration, touchez le texte de description 5 fois.
-            </li>
-            <li>Allez dans <strong>SkyportCare</strong> &rarr; <strong>home integration</strong> &rarr; <strong>developer</strong> pour récupérer votre <strong>clé API (API Key)</strong>.</li>
-          </ol>
+          <strong>Modes de connexion Daikin :</strong>
+          <ul style="margin:6px 0 6px 18px; padding:0;">
+            <li><strong>API Mobile (Recommandée &mdash; Courriel + Mot de passe) :</strong> Active directement le mode natif <em>Absence (icône feuille)</em> sur l'écran du thermostat et fournit la télémétrie du compresseur (% demande) et du ventilateur (CFM).</li>
+            <li><strong>API Officielle Open API (Secours / Relève &mdash; Jeton + Clé API) :</strong> Fonctionne avec le jeton d'intégrateur et la clé API (SkyportCare &rarr; home integration &rarr; developer). Conservée en réserve si l'API mobile est indisponible.</li>
+          </ul>
         </div>
         <form id="daikin-creds-form">
           <div class="settings-fields">
             <div class="settings-row">
               <label class="settings-label" for="daikin-email">
-                <span class="settings-label-text">Courriel du compte</span>
+                <span class="settings-label-text">Courriel du compte Daikin</span>
               </label>
               <div class="settings-control">
                 <input id="daikin-email" type="email" class="device-select" autocomplete="username" placeholder="vous@exemple.com" style="min-width:240px" />
               </div>
             </div>
             <div class="settings-row">
+              <label class="settings-label" for="daikin-password">
+                <span class="settings-label-text">Mot de passe du compte (API Mobile &mdash; Recommandé)</span>
+                <span class="settings-label-hint">Permet le contrôle natif du mode Absence (icône feuille) et la télémétrie compresseur/débit.</span>
+              </label>
+              <div class="settings-control">
+                <input id="daikin-password" type="password" class="device-select" autocomplete="current-password" placeholder="••••••••" style="min-width:240px" />
+              </div>
+            </div>
+            <div class="settings-row">
               <label class="settings-label" for="daikin-token">
-                <span class="settings-label-text">Jeton d'intégrateur (Integrator Token)</span>
+                <span class="settings-label-text">Jeton d'intégrateur (Optionnel &mdash; Relève Open API)</span>
               </label>
               <div class="settings-control">
                 <input id="daikin-token" type="password" class="device-select" autocomplete="off" placeholder="••••••••" style="min-width:240px" />
@@ -2393,7 +2398,7 @@
             </div>
             <div class="settings-row">
               <label class="settings-label" for="daikin-api-key">
-                <span class="settings-label-text">Clé API (API Key)</span>
+                <span class="settings-label-text">Clé API (Optionnel &mdash; Relève Open API)</span>
               </label>
               <div class="settings-control">
                 <input id="daikin-api-key" type="password" class="device-select" autocomplete="off" placeholder="••••••••" style="min-width:240px" />

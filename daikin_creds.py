@@ -28,7 +28,7 @@ def has_credentials() -> bool:
 
 
 def load() -> dict | None:
-    """Return {email, integrator_token, api_key} or None if no creds saved / unreadable."""
+    """Return {email, password, integrator_token, api_key} or None if no creds saved / unreadable."""
     try:
         with open(PATH) as f:
             blob = json.load(f)
@@ -47,22 +47,48 @@ def load() -> dict | None:
     except Exception as e:
         log.error("daikin creds invalid JSON after decrypt: %s", e)
         return None
-    if d.get("email") and d.get("integrator_token") and d.get("api_key"):
+
+    email = str(d.get("email") or "").strip()
+    if not email:
+        return None
+
+    password = str(d.get("password") or "").strip() if d.get("password") else None
+    integrator_token = str(d.get("integrator_token") or "").strip() if d.get("integrator_token") else None
+    api_key = str(d.get("api_key") or "").strip() if d.get("api_key") else None
+
+    # Valid if has either password (for mobile API) OR (integrator_token + api_key) for Open API
+    if password or (integrator_token and api_key):
         return {
-            "email": str(d["email"]).strip(),
-            "integrator_token": str(d["integrator_token"]).strip(),
-            "api_key": str(d["api_key"]).strip(),
+            "email": email,
+            "password": password,
+            "integrator_token": integrator_token,
+            "api_key": api_key,
         }
     return None
 
 
-def save(email: str, integrator_token: str, api_key: str) -> bool:
-    """Encrypt and save Daikin credentials atomically."""
-    payload = json.dumps({
-        "email": email.strip(),
-        "integrator_token": integrator_token.strip(),
-        "api_key": api_key.strip(),
-    }).encode()
+def save(
+    email: str,
+    integrator_token: str | None = None,
+    api_key: str | None = None,
+    password: str | None = None,
+) -> bool:
+    """Encrypt and save Daikin credentials atomically, preserving existing keys if not overwritten."""
+    existing = load() or {}
+    final_email = (email or existing.get("email") or "").strip()
+    final_token = integrator_token.strip() if integrator_token is not None else existing.get("integrator_token")
+    final_api_key = api_key.strip() if api_key is not None else existing.get("api_key")
+    final_password = password.strip() if password is not None else existing.get("password")
+
+    data: dict[str, str] = {"email": final_email}
+    if final_token:
+        data["integrator_token"] = final_token
+    if final_api_key:
+        data["api_key"] = final_api_key
+    if final_password:
+        data["password"] = final_password
+
+    payload = json.dumps(data).encode()
     blob = crypto_util.encrypt(payload)
     try:
         os.makedirs(os.path.dirname(PATH) or ".", exist_ok=True)

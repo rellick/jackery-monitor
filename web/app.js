@@ -6381,6 +6381,7 @@ function renderDaikinTab(force = false) {
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            ${dev.geofencing_away ? `<span class="daikin-badge badge-active" style="background:rgba(46,125,50,0.25); color:#a5d6a7; border:1px solid rgba(76,175,80,0.4);" title="Mode Absence natif (feuille) actif au thermostat">🍃 Absence</span>` : ''}
             <div class="occupancy-system-row">
               <span class="occupancy-system-label">❄️ Daikin :</span>
               <div class="occupancy-pill-group" title="Définir le mode Présent ou Absent de la thermopompe Daikin indépendamment de Sinopé">
@@ -6399,6 +6400,7 @@ function renderDaikinTab(force = false) {
             <div class="daikin-indoor-sub">
               <span>💧 ${dev.hum_indoor != null ? Math.round(dev.hum_indoor) + '% humidité' : 'Intérieur'}</span>
               ${targetSub ? `<span>·</span><span>🎯 ${targetSub}</span>` : ''}
+              ${dev.away_heat_setpoint_c != null ? `<span>·</span><span title="Consigne d'absence programmée dans le thermostat">🍃 ${formatTemp(dev.away_heat_setpoint_c)}</span>` : ''}
             </div>
           </div>
           ${dev.temp_outdoor_c != null ? `
@@ -6411,6 +6413,16 @@ function renderDaikinTab(force = false) {
             </div>
           ` : ''}
         </div>
+
+        ${(dev.heatpump_demand_pct != null || dev.fan_cfm != null || dev.cooling_demand_pct != null) ? `
+          <div style="display:flex; gap:12px; margin:8px 0 12px; font-size:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); padding:6px 12px; border-radius:6px; flex-wrap:wrap; align-items:center;">
+            ${dev.heatpump_demand_pct != null ? `<span>⚡ <strong>Demande compresseur :</strong> ${dev.heatpump_demand_pct}%</span>` : ''}
+            ${dev.cooling_demand_pct != null ? `<span>❄️ <strong>Demande clim :</strong> ${dev.cooling_demand_pct}%</span>` : ''}
+            ${dev.fan_demand_pct != null ? `<span>🌀 <strong>Ventilateur :</strong> ${dev.fan_demand_pct}%</span>` : ''}
+            ${dev.fan_cfm != null ? `<span>💨 <strong>Débit :</strong> ${dev.fan_cfm} CFM</span>` : ''}
+            <span style="margin-left:auto; opacity:0.6; font-size:11px;">📱 API Mobile</span>
+          </div>
+        ` : ''}
 
         <!-- Mode Selector Buttons -->
         <div class="daikin-mode-group">
@@ -6904,13 +6916,19 @@ async function loadDaikinCreds() {
     const r = await fetch('/api/daikin/credentials');
     const j = await r.json();
     if (j.saved) {
-      status.textContent = `saved · ${j.email || ''}`;
+      let beStr = '';
+      if (j.active_backend === 'mobile' || j.has_password) {
+        beStr = ' · API Mobile (Absence native)';
+      } else if (j.has_api_key) {
+        beStr = ' · Open API (Relève)';
+      }
+      status.textContent = `enregistré · ${j.email || ''}${beStr}`;
       if (emailIn && !emailIn.value) emailIn.value = j.email || '';
     } else {
-      status.textContent = 'not set';
+      status.textContent = 'non configuré';
     }
   } catch (e) {
-    status.textContent = 'failed to load';
+    status.textContent = 'erreur de chargement';
   }
 }
 
@@ -6920,15 +6938,23 @@ function initDaikinSettings() {
   $('daikin-creds-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = ($('daikin-email')?.value || '').trim();
+    const password = ($('daikin-password')?.value || '').trim();
     const token = ($('daikin-token')?.value || '').trim();
     const apiKey = ($('daikin-api-key')?.value || '').trim();
     const msg = $('daikin-msg');
     const btn = $('daikin-save-btn');
 
-    if (!email || !token || !apiKey) {
+    if (!email) {
       if (msg) {
         msg.hidden = false;
-        msg.textContent = 'Please provide Account Email, Integrator Token, and API Key.';
+        msg.textContent = 'Veuillez saisir votre adresse courriel Daikin.';
+      }
+      return;
+    }
+    if (!password && (!token || !apiKey)) {
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = 'Veuillez fournir le mot de passe (API Mobile) ou le Jeton d\'intégrateur + Clé API (Open API).';
       }
       return;
     }
@@ -6936,48 +6962,51 @@ function initDaikinSettings() {
     if (btn) btn.disabled = true;
     if (msg) {
       msg.hidden = false;
-      msg.textContent = 'Verifying credentials with Daikin Open API…';
+      msg.textContent = 'Vérification et connexion à Daikin en cours…';
     }
 
     try {
       const r = await fetch('/api/daikin/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, integrator_token: token, api_key: apiKey }),
+        body: JSON.stringify({ email, password, integrator_token: token, api_key: apiKey }),
       });
       const j = await r.json();
       if (r.ok && j.ok) {
         if (msg) {
           const count = j.device_count || 0;
-          msg.textContent = `✓ Saved successfully! Discovered ${count} Daikin device(s).`;
-          setTimeout(() => { msg.hidden = true; }, 5000);
+          const beText = j.active_backend === 'mobile' ? 'API Mobile connectée (mode Absence natif actif)' : 'Open API connectée (relève)';
+          msg.textContent = `✓ Enregistré avec succès ! ${count} appareil(s) détecté(s). (${beText})`;
+          setTimeout(() => { msg.hidden = true; }, 6000);
         }
         loadDaikinCreds();
         renderDaikinTab(true);
       } else {
-        if (msg) msg.textContent = `Error: ${j.detail || j.error || 'Authentication rejected'}`;
+        if (msg) msg.textContent = `Erreur : ${j.detail || j.error || 'Authentification refusée'}`;
       }
     } catch (err) {
-      if (msg) msg.textContent = `Network error: ${err.message}`;
+      if (msg) msg.textContent = `Erreur réseau : ${err.message}`;
     } finally {
       if (btn) btn.disabled = false;
     }
   });
 
   $('daikin-clear-btn')?.addEventListener('click', async () => {
-    if (!confirm('Forget saved Daikin One credentials?')) return;
+    if (!confirm('Oublier les identifiants Daikin One enregistrés ?')) return;
     try {
       await fetch('/api/daikin/credentials', { method: 'DELETE' });
       const emailEl = $('daikin-email');
+      const passEl = $('daikin-password');
       const tokEl = $('daikin-token');
       const keyEl = $('daikin-api-key');
       if (emailEl) emailEl.value = '';
+      if (passEl) passEl.value = '';
       if (tokEl) tokEl.value = '';
       if (keyEl) keyEl.value = '';
       const msg = $('daikin-msg');
       if (msg) {
         msg.hidden = false;
-        msg.textContent = 'Credentials cleared.';
+        msg.textContent = 'Identifiants effacés.';
         setTimeout(() => { msg.hidden = true; }, 3000);
       }
       loadDaikinCreds();

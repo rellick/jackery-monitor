@@ -3351,6 +3351,7 @@ async def daikin_poller_loop():
                             temp_c=temp_indoor,
                             outdoor_temp_c=temp_outdoor,
                             equipment_status=eq_status,
+                            state_json=json.dumps(d.get("state_details") or {}),
                         )
 
                         # Freeze warning alert on thermostats
@@ -5636,36 +5637,29 @@ async def api_locations_set_mode(location_id: str, req: Request):
                 continue
             try:
                 if mode == "away":
-                    # Snapshot current Daikin state before applying Away setback
+                    # Snapshot current Daikin state before applying Away
                     saved_daikin[did] = {
                         "mode": int(d.get("mode") if d.get("mode") is not None else 3),
                         "heat_setpoint_c": float(d.get("heat_setpoint_c") or 20.0),
                         "cool_setpoint_c": float(d.get("cool_setpoint_c") or 23.0),
                         "schedule_enabled": bool(d.get("schedule_enabled")),
                     }
-                    cur_mode = int(d.get("mode") if d.get("mode") is not None else 3)
-                    if cur_mode == 0:
-                        cur_mode = 1  # Ensure heat/auto protection if off
-                    await state.daikin.set_msp(
+                    await state.daikin.set_away(
                         device_id=did,
-                        mode=cur_mode,
+                        away=True,
                         heat_setpoint=daikin_away_heat,
                         cool_setpoint=daikin_away_cool,
+                        saved_state=saved_daikin[did],
                     )
                     updated_devices.append(d)
                 else:
-                    # Restore Home mode on Daikin: re-enable schedule if it was enabled, or restore saved setpoints
+                    # Restore Home mode on Daikin: turns off native leaf/away or restores schedule
                     prev = saved_daikin.get(did) or {}
-                    was_sched = prev.get("schedule_enabled", True)
-                    if was_sched:
-                        await state.daikin.set_schedule(did, True)
-                    else:
-                        await state.daikin.set_msp(
-                            device_id=did,
-                            mode=int(prev.get("mode", d.get("mode") or 3)),
-                            heat_setpoint=float(prev.get("heat_setpoint_c", 20.0)),
-                            cool_setpoint=float(prev.get("cool_setpoint_c", 22.0)),
-                        )
+                    await state.daikin.set_away(
+                        device_id=did,
+                        away=False,
+                        saved_state=prev,
+                    )
                     updated_devices.append(d)
             except Exception as e:
                 log.warning("Failed setting Daikin mode (%s) on %s: %s", mode, did, e)
@@ -5909,7 +5903,10 @@ def api_daikin_creds_get():
     return {
         "saved": saved,
         "email": creds.get("email") if creds else None,
+        "has_password": bool(creds and creds.get("password")),
+        "has_integrator_token": bool(creds and creds.get("integrator_token")),
         "has_api_key": bool(creds and creds.get("api_key")),
+        "active_backend": state.daikin.get_active_backend(),
     }
 
 
@@ -5919,23 +5916,50 @@ async def api_daikin_creds_save(req: Request):
         body = await req.json()
     except Exception:
         raise HTTPException(400, "invalid JSON")
-    email = ((body or {}).get("email") or "").strip()
-    integrator_token = ((body or {}).get("integrator_token") or "").strip()
-    api_key = ((body or {}).get("api_key") or "").strip()
-    if not email or not integrator_token or not api_key:
-        raise HTTPException(400, "email, integrator_token, and api_key required")
-    test_res = await state.daikin.test_credentials(email, integrator_token, api_key)
+    body = body or {}
+    email = (body.get("email") or "").strip()
+    password = (body.get("password") or "").strip()
+    integrator_token = (body.get("integrator_token") or "").strip()
+    api_key = (body.get("api_key") or "").strip()
+
+    existing = daikin_creds.load() or {}
+    final_email = email or existing.get("email") or ""
+    final_password = password if password else existing.get("password")
+    final_token = integrator_token if integrator_token else existing.get("integrator_token")
+    final_key = api_key if api_key else existing.get("api_key")
+
+    if not final_email:
+        raise HTTPException(400, "Account email is required")
+    if not final_password and (not final_token or not final_key):
+        raise HTTPException(400, "Please provide Account Password (for Mobile API) or Integrator Token + API Key")
+
+    test_res = await state.daikin.test_credentials(
+        email=final_email,
+        password=final_password,
+        integrator_token=final_token,
+        api_key=final_key,
+    )
     if not test_res.get("ok"):
-        raise HTTPException(400, test_res.get("error") or "Authentication failed")
-    ok = daikin_creds.save(email, integrator_token, api_key)
+        err = test_res.get("mobile_error") or test_res.get("open_api_error") or "Authentication failed"
+        raise HTTPException(400, err)
+
+    ok = daikin_creds.save(
+        email=final_email,
+        integrator_token=final_token,
+        api_key=final_key,
+        password=final_password,
+    )
     if not ok:
         raise HTTPException(500, "Failed to save credentials")
     asyncio.create_task(state.daikin.poll_all_devices(force=True))
     return {
         "ok": True,
-        "email": email,
+        "email": final_email,
+        "mobile_ok": test_res.get("mobile_ok", False),
+        "open_api_ok": test_res.get("open_api_ok", False),
         "locations": test_res.get("locations", []),
         "device_count": test_res.get("device_count", 0),
+        "active_backend": state.daikin.get_active_backend(),
     }
 
 
@@ -5945,6 +5969,10 @@ async def api_daikin_creds_delete():
     state.daikin._cached_devices.clear()
     state.daikin._access_token = None
     state.daikin._token_expires_at = 0.0
+    state.daikin._mobile_access_token = None
+    state.daikin._mobile_refresh_token = None
+    state.daikin._mobile_token_expires_at = 0.0
+    state.daikin._backend_in_use = "none"
     return {"ok": True}
 
 
@@ -6046,6 +6074,31 @@ async def api_daikin_set_fan(device_id: str, req: Request):
         return res
     except Exception as e:
         log.warning("Failed to update Daikin fan: %s", e)
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/daikin/device/{device_id}/away")
+async def api_daikin_set_away(device_id: str, req: Request):
+    try:
+        body = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "expected JSON object")
+    away = bool(body.get("away", True))
+    heat_sp = body.get("heat_setpoint")
+    cool_sp = body.get("cool_setpoint")
+    try:
+        res = await state.daikin.set_away(
+            device_id=device_id,
+            away=away,
+            heat_setpoint=float(heat_sp) if heat_sp is not None else None,
+            cool_setpoint=float(cool_sp) if cool_sp is not None else None,
+        )
+        await broadcast_status("telemetry")
+        return res
+    except Exception as e:
+        log.warning("Failed to set Daikin away state for %s: %s", device_id, e)
         raise HTTPException(400, str(e))
 
 
