@@ -18367,7 +18367,7 @@ function renderHomeOverviewTab() {
         <div class="house-kpi-mini">
           <span class="lbl">Appareils suivis (Connu + Est.)</span>
           <span class="val" style="color:#fb923c; font-size:18px;">${trackedW.toLocaleString()} W</span>
-          <span class="hint" style="font-size:10.5px;">Sinopé, Daikin, Danby, LG ThinQ</span>
+          <span class="hint" style="font-size:10.5px;">Sinopé, Daikin, Danby, Jackery, Tesla, LG ThinQ</span>
         </div>
         <div class="house-kpi-mini">
           <span class="lbl">Base / Non suivi</span>
@@ -18392,14 +18392,50 @@ function renderHomeOverviewTab() {
   const activeDevsEl = $('home-active-devices-summary');
   if (activeDevsEl) {
     const items = [];
-    // Jackery battery status
-    if (lastStatus && lastStatus.telemetry) {
-      const t = lastStatus.telemetry;
-      const soc = t.battery_percent != null ? `${t.battery_percent}%` : '—';
-      const outW = t.output_power_w || 0;
-      const inW = t.input_power_w || 0;
-      items.push(`🔋 <strong>Batterie Jackery :</strong> SOC <b>${soc}</b> · Entrée ${inW} W / Sortie ${outW} W`);
+    // Jackery batteries status
+    const locList = (lastStatus && lastStatus.locations) || [];
+    const cloudDevs = (lastStatus && lastStatus.cloud && lastStatus.cloud.devices) || lastDevices || [];
+    const devsTele = (lastStatus && lastStatus.cloud && lastStatus.cloud.devices_telemetry) || {};
+
+    let jackeryDevs = [];
+    if (cloudDevs.length > 0) {
+      jackeryDevs = cloudDevs.map(d => {
+        const sn = d.device_sn;
+        const locMatch = locList.find(l => Array.isArray(l.assigned_jackerys) && l.assigned_jackerys.includes(sn));
+        const locId = (locMatch ? locMatch.id : (d.location_id || 'maison')).toLowerCase();
+        let tele = (devsTele[sn] && devsTele[sn].telemetry) ? devsTele[sn].telemetry : null;
+        if (!tele && lastStatus && lastStatus.device && lastStatus.device.device_sn === sn) {
+          tele = lastStatus.telemetry;
+        }
+        return {
+          sn,
+          name: d.name || d.model_name || `Jackery ${sn ? sn.slice(-4) : ''}`,
+          location_id: locId,
+          telemetry: tele,
+        };
+      });
+    } else if (lastStatus && lastStatus.telemetry) {
+      const devInfo = lastStatus.device || {};
+      jackeryDevs = [{
+        sn: devInfo.device_sn || 'jackery',
+        name: devInfo.name || 'Jackery',
+        location_id: 'maison',
+        telemetry: lastStatus.telemetry,
+      }];
     }
+
+    const filteredBatts = jackeryDevs.filter(b => _globalLocation === 'all' || b.location_id === _globalLocation);
+    filteredBatts.forEach(b => {
+      const t = b.telemetry;
+      if (t) {
+        const soc = t.system_soc_pct != null ? `${t.system_soc_pct}%` : (t.battery_percent != null ? `${t.battery_percent}%` : '—');
+        const outW = Math.round(Number(t.output_power_w != null ? t.output_power_w : (t.ac_output_w || 0)));
+        const inW = Math.round(Number(t.ac_input_w != null ? t.ac_input_w : (t.input_power_w || 0)));
+        const chargeW = Math.max(0, inW - outW);
+        const chargeStr = chargeW > 0 ? ` · Recharge ${chargeW} W` : (inW > 0 ? ' · Secteur' : ' · Sur batterie');
+        items.push(`🔋 <strong>${escapeHtml(b.name)} :</strong> SOC <b>${soc}</b> · Secours EPS <b>${outW} W</b>${chargeStr}`);
+      }
+    });
     // Tesla EV
     fTesla.forEach(d => {
       if (d.device_type === 'vehicle' || d.battery_level != null) {
@@ -18699,7 +18735,9 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     water_heater: { key: 'water_heater', label: '🚿 Chauffe-eau & Charges',    color: '#f59e0b', watts: 0 },
     hvac:         { key: 'hvac',         label: '❄️ Thermopompe Daikin',       color: '#38bdf8', watts: 0 },
     dehum:        { key: 'dehum',        label: '💧 Déshumidificateurs Danby', color: '#2dd4bf', watts: 0 },
-    ev_battery:   { key: 'ev_battery',   label: '🚗 Recharge VÉ & Jackery',    color: '#a855f7', watts: 0 },
+    ev:           { key: 'ev',           label: '🚗 Recharge VÉ (Tesla)',      color: '#c084fc', watts: 0 },
+    electronics:  { key: 'electronics',  label: '💻 Électronique (Secours EPS)', color: '#818cf8', watts: 0 },
+    battery:      { key: 'battery',      label: '🔋 Recharge Jackery',         color: '#34d399', watts: 0 },
     appliances:   { key: 'appliances',   label: '🧺 Électroménagers & Prises', color: '#4ade80', watts: 0 },
   };
 
@@ -18794,11 +18832,11 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     });
   });
 
-  // 4. Tesla EV & Wall Connector + Jackery AC Input
+  // 4. Tesla EV & Wall Connector
   teslaDevs.forEach(d => {
     const loc = (d.location_id || 'maison').charAt(0).toUpperCase() + (d.location_id || 'maison').slice(1);
     const w = Math.round(d.power_w || 0);
-    categories.ev_battery.watts += w;
+    categories.ev.watts += w;
     addLocTracked(d.location_id || loc, w);
     rows.push({
       name: `🚗 ${d.name || 'Tesla'}`,
@@ -18812,25 +18850,117 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     });
   });
 
-  if (lastStatus && lastStatus.telemetry && matchLoc('maison')) {
-    const t = lastStatus.telemetry;
-    const acInW = Math.round(t.ac_input_w != null ? t.ac_input_w : (t.input_power_w || 0));
-    if (acInW > 0) {
-      categories.ev_battery.watts += acInW;
-      addLocTracked('maison', acInW);
-      rows.push({
-        name: `🔋 Recharge secteur Jackery`,
-        location: 'Maison',
-        category: 'Stockage batterie',
-        state: `En charge (${t.battery_percent != null ? t.battery_percent + '% SOC' : 'Actif'})`,
-        watts: acInW,
-        source: 'measured',
-        sourceLabel: 'Télémétrie',
-      });
-    }
+  // 5. Jackery Batteries & Downstream Electronics (EPS Passthrough & Net Battery Charging)
+  const locList = (lastStatus && lastStatus.locations) || [];
+  const cloudDevs = (lastStatus && lastStatus.cloud && lastStatus.cloud.devices) || lastDevices || [];
+  const devsTele = (lastStatus && lastStatus.cloud && lastStatus.cloud.devices_telemetry) || {};
+
+  let jackeryList = [];
+  if (cloudDevs.length > 0) {
+    jackeryList = cloudDevs.map(d => {
+      const sn = d.device_sn;
+      const locMatch = locList.find(l => Array.isArray(l.assigned_jackerys) && l.assigned_jackerys.includes(sn));
+      const locId = (locMatch ? locMatch.id : (d.location_id || 'maison')).toLowerCase();
+      const locName = locMatch ? locMatch.name : (locId === 'chalet' ? 'Chalet' : 'Maison');
+      let tele = (devsTele[sn] && devsTele[sn].telemetry) ? devsTele[sn].telemetry : null;
+      if (!tele && lastStatus && lastStatus.device && lastStatus.device.device_sn === sn) {
+        tele = lastStatus.telemetry;
+      }
+      return {
+        sn,
+        name: d.name || d.model_name || `Jackery ${sn ? sn.slice(-4) : ''}`,
+        location_id: locId,
+        location_name: locName,
+        online: d.online !== false,
+        telemetry: tele,
+      };
+    });
+  } else if (lastStatus && lastStatus.telemetry) {
+    const devInfo = lastStatus.device || {};
+    jackeryList = [{
+      sn: devInfo.device_sn || 'jackery',
+      name: devInfo.name || 'Jackery',
+      location_id: 'maison',
+      location_name: 'Maison',
+      online: lastStatus.device_online !== false,
+      telemetry: lastStatus.telemetry,
+    }];
   }
 
-  // 5. LG ThinQ Appliances & Kasa Smart Plugs
+  jackeryList.forEach(j => {
+    if (!matchLoc(j.location_id)) return;
+    const t = j.telemetry;
+    if (!t) {
+      rows.push({
+        name: `🔋 ${j.name} (Recharge)`,
+        location: j.location_name,
+        category: 'Stockage batterie',
+        state: 'Hors ligne / En attente',
+        watts: 0,
+        source: 'measured',
+        sourceLabel: 'Télémétrie',
+        alwaysVisible: false,
+      });
+      return;
+    }
+
+    const acInW = Math.round(Number(t.ac_input_w != null ? t.ac_input_w : (t.input_power_w || 0)));
+    const outW = Math.round(Number(t.output_power_w != null ? t.output_power_w : (t.ac_output_w || 0)));
+    const soc = t.system_soc_pct != null ? t.system_soc_pct : (t.battery_percent != null ? t.battery_percent : null);
+
+    // Electronics EPS Load = power passing through battery to downstream electronics
+    const epsElectronicsW = outW;
+    // Battery Net Charging = AC power drawn into the battery cells minus passthrough
+    const batteryChargingW = Math.max(0, acInW - outW);
+
+    categories.electronics.watts += epsElectronicsW;
+    categories.battery.watts += batteryChargingW;
+
+    // Grid tracking (on AC wall power, house grid draws max(acInW, outW) = epsElectronicsW + batteryChargingW)
+    const totalDrawnW = epsElectronicsW + batteryChargingW;
+    addLocTracked(j.location_id, totalDrawnW);
+
+    // Row 1: Electronics load running through EPS
+    const epsState = acInW > 0
+      ? (epsElectronicsW > 0 ? `Secteur via EPS (${epsElectronicsW} W passthrough)` : 'En veille (0 W)')
+      : (epsElectronicsW > 0 ? `Sur secours batterie (${epsElectronicsW} W · SOC ${soc != null ? soc + '%' : '—'})` : 'En veille (0 W)');
+
+    rows.push({
+      name: `💻 Électronique (${j.name} · EPS)`,
+      location: j.location_name,
+      category: 'Électronique (Secours EPS)',
+      state: epsState,
+      watts: epsElectronicsW,
+      source: 'measured',
+      sourceLabel: 'Passthrough EPS',
+      alwaysVisible: true,
+    });
+
+    // Row 2: Battery itself (Charging / Standby)
+    let batState = 'En veille';
+    if (batteryChargingW > 0) {
+      batState = `En recharge (${batteryChargingW} W · SOC ${soc != null ? soc + '%' : '—'})`;
+    } else if (acInW > 0) {
+      batState = `Batterie prête (${soc != null ? soc + '%' : '100%'} SOC · En maintien)`;
+    } else if (outW > 0) {
+      batState = `En décharge (${soc != null ? soc + '%' : '—'} SOC)`;
+    } else {
+      batState = `Veille (${soc != null ? soc + '%' : '—'} SOC)`;
+    }
+
+    rows.push({
+      name: `🔋 ${j.name} (Recharge)`,
+      location: j.location_name,
+      category: 'Stockage batterie',
+      state: batState,
+      watts: batteryChargingW,
+      source: 'measured',
+      sourceLabel: 'Télémétrie Jackery',
+      alwaysVisible: true,
+    });
+  });
+
+  // 6. LG ThinQ Appliances & Kasa Smart Plugs
   thinqDevs.forEach(d => {
     const loc = (d.location_name || d.location_id || 'Maison');
     const nameStr = String(d.name || d.device_type || 'LG ThinQ');
@@ -19038,7 +19168,7 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
   ];
   if (data.hasLiveMeter && data.residualW > 0) {
     segments.push({
-      label: '🏠 Charge de base / Non suivie à la Maison (Éclairage, électronique, circuits non suivis)',
+      label: '🏠 Charge de base / Non suivie à la Maison (Éclairage, petits appareils & circuits non suivis)',
       watts: data.residualW,
       color: '#475569',
       pct: Math.max(1.5, (data.residualW / denom) * 100),
@@ -19104,7 +19234,7 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
           <div class="disagg-cat-pill">
             <div style="display:flex; align-items:center; gap:7px; min-width:0;">
               <span class="disagg-cat-dot" style="background:#475569;"></span>
-              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Différence entre le compteur intelligent Hilo de la Maison et les appareils suivis (éclairage, électronique, circuits non suivis)">🏠 Base / Non suivi (Maison)</span>
+              <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Différence entre le compteur intelligent Hilo de la Maison et les appareils suivis (éclairage, petits appareils, circuits non suivis)">🏠 Base / Non suivi (Maison)</span>
             </div>
             <strong style="font-family:var(--font-mono); color:var(--text-dim);">${data.residualW.toLocaleString()} W</strong>
           </div>
@@ -19150,7 +19280,7 @@ function renderHiloDisaggregation(locFilter = _globalLocation) {
               <tr style="background:rgba(255,255,255,0.02);">
                 <td style="font-weight:600;">🏠 Charge de base / Non suivie (Résiduel)</td>
                 <td><span class="hint">Maison</span></td>
-                <td class="hint">Éclairage, électronique, pompes &amp; circuits non suivis (Compteur Hilo − Suivis)</td>
+                <td class="hint">Éclairage, petits appareils, pompes &amp; circuits non suivis (Compteur Hilo − Suivis)</td>
                 <td><span class="disagg-source-tag residual">Compteur Hilo − Suivis</span></td>
                 <td style="text-align:right; font-family:var(--font-mono); font-weight:700;">${data.residualW.toLocaleString()} W</td>
                 <td style="text-align:right; font-family:var(--font-mono); color:var(--text-dim);">${denom > 0 ? Math.round((data.residualW / denom) * 100) : 0}%</td>
