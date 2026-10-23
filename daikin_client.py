@@ -505,18 +505,45 @@ class DaikinClient:
             if raw_ifc_cfm is not None and raw_ifc_cfm != 65535:
                 fan_cfm = raw_ifc_cfm
 
-        power_w = 0.0
-        raw_power = _extract_float(raw_attrs.get("ctIndoorPower"))
-        if raw_power is not None and raw_power > 0:
-            power_w = raw_power
+        # Physical inverter power estimation based on compressor demand, airflow CFM, and electric heat kit:
+        rated_heat_w = (_extract_float(raw_attrs.get("ctHeatingRatedPower")) or 295.0) * 10.0  # 2950 W rated
+        rated_cool_w = (_extract_float(raw_attrs.get("ctCoolingRatedPower")) or 380.0) * 10.0  # 3800 W rated
+        heat_kit_kw = _extract_float(raw_attrs.get("ctAHElectricHeatKitWattage")) or 5.0       # 5 kW electric heat strip
+
+        comp_power_w = 0.0
+        blower_power_w = 0.0
+        aux_power_w = 0.0
+        standby_w = 35.0  # Outdoor board + indoor electronics
+
+        # 1. Compressor modulation
+        if eq_status == 3 and heatpump_demand_pct is not None and heatpump_demand_pct > 0:
+            # Heat pump heating: 600W min inverter speed to 2950W max inverter speed
+            min_w = 600.0
+            comp_power_w = min_w + (rated_heat_w - min_w) * (heatpump_demand_pct / 100.0)
+        elif eq_status in (1, 2) and cooling_demand_pct is not None and cooling_demand_pct > 0:
+            # Heat pump cooling: 550W min to 3800W max
+            min_w = 550.0
+            comp_power_w = min_w + (rated_cool_w - min_w) * (cooling_demand_pct / 100.0)
         elif eq_status in (1, 2, 3):
-            base_w = 1200.0 if eq_status == 3 else 1000.0
-            if heatpump_demand_pct is not None and heatpump_demand_pct > 0:
-                power_w = round(base_w * (heatpump_demand_pct / 100.0), 1)
-            else:
-                power_w = base_w
-        elif eq_status == 4:
-            power_w = 80.0
+            # Fallback if demand percentage missing
+            comp_power_w = 1250.0 if eq_status == 3 else 1050.0
+
+        # 2. Indoor Blower (ECM fan power based on actual measured CFM)
+        if fan_cfm is not None and fan_cfm > 0:
+            # Fan affinity law on ECM motor (max 1450 CFM ~ 400W)
+            blower_power_w = 20.0 + 380.0 * ((min(1450.0, float(fan_cfm)) / 1450.0) ** 2.2)
+        elif eq_status == 4 or fan_circulate > 0:
+            spd = fan_circulate_speed or 0
+            blower_power_w = 40.0 if spd == 0 else (95.0 if spd == 1 else 180.0)
+
+        # 3. Auxiliary Electric Heat (Heat kit)
+        if aux_heat_demand_pct is not None and aux_heat_demand_pct > 0:
+            aux_power_w = (heat_kit_kw * 1000.0) * (aux_heat_demand_pct / 100.0)
+
+        if comp_power_w > 0 or blower_power_w > 0 or aux_power_w > 0:
+            power_w = round(comp_power_w + blower_power_w + aux_power_w, 1)
+        else:
+            power_w = round(standby_w, 1)
 
         loc_cfg = locations.location_for_name(location_name)
         location_id = loc_cfg.get("id") if loc_cfg else location_name.lower().replace(" ", "-")

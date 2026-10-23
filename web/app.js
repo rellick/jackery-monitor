@@ -18807,27 +18807,38 @@ function computeWholeHomePowerBreakdown(locFilter = 'all') {
     }
   });
 
-  // 2. Daikin Heat Pumps (State-based estimate)
+  // 2. Daikin Heat Pumps (Inverter telemetry & physical model)
   daikinDevs.forEach(d => {
     const loc = (d.location_name || d.location_id || 'Maison');
     const eq = d.equipment_status;
-    let w = 0;
+    let w = Math.round(d.power_w || 0);
     let stateStr = d.equipment_status_desc || 'En veille';
-    if (eq === 3) {
-      // Heating: scale estimate slightly with outdoor temp if available
-      const outT = d.temp_outdoor_c != null ? Number(d.temp_outdoor_c) : 5;
-      w = outT < -5 ? 1650 : (outT < 5 ? 1250 : 950);
+
+    if (d.heatpump_demand_pct != null && d.heatpump_demand_pct > 0) {
+      stateStr = `Chauffage Inverter (${d.heatpump_demand_pct}% comp. · ${d.fan_cfm ? d.fan_cfm + ' CFM' : ''})`;
+    } else if (eq === 3) {
       stateStr = `Chauffage (Int. ${d.temp_indoor_c != null ? formatTemp(d.temp_indoor_c, 1) : '—'}, Ext. ${d.temp_outdoor_c != null ? formatTemp(d.temp_outdoor_c, 1) : '—'})`;
     } else if (eq === 1 || eq === 2) {
-      w = 1050;
-      stateStr = `Climatisation / Déshum.`;
+      stateStr = d.cooling_demand_pct ? `Climatisation Inverter (${d.cooling_demand_pct}% demande)` : `Climatisation / Déshum.`;
     } else if (eq === 4 || d.fan_circulate === 1) {
-      const spd = d.fan_circulate_speed || 0;
-      w = spd === 2 ? 140 : (spd === 1 ? 95 : 65);
-      stateStr = `Ventilation (${['Bas', 'Moyen', 'Haut'][spd] || 'Bas'})`;
+      stateStr = `Ventilation brassage (${d.fan_cfm ? d.fan_cfm + ' CFM' : (['Bas', 'Moyen', 'Haut'][d.fan_circulate_speed || 0] || 'Bas')})`;
+    } else if (w <= 40) {
+      stateStr = d.geofencing_away ? `En veille (Mode Absence 🍃)` : `En veille (Inactif)`;
     }
+
     categories.hvac.watts += w;
     addLocTracked(d.location_id || loc, w);
+    rows.push({
+      name: `❄️ ${d.name || 'Thermopompe Daikin'}`,
+      location: loc,
+      category: 'Thermopompe Inverter',
+      state: stateStr,
+      watts: w,
+      source: d.backend === 'mobile' ? 'estimated' : 'estimated',
+      sourceLabel: d.backend === 'mobile' ? 'Inverter + CFM' : 'Estimé mode',
+      alwaysVisible: true,
+    });
+  });
     rows.push({
       name: `❄️ ${d.name || 'Thermopompe Daikin'}`,
       location: loc,
