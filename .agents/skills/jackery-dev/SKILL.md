@@ -2,15 +2,14 @@
 name: jackery-dev
 description: >-
   Provides end-to-end development, testing, deployment, and git workflow guidance
-  for the Jackery Monitor application, including Docker Compose commands, local
-  architecture details, branch management, and verification procedures. Use when
-  building new features, debugging, modifying frontend/backend code, or deploying
-  Jackery Monitor.
+  for the Vigie (formerly Jackery Monitor / Vigil) application residing in /home/pleblanc/jackery-monitor.
+  Use whenever working on Vigie, building new features, debugging, modifying frontend/backend code,
+  or deploying the Docker containers.
 ---
 
-# Jackery Monitor Development Skill
+# Vigie / Jackery Monitor Development Skill
 
-This skill documents the development environment, local architecture, and deployment procedures for Jackery Monitor.
+This skill documents the development environment, local architecture, and deployment procedures for **Vigie** (residing at `/home/pleblanc/jackery-monitor`).
 
 ---
 

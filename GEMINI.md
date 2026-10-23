@@ -1,4 +1,11 @@
-# Jackery Monitor Development Guide
+# Vigie (formerly Jackery Monitor / "Vigil") Development Guide
+
+> [!IMPORTANT]
+> **Project Identity & Directory Location**:
+> - **Application Name**: **Vigie** (also referred to as **Vigil** or **Jackery Monitor**).
+> - **Filesystem Path**: `/home/pleblanc/jackery-monitor` (folder: `jackery-monitor`).
+> - **Git Remote & Branch**: `local` branch tracking `origin` (`https://github.com/rellick/jackery-monitor.git`).
+> - **Always Know**: Whenever the user mentions the **Vigie** app (or "Vigil", "Vigie", "Jackery monitor", "home power breakdown"), ALL code, frontend (`web/`), backend (`server.py`), database (`/data/energy.db`), and Docker compose configurations live exclusively in `/home/pleblanc/jackery-monitor`. Do NOT look elsewhere.
 
 ## Architecture Overview
 - **Dashboard Server (`server.py`)**: FastAPI application running on host port 8000 (`PORT=8000`). Serves REST endpoints, WebSocket status broadcasts every 10s, and static assets from `/app/web`. Hosts background pollers for bridge telemetry and Sinopé Neviweb devices.
